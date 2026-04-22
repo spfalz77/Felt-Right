@@ -594,12 +594,6 @@ h3 { font-size: 1rem; font-weight: 600; }
   <div class="screen screen-full" id="screen-lobby">
     <div class="lobby-header">
       <button class="lobby-back" onclick="goBack()">‹</button>
-      <div id="lobby-host-actions" style="display:none;position:absolute;right:16px;top:calc(var(--safe-top)+14px)">
-        <button class="btn btn-sm" onclick="cancelLobby()"
-          style="background:none;border:1px solid rgba(192,57,43,0.4);color:var(--red-light);font-size:0.75rem;padding:6px 12px">
-          Cancel Lobby
-        </button>
-      </div>
       <div class="lobby-title" id="lobby-game-name">GAME NAME</div>
       <div class="lobby-code" id="lobby-game-id">Game ID: —</div>
       <div style="margin-top:8px; display:flex; gap:8px; justify-content:center; flex-wrap:wrap;" id="lobby-badges">
@@ -1098,15 +1092,39 @@ function pushScreen(id) {
   showScreen(id);
 }
 
-function goBack() {
+async function goBack() {
   stopLobbyWatchdog();
   if (demoJoinTimers && demoJoinTimers.length) {
     demoJoinTimers.forEach(t => clearTimeout(t));
     demoJoinTimers = [];
   }
-  screenStack.pop();
-  const prev = screenStack[screenStack.length - 1] || 'home';
-  showScreen(prev);
+
+  if (currentLobbyId && me.id !== 'demo' && sb) {
+    const game = myGames.find(g => g.id === currentLobbyId);
+    const isHost = game?.host_id === me.id || game?.i_am_host;
+
+    if (isHost) {
+      // Host tapping back = cancel the lobby
+      if (!confirm('Cancel this lobby? Everyone will be removed.')) return;
+      try {
+        await sb.from('game_players').delete().eq('game_id', currentLobbyId);
+        await sb.from('games').delete().eq('id', currentLobbyId);
+        toast('Lobby cancelled');
+      } catch(e) { console.warn('cancel lobby error:', e); }
+    } else {
+      // Non-host leaving — revert to invited so game stays available
+      try {
+        await sb.from('game_players')
+          .update({ status: 'invited', seat_index: null })
+          .eq('game_id', currentLobbyId)
+          .eq('user_id', me.id);
+      } catch(e) { console.warn('leave lobby error:', e); }
+    }
+  }
+
+  currentLobbyId = null;
+  await loadGames();
+  navTo('home');
 }
 
 function switchTab(tab) {
@@ -1679,7 +1697,6 @@ async function openLobby(gameId) {
   document.getElementById('lobby-start-btn').style.display = isHost ? 'block' : 'none';
   document.getElementById('lobby-waiting-msg').style.display = isHost ? 'none' : 'block';
   document.getElementById('blind-editor-section').style.display = isHost ? 'block' : 'none';
-  document.getElementById('lobby-host-actions').style.display = isHost ? 'block' : 'none';
   if (isHost) renderBlindEditor();
 
   // Render friend invite list — all joined players can invite
