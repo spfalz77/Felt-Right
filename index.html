@@ -476,15 +476,19 @@ h3 { font-size: 1rem; font-weight: 600; }
       </div>
       <!-- LOGIN -->
       <div class="tab-content active" id="tab-login">
-        <div class="input-group">
-          <div class="input-label">Email</div>
-          <input class="input" id="login-email" type="email" placeholder="you@example.com" autocomplete="email">
-        </div>
-        <div class="input-group">
-          <div class="input-label">Password</div>
-          <input class="input" id="login-pass" type="password" placeholder="••••••••" autocomplete="current-password">
-        </div>
-        <button class="btn btn-primary btn-full" onclick="doLogin()" style="margin-top:8px">Sign In</button>
+        <form autocomplete="on" onsubmit="event.preventDefault();doLogin()">
+          <div class="input-group">
+            <div class="input-label">Email</div>
+            <input class="input" id="login-email" type="email" placeholder="you@example.com"
+              autocomplete="email" name="email">
+          </div>
+          <div class="input-group">
+            <div class="input-label">Password</div>
+            <input class="input" id="login-pass" type="password" placeholder="••••••••"
+              autocomplete="current-password" name="password">
+          </div>
+          <button type="submit" class="btn btn-primary btn-full" style="margin-top:8px">Sign In</button>
+        </form>
         <div style="text-align:center;margin-top:12px">
           <span style="color:var(--gold);cursor:pointer;font-size:0.82rem" onclick="doForgotPassword()">Forgot password?</span>
         </div>
@@ -1281,6 +1285,7 @@ function copyInviteLink() {
 // GAMES LIST
 // ════════════════════════════════════════════════════════════════════════════
 async function loadGames() {
+  if (_gamesKilled) return; // don't reload right after a wipe
   if (me.id === 'demo') { renderGamesList(); return; }
   try {
     // Fetch all game_players rows for me — including invited status
@@ -3576,18 +3581,27 @@ async function archiveMyGames() {
   } catch(e) { toast('Archive failed: ' + e.message); }
 }
 
+let _gamesKilled = false; // flag to prevent loadGames from re-populating after a kill
+
 async function killStuckGames() {
   if (me.id === 'demo') { toast('Not available in demo'); return; }
   if (me.display_name !== 'Fallz') { toast('Admin only'); return; }
   if (!confirm('⚠️ Delete ALL games and history for every user?')) return;
   try {
-    // Wipe everything in dependency order
-    await sb.from('player_actions').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-    await sb.from('game_players').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-    await sb.from('games').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    const { error: e1 } = await sb.from('player_actions').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    const { error: e2 } = await sb.from('game_players').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    const { error: e3 } = await sb.from('games').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    if (e1 || e2 || e3) {
+      const msg = (e1||e2||e3).message;
+      toast('Delete error — run SQL policies. ' + msg);
+      return;
+    }
+    _gamesKilled = true;
     myGames = [];
     renderGamesList();
     toast('All games cleared ✓');
+    // Re-enable normal loading after 3s
+    setTimeout(() => { _gamesKilled = false; }, 3000);
   } catch(e) { toast('Kill failed: ' + e.message); }
 }
 
