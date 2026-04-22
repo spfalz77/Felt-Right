@@ -502,23 +502,29 @@ h3 { font-size: 1rem; font-weight: 600; }
       </div>
       <!-- SIGN UP -->
       <div class="tab-content" id="tab-signup">
-        <div class="input-group">
-          <div class="input-label">Your Name</div>
-          <input class="input" id="signup-name" type="text" placeholder="Poker Face Pete" autocomplete="name">
-        </div>
-        <div class="input-group">
-          <div class="input-label">Email</div>
-          <input class="input" id="signup-email" type="email" placeholder="you@example.com" autocomplete="email">
-        </div>
-        <div class="input-group">
-          <div class="input-label">Phone <span style="color:var(--text-dim);font-weight:400">(optional, for friend search)</span></div>
-          <input class="input" id="signup-phone" type="tel" placeholder="(555) 867-5309" oninput="formatPhone(this)">
-        </div>
-        <div class="input-group">
-          <div class="input-label">Password</div>
-          <input class="input" id="signup-pass" type="password" placeholder="Min 8 characters" autocomplete="new-password">
-        </div>
-        <button class="btn btn-primary btn-full" onclick="doSignup()" style="margin-top:8px">Create Account</button>
+        <form autocomplete="on" onsubmit="event.preventDefault();doSignup()">
+          <div class="input-group">
+            <div class="input-label">Your Name</div>
+            <input class="input" id="signup-name" type="text" placeholder="Poker Face Pete" autocomplete="name" name="name">
+          </div>
+          <div class="input-group">
+            <div class="input-label">Email</div>
+            <input class="input" id="signup-email" type="email" placeholder="you@example.com" autocomplete="email" name="email">
+          </div>
+          <div class="input-group">
+            <div class="input-label">Phone <span style="color:var(--text-dim);font-weight:400">(optional)</span></div>
+            <input class="input" id="signup-phone" type="tel" placeholder="(555) 867-5309" oninput="formatPhone(this)">
+          </div>
+          <div class="input-group">
+            <div class="input-label">Password</div>
+            <input class="input" id="signup-pass" type="password" placeholder="Min 8 characters" autocomplete="new-password" name="password">
+          </div>
+          <div class="input-group">
+            <div class="input-label">Confirm Password</div>
+            <input class="input" id="signup-pass-confirm" type="password" placeholder="Re-enter password" autocomplete="new-password">
+          </div>
+          <button type="submit" class="btn btn-primary btn-full" style="margin-top:8px">Create Account</button>
+        </form>
       </div>
     </div>
   </div>
@@ -588,6 +594,12 @@ h3 { font-size: 1rem; font-weight: 600; }
   <div class="screen screen-full" id="screen-lobby">
     <div class="lobby-header">
       <button class="lobby-back" onclick="goBack()">‹</button>
+      <div id="lobby-host-actions" style="display:none;position:absolute;right:16px;top:calc(var(--safe-top)+14px)">
+        <button class="btn btn-sm" onclick="cancelLobby()"
+          style="background:none;border:1px solid rgba(192,57,43,0.4);color:var(--red-light);font-size:0.75rem;padding:6px 12px">
+          Cancel Lobby
+        </button>
+      </div>
       <div class="lobby-title" id="lobby-game-name">GAME NAME</div>
       <div class="lobby-code" id="lobby-game-id">Game ID: —</div>
       <div style="margin-top:8px; display:flex; gap:8px; justify-content:center; flex-wrap:wrap;" id="lobby-badges">
@@ -1015,6 +1027,8 @@ async function doSignup() {
   const pass  = document.getElementById('signup-pass').value;
   if (!name || !email || !pass) { toast('Name, email and password are required'); return; }
   if (pass.length < 8) { toast('Password must be 8+ characters'); return; }
+  const confirm = document.getElementById('signup-pass-confirm').value;
+  if (pass !== confirm) { toast('Passwords do not match'); return; }
   try {
     const { data, error } = await sb.auth.signUp({
       email,
@@ -1285,19 +1299,13 @@ function copyInviteLink() {
 // GAMES LIST
 // ════════════════════════════════════════════════════════════════════════════
 async function loadGames() {
-  if (_gamesKilled) return; // don't reload right after a wipe
+  if (_gamesKilled) return;
   if (me.id === 'demo') { renderGamesList(); return; }
   try {
-    // Fetch all game_players rows for me — including invited status
+    // My games (all statuses including invited)
     const { data, error } = await sb
       .from('game_players')
-      .select(`
-        status,
-        game:games(
-          id, name, status, host_id, hand_number, created_at, state,
-          game_players(count)
-        )
-      `)
+      .select(`status, game:games(id, name, status, host_id, hand_number, created_at, state, game_players(count))`)
       .eq('user_id', me.id);
 
     if (error) throw error;
@@ -1308,10 +1316,35 @@ async function loadGames() {
         ...d.game,
         player_count: d.game?.game_players?.[0]?.count || 0,
         i_am_host: d.game?.host_id === me.id,
-        my_status: d.status, // 'invited' | 'joined' | 'playing' | 'eliminated'
+        my_status: d.status,
       }))
-      // Sort newest first
       .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+    // Also fetch active games that friends are in (so I can see what they're playing)
+    if (myFriends.length) {
+      const friendIds = myFriends.map(f => f.id);
+      const myGameIds = new Set(myGames.map(g => g.id));
+
+      const { data: friendGames } = await sb
+        .from('game_players')
+        .select(`user_id, game:games(id, name, status, host_id, hand_number, created_at, game_players(count))`)
+        .in('user_id', friendIds)
+        .eq('status', 'joined');
+
+      (friendGames || []).forEach(fg => {
+        if (!fg.game || fg.game.status !== 'active') return;
+        if (myGameIds.has(fg.game.id)) return; // already in my list
+        const friend = myFriends.find(f => f.id === fg.user_id);
+        myGames.push({
+          ...fg.game,
+          player_count: fg.game?.game_players?.[0]?.count || 0,
+          i_am_host: false,
+          my_status: 'friend_playing',
+          friend_name: friend?.display_name || 'A friend',
+        });
+        myGameIds.add(fg.game.id);
+      });
+    }
 
     renderGamesList();
   } catch(e) { console.warn('loadGames error:', e); renderGamesList(); }
@@ -1325,10 +1358,11 @@ function renderGamesList() {
     return;
   }
 
-  const invites   = myGames.filter(g => g.my_status === 'invited' && g.status === 'lobby');
-  const myLobbies = myGames.filter(g => g.status === 'lobby' && g.i_am_host);
-  const active    = myGames.filter(g => g.status === 'active');
-  const finished  = myGames.filter(g => g.status === 'finished');
+  const invites      = myGames.filter(g => g.my_status === 'invited' && g.status === 'lobby');
+  const myLobbies    = myGames.filter(g => g.status === 'lobby' && g.i_am_host);
+  const active       = myGames.filter(g => g.status === 'active' && g.my_status !== 'friend_playing');
+  const friendActive = myGames.filter(g => g.my_status === 'friend_playing');
+  const finished     = myGames.filter(g => g.status === 'finished');
 
   let html = '';
 
@@ -1347,6 +1381,11 @@ function renderGamesList() {
     html += myLobbies.map(g => gameCard(g, 'lobby')).join('');
   }
 
+  if (friendActive.length) {
+    html += `<div class="section-head">Friends Playing</div>`;
+    html += friendActive.map(g => gameCard(g, 'friend')).join('');
+  }
+
   if (finished.length) {
     html += `<div class="section-head">Recent</div>`;
     html += finished.map(g => gameCard(g, 'finished')).join('');
@@ -1356,10 +1395,11 @@ function renderGamesList() {
 }
 
 function gameCard(g, type) {
-  const badgeClass = type==='active' ? 'badge-green' : type==='invite' ? 'badge-gold' : type==='lobby' ? 'badge-gold' : 'badge-dim';
-  const badgeText  = type==='active' ? 'ACTIVE' : type==='invite' ? 'INVITED' : type==='lobby' ? 'LOBBY' : 'DONE';
-  const btnClass   = type==='active' ? 'btn-primary' : type==='invite' ? 'btn-primary' : 'btn-ghost';
-  const btnText    = type==='active' ? 'Rejoin' : type==='invite' ? 'Join' : type==='lobby' ? 'Open' : 'View';
+  const badgeClass = type==='active' ? 'badge-green' : type==='invite' ? 'badge-gold' : type==='lobby' ? 'badge-gold' : type==='friend' ? 'badge-green' : 'badge-dim';
+  const badgeText  = type==='active' ? 'ACTIVE' : type==='invite' ? 'INVITED' : type==='lobby' ? 'LOBBY' : type==='friend' ? 'ACTIVE' : 'DONE';
+  const btnClass   = type==='active' ? 'btn-primary' : type==='invite' ? 'btn-primary' : type==='friend' ? 'btn-ghost' : 'btn-ghost';
+  const btnText    = type==='active' ? 'Rejoin' : type==='invite' ? 'Join' : type==='friend' ? 'Spectate' : type==='lobby' ? 'Open' : 'View';
+  const subLine    = type==='friend' ? `<div style="font-size:0.7rem;color:var(--text-dim)">${g.friend_name} is playing</div>` : '';
 
   // Find my chips in this game from the state if available
   let myChipsHtml = '';
@@ -1386,6 +1426,7 @@ function gameCard(g, type) {
       <div class="game-card-header">
         <div>
           <div class="game-card-name">${g.name}</div>
+          ${subLine}
           ${timeStamp}
         </div>
         <span class="badge ${badgeClass}">${badgeText}</span>
@@ -1493,14 +1534,45 @@ async function ensureFriendsLoaded() {
 function renderLobbyFriendList() {
   const fList = document.getElementById('lobby-friend-invite-list');
   if (!fList) return;
-  fList.innerHTML = myFriends.length
-    ? myFriends.map(f => `
+
+  // Get IDs already in this lobby (invited or joined) to show correct button state
+  const alreadyIn = new Set(lobbyPlayers.map(p => p.user?.id || p.user_id));
+
+  if (!myFriends.length) {
+    fList.innerHTML = `<div style="color:var(--text-dim);font-size:0.85rem;padding:8px 0">Add friends to invite them</div>`;
+    return;
+  }
+
+  const uninvited = myFriends.filter(f => !alreadyIn.has(f.id));
+
+  fList.innerHTML = `
+    ${uninvited.length > 1 ? `
+      <button class="btn btn-ghost btn-full btn-sm" onclick="inviteAllFriends()"
+        style="margin-bottom:8px;color:var(--gold)">📨 Invite All Friends</button>` : ''}
+    ${myFriends.map(f => {
+      const inLobby = alreadyIn.has(f.id);
+      return `
         <div class="list-row" style="padding:8px 0;border:none">
           <div class="avatar sm">${f.avatar_emoji||f.display_name[0]}</div>
           <div class="list-row-info"><div class="name" style="font-size:0.88rem">${f.display_name}</div></div>
-          <button class="btn btn-ghost btn-sm" onclick="inviteFriend('${f.id}','${f.display_name}')">Invite</button>
-        </div>`).join('')
-    : `<div style="color:var(--text-dim);font-size:0.85rem;padding:8px 0">Add friends to invite them</div>`;
+          ${inLobby
+            ? `<span class="badge badge-green" style="font-size:0.7rem">In Lobby</span>`
+            : `<button class="btn btn-ghost btn-sm" onclick="inviteFriend('${f.id}','${f.display_name}')">Invite</button>`}
+        </div>`;
+    }).join('')}`;
+}
+
+async function inviteAllFriends() {
+  const alreadyIn = new Set(lobbyPlayers.map(p => p.user?.id || p.user_id));
+  const toInvite = myFriends.filter(f => !alreadyIn.has(f.id));
+  if (!toInvite.length) { toast('All friends already in lobby'); return; }
+  for (const f of toInvite) {
+    await new Promise(resolve => {
+      inviteFriend(f.id, f.display_name);
+      setTimeout(resolve, 200); // small delay between inserts
+    });
+  }
+  toast(`Invited ${toInvite.length} friend${toInvite.length !== 1 ? 's' : ''} ✓`);
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -1558,36 +1630,40 @@ async function openLobby(gameId) {
     return;
   }
 
-  // If this is a lobby invite, join properly (update status to 'joined' and get a seat)
-  if (gameRef?.status === 'lobby' && !gameRef?.i_am_host && me.id !== 'demo') {
+  // If this is a lobby invite, join properly
+  if (me.id !== 'demo') {
     try {
-      // Check current status
-      const { data: myRow } = await sb.from('game_players')
-        .select('id, status, seat_index')
-        .eq('game_id', gameId)
-        .eq('user_id', me.id)
-        .single();
+      // Always fetch fresh game data — myGames cache may be stale
+      const { data: freshGame } = await sb.from('games')
+        .select('id, status, host_id').eq('id', gameId).single();
 
-      if (!myRow) {
-        // Not in the game at all — insert as joined
-        const { data: seated } = await sb.from('game_players')
-          .select('seat_index').eq('game_id', gameId).eq('status','joined');
-        const nextSeat = (seated||[]).length;
-        await sb.from('game_players').insert({
-          game_id: gameId, user_id: me.id, seat_index: nextSeat, status: 'joined'
-        });
-      } else if (myRow.status === 'invited') {
-        // Move from invited → joined, assign a seat
-        const { data: seated } = await sb.from('game_players')
-          .select('seat_index').eq('game_id', gameId).eq('status','joined');
-        const nextSeat = (seated||[]).length;
-        await sb.from('game_players').update({ status: 'joined', seat_index: nextSeat })
-          .eq('id', myRow.id);
+      if (freshGame?.status === 'active') {
+        await rejoinActiveGame(gameId, freshGame);
+        return;
       }
-      await loadGames();
-    } catch(e) {
-      // Already joined — continue
-    }
+
+      if (freshGame?.status === 'lobby') {
+        const { data: myRow } = await sb.from('game_players')
+          .select('id, status, seat_index')
+          .eq('game_id', gameId).eq('user_id', me.id).maybeSingle();
+
+        if (!myRow) {
+          const { data: seated } = await sb.from('game_players')
+            .select('seat_index').eq('game_id', gameId).eq('status', 'joined');
+          await sb.from('game_players').insert({
+            game_id: gameId, user_id: me.id,
+            seat_index: (seated||[]).length, status: 'joined'
+          });
+        } else if (myRow.status === 'invited') {
+          const { data: seated } = await sb.from('game_players')
+            .select('seat_index').eq('game_id', gameId).eq('status', 'joined');
+          await sb.from('game_players').update({
+            status: 'joined', seat_index: (seated||[]).length
+          }).eq('id', myRow.id);
+        }
+        await loadGames();
+      }
+    } catch(e) { console.warn('openLobby join error:', e); }
   }
 
   pushScreen('lobby');
@@ -1599,10 +1675,11 @@ async function openLobby(gameId) {
   document.getElementById('lobby-invite-url').textContent = `${location.origin}${location.pathname}?join=${gameId.slice(0,8)}`;
 
   const isHost = !game || game.host_id === me.id;
-  const canInvite = isHost || (game?.my_status === 'joined'); // anyone joined can invite
+  const canInvite = isHost || (game?.my_status === 'joined');
   document.getElementById('lobby-start-btn').style.display = isHost ? 'block' : 'none';
   document.getElementById('lobby-waiting-msg').style.display = isHost ? 'none' : 'block';
   document.getElementById('blind-editor-section').style.display = isHost ? 'block' : 'none';
+  document.getElementById('lobby-host-actions').style.display = isHost ? 'block' : 'none';
   if (isHost) renderBlindEditor();
 
   // Render friend invite list — all joined players can invite
@@ -1831,6 +1908,20 @@ function inviteFriend(friendId, name) {
         toast(`${name} invited ✓`);
       }
     });
+}
+
+async function cancelLobby() {
+  if (!currentLobbyId || me.id === 'demo') { goBack(); return; }
+  if (!confirm('Cancel this lobby? Everyone will be removed.')) return;
+  try {
+    await sb.from('game_players').delete().eq('game_id', currentLobbyId);
+    await sb.from('games').delete().eq('id', currentLobbyId);
+  } catch(e) { console.warn('cancel lobby error:', e); }
+  stopLobbyWatchdog();
+  currentLobbyId = null;
+  await loadGames();
+  navTo('home');
+  toast('Lobby cancelled');
 }
 
 function copyLobbyLink() {
