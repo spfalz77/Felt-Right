@@ -595,17 +595,18 @@ h3 { font-size: 1rem; font-weight: 600; }
     <div class="lobby-header">
       <div class="lobby-title" id="lobby-game-name">GAME NAME</div>
       <div class="lobby-code" id="lobby-game-id">Game ID: —</div>
-      <div style="margin-top:8px; display:flex; gap:8px; justify-content:center; align-items:center; flex-wrap:wrap;" id="lobby-badges">
+      <div style="margin-top:8px; display:flex; gap:8px; justify-content:center; flex-wrap:wrap;" id="lobby-badges">
         <span class="badge badge-gold">Sit & Go</span>
         <span class="badge badge-dim">Texas Hold'em</span>
         <span class="badge badge-dim">1500 chips</span>
-        <button onclick="goBack()"
-          style="background:none;border:1px solid rgba(192,57,43,0.5);color:var(--red-light);
-            border-radius:var(--r-sm);padding:3px 12px;font-size:0.75rem;font-family:'DM Sans',sans-serif;
-            font-weight:600;cursor:pointer;letter-spacing:0.04em">
-          Leave
-        </button>
       </div>
+    </div>
+
+    <!-- Leave button — always visible, full width, below header -->
+    <div style="padding:10px 16px 0">
+      <button id="lobby-leave-btn" class="btn btn-full"
+        style="background:none;border:1px solid rgba(192,57,43,0.5);color:var(--red-light);font-size:0.85rem;"
+        onclick="leaveLobby()">Leave</button>
     </div>
 
     <div style="padding:16px 16px 8px; display:flex; align-items:center; justify-content:space-between;">
@@ -1101,37 +1102,43 @@ function pushScreen(id) {
   showScreen(id);
 }
 
-async function goBack() {
-  stopLobbyWatchdog();
-  if (demoJoinTimers?.length) {
-    demoJoinTimers.forEach(t => clearTimeout(t));
-    demoJoinTimers = [];
-  }
+async function leaveLobby() {
+  const lobbyId = currentLobbyId;
+  if (!lobbyId) { navTo('home'); return; }
 
-  if (currentLobbyId && me.id !== 'demo' && sb) {
-    const lobbyId = currentLobbyId;
+  // Disable button immediately to prevent double-tap
+  const btn = document.getElementById('lobby-leave-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Leaving…'; }
+
+  stopLobbyWatchdog();
+
+  if (me.id !== 'demo' && sb) {
     try {
       const { data: gameRow } = await sb.from('games')
         .select('host_id, status').eq('id', lobbyId).single();
 
-      if (gameRow?.host_id === me.id && gameRow?.status === 'lobby') {
-        // Host leaving = cancel the game entirely
+      if (gameRow?.host_id === me.id) {
+        // Host: delete the whole lobby
         await sb.from('game_players').delete().eq('game_id', lobbyId);
         await sb.from('games').delete().eq('id', lobbyId);
         toast('Lobby cancelled');
       } else {
-        // Guest leaving — revert to invited, game stays open
+        // Guest: revert to invited
         await sb.from('game_players')
           .update({ status: 'invited', seat_index: null })
           .eq('game_id', lobbyId)
           .eq('user_id', me.id);
       }
-    } catch(e) { console.warn('goBack error:', e); }
+    } catch(e) { console.warn('leaveLobby error:', e); }
   }
 
   currentLobbyId = null;
   await loadGames();
   navTo('home');
+}
+
+async function goBack() {
+  await leaveLobby();
 }
 
 function switchTab(tab) {
@@ -1793,12 +1800,12 @@ function renderInvitedList(invited) {
 
 function renderLobbySeats() {
   const el = document.getElementById('lobby-seats');
-  const count = Math.max(lobbyPlayers.length + 1, 4);
+  const MAX_SEATS = 9;
   let html = '';
-  for (let i = 0; i < count; i++) {
+  for (let i = 0; i < MAX_SEATS; i++) {
     const p = lobbyPlayers.find(lp => lp.seat_index === i);
     if (p) {
-      const isHost = i === 0;
+      const isHost = p.user?.id === (myGames.find(g => g.id === currentLobbyId)?.host_id);
       html += `<div class="seat filled">
         <div class="avatar sm">${p.user?.avatar_emoji||p.user?.display_name?.[0]||'?'}</div>
         <div class="seat-name">${p.user?.display_name||'Player'}</div>
@@ -1809,7 +1816,7 @@ function renderLobbySeats() {
     }
   }
   el.innerHTML = html;
-  document.getElementById('lobby-player-count').textContent = `${lobbyPlayers.length} joined`;
+  document.getElementById('lobby-player-count').textContent = `${lobbyPlayers.length} / ${MAX_SEATS} joined`;
 }
 
 // ── GLOBAL INVITE LISTENER ────────────────────────────────────────────────────
@@ -1908,30 +1915,40 @@ function showInviteBanner(game, hostName) {
   setTimeout(() => banner.remove(), 8000);
 }
 
-function inviteFriend(friendId, name) {
+async function inviteFriend(friendId, name) {
   if (me.id === 'demo' || !sb || !currentLobbyId) {
     const link = `${location.origin}${location.pathname}?join=${currentLobbyId?.slice(0,8)||'—'}`;
     navigator.clipboard?.writeText(link).then(() => toast(`Invite link copied for ${name}`));
     return;
   }
-  // Insert with status='invited' — they get the notification but aren't seated yet.
-  // They become 'joined' only when they explicitly tap Join in the lobby.
-  sb.from('game_players')
-    .insert({
-      game_id: currentLobbyId,
-      user_id: friendId,
-      seat_index: null,
-      status: 'invited',
-    })
-    .then(({ error }) => {
-      if (error && error.code === '23505') {
-        toast(`${name} already invited`);
-      } else if (error) {
-        toast(`Could not invite ${name}`);
-      } else {
-        toast(`${name} invited ✓`);
-      }
-    });
+
+  // Check if already invited or joined
+  const { data: existing } = await sb.from('game_players')
+    .select('id, status').eq('game_id', currentLobbyId).eq('user_id', friendId).maybeSingle();
+
+  if (existing) {
+    toast(`${name} is already ${existing.status === 'invited' ? 'invited' : 'in the lobby'}`);
+    return;
+  }
+
+  const { error } = await sb.from('game_players').insert({
+    game_id: currentLobbyId,
+    user_id: friendId,
+    seat_index: null,
+    status: 'invited',
+  });
+
+  if (error) {
+    if (error.code === '42501') {
+      // RLS policy blocking host insert — run the SQL fix
+      toast('Run invite SQL policy in Supabase — see setup');
+    } else {
+      toast(`Could not invite ${name}: ${error.message}`);
+    }
+  } else {
+    toast(`${name} invited ✓`);
+    renderLobbyFriendList();
+  }
 }
 
 async function cancelLobby() {
