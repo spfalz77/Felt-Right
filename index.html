@@ -593,13 +593,18 @@ h3 { font-size: 1rem; font-weight: 600; }
   <!-- ─── GAME LOBBY ─────────────────────────────────────────────────────── -->
   <div class="screen screen-full" id="screen-lobby">
     <div class="lobby-header">
-      <button class="lobby-back" onclick="goBack()">‹</button>
       <div class="lobby-title" id="lobby-game-name">GAME NAME</div>
       <div class="lobby-code" id="lobby-game-id">Game ID: —</div>
-      <div style="margin-top:8px; display:flex; gap:8px; justify-content:center; flex-wrap:wrap;" id="lobby-badges">
+      <div style="margin-top:8px; display:flex; gap:8px; justify-content:center; align-items:center; flex-wrap:wrap;" id="lobby-badges">
         <span class="badge badge-gold">Sit & Go</span>
         <span class="badge badge-dim">Texas Hold'em</span>
         <span class="badge badge-dim">1500 chips</span>
+        <button onclick="goBack()"
+          style="background:none;border:1px solid rgba(192,57,43,0.5);color:var(--red-light);
+            border-radius:var(--r-sm);padding:3px 12px;font-size:0.75rem;font-family:'DM Sans',sans-serif;
+            font-weight:600;cursor:pointer;letter-spacing:0.04em">
+          Leave
+        </button>
       </div>
     </div>
 
@@ -1098,7 +1103,7 @@ function pushScreen(id) {
 
 async function goBack() {
   stopLobbyWatchdog();
-  if (demoJoinTimers && demoJoinTimers.length) {
+  if (demoJoinTimers?.length) {
     demoJoinTimers.forEach(t => clearTimeout(t));
     demoJoinTimers = [];
   }
@@ -1109,24 +1114,19 @@ async function goBack() {
       const { data: gameRow } = await sb.from('games')
         .select('host_id, status').eq('id', lobbyId).single();
 
-      const isHost = gameRow?.host_id === me.id;
-
-      if (isHost && gameRow?.status === 'lobby') {
-        const confirmed = confirm('Cancel this lobby? Everyone will be removed.');
-        if (!confirmed) return; // stay in lobby
+      if (gameRow?.host_id === me.id && gameRow?.status === 'lobby') {
+        // Host leaving = cancel the game entirely
         await sb.from('game_players').delete().eq('game_id', lobbyId);
         await sb.from('games').delete().eq('id', lobbyId);
         toast('Lobby cancelled');
-      } else if (!isHost) {
+      } else {
+        // Guest leaving — revert to invited, game stays open
         await sb.from('game_players')
           .update({ status: 'invited', seat_index: null })
           .eq('game_id', lobbyId)
           .eq('user_id', me.id);
       }
-    } catch(e) {
-      console.warn('goBack lobby error:', e);
-      // Don't block navigation even if DB call fails
-    }
+    } catch(e) { console.warn('goBack error:', e); }
   }
 
   currentLobbyId = null;
