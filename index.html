@@ -943,6 +943,14 @@ let G = null; // full game state object
 async function init() {
   try {
     sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // Prefill saved email
+    const savedEmail = localStorage.getItem('fr_email');
+    if (savedEmail) {
+      const el = document.getElementById('login-email');
+      if (el) el.value = savedEmail;
+    }
+
     const { data: { session } } = await sb.auth.getSession();
     if (session) {
       me = await getProfile(session.user.id);
@@ -1009,7 +1017,8 @@ async function doLogin() {
       });
       me = await getProfile(data.user.id);
     }
-    me.email = data.user.email; // store for profile display
+    me.email = data.user.email;
+    localStorage.setItem('fr_email', email); // remember for next login
     enterApp();
   } catch(e) { toast('Sign in failed: ' + e.message); }
 }
@@ -1100,26 +1109,27 @@ async function goBack() {
   }
 
   if (currentLobbyId && me.id !== 'demo' && sb) {
-    const game = myGames.find(g => g.id === currentLobbyId);
-    const isHost = game?.host_id === me.id || game?.i_am_host;
+    const lobbyId = currentLobbyId;
+    try {
+      // Fetch fresh so we don't rely on stale myGames cache
+      const { data: gameRow } = await sb.from('games')
+        .select('host_id, status').eq('id', lobbyId).single();
 
-    if (isHost) {
-      // Host tapping back = cancel the lobby
-      if (!confirm('Cancel this lobby? Everyone will be removed.')) return;
-      try {
-        await sb.from('game_players').delete().eq('game_id', currentLobbyId);
-        await sb.from('games').delete().eq('id', currentLobbyId);
+      const isHost = gameRow?.host_id === me.id;
+
+      if (isHost && gameRow?.status === 'lobby') {
+        if (!confirm('Cancel this lobby? Everyone will be removed.')) return;
+        await sb.from('game_players').delete().eq('game_id', lobbyId);
+        await sb.from('games').delete().eq('id', lobbyId);
         toast('Lobby cancelled');
-      } catch(e) { console.warn('cancel lobby error:', e); }
-    } else {
-      // Non-host leaving — revert to invited so game stays available
-      try {
+      } else if (!isHost) {
+        // Non-host: revert to invited
         await sb.from('game_players')
           .update({ status: 'invited', seat_index: null })
-          .eq('game_id', currentLobbyId)
+          .eq('game_id', lobbyId)
           .eq('user_id', me.id);
-      } catch(e) { console.warn('leave lobby error:', e); }
-    }
+      }
+    } catch(e) { console.warn('goBack lobby error:', e); }
   }
 
   currentLobbyId = null;
