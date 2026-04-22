@@ -1,0 +1,3643 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0d1f14">
+<title>Felt Right</title>
+<link rel="manifest" href="manifest.json">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+<style>
+/* ─── RESET & TOKENS ──────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+:root {
+  --felt:       #0f2d1c;
+  --felt-mid:   #153824;
+  --felt-light: #1c4a30;
+  --gold:       #d4a843;
+  --gold-dim:   #7a6028;
+  --gold-pale:  #f0d080;
+  --cream:      #f7edd8;
+  --bg:         #080f0b;
+  --surface:    #111a14;
+  --surface2:   #182118;
+  --border:     rgba(212,168,67,0.18);
+  --text:       #e8dcc8;
+  --text-dim:   #8a8070;
+  --red:        #c0392b;
+  --red-light:  #e74c3c;
+  --safe:       #27ae60;
+  --r:          14px;
+  --r-sm:       8px;
+  --safe-top:   env(safe-area-inset-top, 0px);
+  --safe-bot:   env(safe-area-inset-bottom, 0px);
+}
+html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 15px; }
+#root { height: 100%; display: flex; flex-direction: column; }
+
+/* ─── SCREENS ─────────────────────────────────────────────────────────────── */
+.screen { 
+  flex: 1; overflow-y: auto; overflow-x: hidden; 
+  padding-top: var(--safe-top); padding-bottom: calc(var(--safe-bot) + 64px);
+  display: none; flex-direction: column;
+}
+.screen.active { display: flex; }
+.screen-full { padding-bottom: 0; }
+
+/* ─── NAV BAR ─────────────────────────────────────────────────────────────── */
+#nav {
+  display: none; position: fixed; bottom: 0; left: 0; right: 0; z-index: 100;
+  background: var(--surface); border-top: 1px solid var(--border);
+  padding-bottom: var(--safe-bot);
+}
+#nav.visible { display: flex; }
+.nav-item { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 10px 0; cursor: pointer; color: var(--text-dim); transition: color 0.15s; }
+.nav-item.active { color: var(--gold); }
+.nav-icon { font-size: 22px; line-height: 1; }
+.nav-label { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 500; }
+
+/* ─── TYPOGRAPHY ──────────────────────────────────────────────────────────── */
+.display { font-family: 'Bebas Neue', sans-serif; letter-spacing: 0.06em; }
+h2 { font-family: 'Bebas Neue', sans-serif; font-size: 1.8rem; letter-spacing: 0.08em; color: var(--gold-pale); }
+h3 { font-size: 1rem; font-weight: 600; }
+
+/* ─── BUTTONS ─────────────────────────────────────────────────────────────── */
+.btn { 
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  font-family: 'DM Sans', sans-serif; font-weight: 600; font-size: 0.9rem;
+  letter-spacing: 0.04em; border: none; border-radius: var(--r-sm); 
+  padding: 13px 20px; cursor: pointer; transition: all 0.15s; user-select: none;
+  -webkit-user-select: none;
+}
+.btn:active { transform: scale(0.97); }
+.btn-primary { background: var(--gold); color: #0d1a0d; }
+.btn-primary:active { background: var(--gold-pale); }
+.btn-ghost { background: transparent; color: var(--gold); border: 1.5px solid var(--gold-dim); }
+.btn-danger { background: var(--red); color: #fff; }
+.btn-surface { background: var(--surface2); color: var(--text); }
+.btn-full { width: 100%; }
+.btn-sm { padding: 8px 14px; font-size: 0.8rem; }
+.btn:disabled { opacity: 0.35; pointer-events: none; }
+
+/* ─── INPUTS ──────────────────────────────────────────────────────────────── */
+.input-group { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+.input-label { font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-dim); font-weight: 500; }
+.input {
+  background: var(--surface2); border: 1.5px solid var(--border); border-radius: var(--r-sm);
+  color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 1rem;
+  padding: 13px 14px; outline: none; transition: border-color 0.15s; width: 100%;
+}
+.input:focus { border-color: var(--gold-dim); }
+.input::placeholder { color: var(--text-dim); }
+
+/* ─── CARDS (playing cards) ───────────────────────────────────────────────── */
+.card {
+  width: 52px; height: 76px; border-radius: 6px;
+  background: var(--cream); display: flex; flex-direction: column;
+  align-items: center; justify-content: space-between;
+  padding: 4px 5px; box-shadow: 0 3px 10px rgba(0,0,0,0.5);
+  flex-shrink: 0; position: relative; user-select: none;
+}
+.card.lg { width: 64px; height: 94px; padding: 5px 7px; border-radius: 8px; }
+.card-top, .card-bot { display: flex; flex-direction: column; align-items: flex-start; line-height: 1; }
+.card-bot { align-items: flex-end; transform: rotate(180deg); }
+.card-rank { font-family: 'Bebas Neue', sans-serif; font-size: 0.95rem; }
+.card.lg .card-rank { font-size: 1.1rem; }
+.card-suit { font-size: 0.7rem; }
+.card.lg .card-suit { font-size: 0.85rem; }
+.card-center { font-size: 1.4rem; position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); }
+.card.lg .card-center { font-size: 1.7rem; }
+.card.red .card-rank, .card.red .card-suit, .card.red .card-center { color: var(--red); }
+.card.black .card-rank, .card.black .card-suit, .card.black .card-center { color: #111; }
+.card.back {
+  background: linear-gradient(135deg, #1a3a8c 0%, #0d2260 100%);
+  border: 1.5px solid rgba(255,255,255,0.08);
+}
+.card.back::after { content: '🂠'; position: absolute; font-size: 2rem; opacity: 0.25; color: white; }
+.card.highlight { box-shadow: 0 0 0 2.5px var(--gold), 0 4px 16px rgba(212,168,67,0.4); transform: translateY(-4px); }
+.card.deal-anim { animation: dealIn 0.25s ease-out both; }
+@keyframes dealIn { from { transform: scale(0.4) rotate(-8deg); opacity:0; } to { transform: scale(1) rotate(0); opacity:1; } }
+
+/* ─── PILL / BADGE ────────────────────────────────────────────────────────── */
+.badge { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.06em; }
+.badge-gold { background: rgba(212,168,67,0.15); color: var(--gold); border: 1px solid var(--gold-dim); }
+.badge-green { background: rgba(39,174,96,0.15); color: #2ecc71; border: 1px solid rgba(39,174,96,0.3); }
+.badge-red { background: rgba(192,57,43,0.15); color: var(--red-light); border: 1px solid rgba(192,57,43,0.3); }
+.badge-dim { background: var(--surface2); color: var(--text-dim); }
+
+/* ─── AVATAR ──────────────────────────────────────────────────────────────── */
+.avatar {
+  width: 40px; height: 40px; border-radius: 50%; background: var(--felt-light);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.1rem; font-weight: 600; color: var(--gold); flex-shrink: 0;
+  border: 1.5px solid var(--border);
+}
+.avatar.lg { width: 52px; height: 52px; font-size: 1.3rem; }
+.avatar.sm { width: 30px; height: 30px; font-size: 0.85rem; }
+.avatar.dealer { border-color: var(--gold); box-shadow: 0 0 0 2px rgba(212,168,67,0.3); }
+
+/* ─── LIST ROW ────────────────────────────────────────────────────────────── */
+.list-row {
+  display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+  border-bottom: 1px solid var(--border); cursor: pointer; transition: background 0.1s;
+}
+.list-row:active { background: var(--surface2); }
+.list-row-info { flex: 1; min-width: 0; }
+.list-row-info .name { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.list-row-info .sub { font-size: 0.8rem; color: var(--text-dim); margin-top: 2px; }
+
+/* ─── SECTION HEADER ──────────────────────────────────────────────────────── */
+.section-head {
+  padding: 20px 16px 8px;
+  font-size: 0.72rem; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--text-dim); font-weight: 600;
+}
+
+/* ─── TOAST ───────────────────────────────────────────────────────────────── */
+#toast {
+  position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%) translateY(20px);
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-sm);
+  padding: 10px 18px; font-size: 0.88rem; white-space: nowrap; z-index: 999;
+  opacity: 0; transition: all 0.2s; pointer-events: none; max-width: 90vw;
+}
+#toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ─── MODAL ───────────────────────────────────────────────────────────────── */
+.modal-backdrop {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 200;
+  display: flex; align-items: flex-end; justify-content: center;
+  opacity: 0; pointer-events: none; transition: opacity 0.2s;
+}
+.modal-backdrop.open { opacity: 1; pointer-events: all; }
+.modal-sheet {
+  background: var(--surface); border-radius: 20px 20px 0 0;
+  padding: 20px 20px calc(20px + var(--safe-bot));
+  width: 100%; max-width: 480px;
+  transform: translateY(100%); transition: transform 0.3s ease;
+}
+.modal-backdrop.open .modal-sheet { transform: translateY(0); }
+.modal-handle { width: 36px; height: 4px; background: var(--border); border-radius: 2px; margin: 0 auto 20px; }
+.modal-title { font-family: 'Bebas Neue', sans-serif; font-size: 1.5rem; letter-spacing: 0.08em; color: var(--gold-pale); margin-bottom: 16px; }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   SCREENS
+══════════════════════════════════════════════════════════════════════════════ */
+
+/* ─── SPLASH ──────────────────────────────────────────────────────────────── */
+#screen-splash {
+  background: radial-gradient(ellipse at 50% 30%, #1c4a30 0%, #080f0b 70%);
+  align-items: center; justify-content: center; gap: 0; padding-bottom: 0;
+}
+.splash-logo { font-family: 'Bebas Neue', sans-serif; font-size: 5rem; letter-spacing: 0.15em; color: var(--gold-pale); text-shadow: 0 0 60px rgba(212,168,67,0.3); line-height: 1; }
+.splash-sub { font-size: 0.8rem; letter-spacing: 0.4em; text-transform: uppercase; color: var(--gold-dim); margin-top: 4px; margin-bottom: 60px; }
+.splash-suits { font-size: 2rem; letter-spacing: 0.3em; opacity: 0.2; margin-bottom: 40px; }
+.splash-form { width: 100%; max-width: 340px; padding: 0 24px; }
+.splash-tabs { display: flex; margin-bottom: 24px; border-bottom: 1px solid var(--border); }
+.splash-tab { flex: 1; padding: 10px; text-align: center; font-size: 0.85rem; font-weight: 600; letter-spacing: 0.06em; cursor: pointer; color: var(--text-dim); border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all 0.15s; }
+.splash-tab.active { color: var(--gold); border-bottom-color: var(--gold); }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+/* ─── HOME / LOBBY LIST ───────────────────────────────────────────────────── */
+#screen-home { background: var(--bg); }
+.home-header { 
+  padding: calc(var(--safe-top) + 16px) 16px 16px;
+  background: linear-gradient(to bottom, var(--surface), transparent);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.home-greeting { font-family: 'Bebas Neue', sans-serif; font-size: 1.6rem; letter-spacing: 0.08em; color: var(--gold-pale); }
+.home-sub { font-size: 0.78rem; color: var(--text-dim); margin-top: 2px; }
+.fab {
+  position: fixed; right: 20px; bottom: calc(var(--safe-bot) + 76px); z-index: 50;
+  width: 52px; height: 52px; border-radius: 50%; background: var(--gold);
+  border: none; cursor: pointer; font-size: 1.5rem; color: #0d1a0d;
+  box-shadow: 0 4px 20px rgba(212,168,67,0.4); transition: all 0.15s;
+  display: flex; align-items: center; justify-content: center;
+}
+.fab:active { transform: scale(0.94); }
+.game-card {
+  margin: 0 16px 12px; border-radius: var(--r); overflow: hidden;
+  background: var(--surface); border: 1px solid var(--border);
+}
+.game-card-header {
+  background: var(--felt-mid); padding: 14px 16px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.game-card-name { font-weight: 600; font-size: 1rem; }
+.game-card-body { padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.game-card-meta { display: flex; gap: 16px; }
+.game-card-stat { text-align: center; }
+.game-card-stat .val { font-family: 'Bebas Neue', sans-serif; font-size: 1.3rem; color: var(--gold-pale); letter-spacing: 0.05em; }
+.game-card-stat .lbl { font-size: 0.68rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.08em; }
+
+/* ─── FRIENDS ─────────────────────────────────────────────────────────────── */
+#screen-friends { background: var(--bg); }
+.friends-header { 
+  padding: calc(var(--safe-top) + 16px) 16px 12px;
+  background: linear-gradient(to bottom, var(--surface), transparent);
+}
+.search-bar {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--surface2); border: 1.5px solid var(--border);
+  border-radius: var(--r-sm); padding: 10px 14px; margin: 0 16px 4px;
+}
+.search-bar input { flex: 1; background: none; border: none; outline: none; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 0.95rem; }
+.search-bar input::placeholder { color: var(--text-dim); }
+.search-icon { color: var(--text-dim); font-size: 1rem; }
+
+/* ─── GAME LOBBY ──────────────────────────────────────────────────────────── */
+#screen-lobby { background: var(--bg); }
+.lobby-header {
+  background: var(--felt-mid); padding: calc(var(--safe-top) + 16px) 16px 20px;
+  text-align: center; position: relative;
+}
+.lobby-back { position: absolute; left: 16px; top: calc(var(--safe-top) + 16px); background: none; border: none; color: var(--gold); font-size: 1.3rem; cursor: pointer; padding: 4px; }
+.lobby-title { font-family: 'Bebas Neue', sans-serif; font-size: 2rem; letter-spacing: 0.1em; color: var(--gold-pale); }
+.lobby-code { font-size: 0.75rem; color: var(--text-dim); margin-top: 4px; letter-spacing: 0.1em; }
+.seat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 20px 16px; }
+.seat {
+  background: var(--surface); border: 1.5px dashed var(--border); border-radius: var(--r);
+  padding: 14px 10px; text-align: center; min-height: 80px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+}
+.seat.filled { border-style: solid; border-color: var(--felt-light); background: var(--felt-mid); }
+.seat-name { font-size: 0.78rem; font-weight: 500; }
+.seat-host { font-size: 0.65rem; color: var(--gold); text-transform: uppercase; letter-spacing: 0.1em; }
+.seat-empty { font-size: 1.5rem; opacity: 0.2; }
+.lobby-actions { padding: 0 16px 20px; display: flex; flex-direction: column; gap: 10px; }
+.invite-link-box { 
+  background: var(--surface2); border: 1px solid var(--border); border-radius: var(--r-sm);
+  padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+}
+.invite-link-text { font-size: 0.8rem; color: var(--text-dim); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ─── GAME TABLE ──────────────────────────────────────────────────────────── */
+#screen-game {
+  background: radial-gradient(ellipse at 50% 45%, var(--felt-light) 0%, var(--felt) 40%, #0a1f11 100%);
+  padding-bottom: 0; overflow: hidden; position: relative;
+}
+
+.table-wrap { flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: var(--safe-top) 0 var(--safe-bot); }
+
+/* Blind/level info */
+.game-topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 14px; background: rgba(0,0,0,0.35);
+}
+.blind-info { font-size: 0.78rem; color: var(--gold); font-weight: 500; }
+.hand-num { font-size: 0.72rem; color: var(--text-dim); }
+
+/* Opponents ring */
+.opponents-ring { 
+  display: flex; justify-content: space-around; align-items: flex-end;
+  padding: 8px 12px 4px; gap: 6px; flex-wrap: wrap;
+}
+.player-seat {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  min-width: 54px; max-width: 70px;
+}
+.player-seat .name { font-size: 0.65rem; color: var(--text-dim); text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; width: 100%; text-align: center; }
+.player-seat .chips-count { font-family: 'Bebas Neue', sans-serif; font-size: 0.85rem; color: var(--gold); letter-spacing: 0.04em; }
+.player-seat .hole-cards { display: flex; gap: 2px; }
+.player-seat .card.sm { width: 28px; height: 42px; border-radius: 3px; }
+.player-seat .card.sm .card-top, .player-seat .card.sm .card-bot { display:none; }
+.player-seat .card.sm .card-center { font-size: 0.8rem; }
+.player-seat.folded .avatar { opacity: 0.35; }
+.player-seat.folded .name { opacity: 0.35; }
+.player-seat.active-turn .avatar { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(212,168,67,0.3), 0 0 12px rgba(212,168,67,0.2); }
+.action-bubble {
+  font-size: 0.6rem; padding: 2px 6px; border-radius: 8px; margin-top: 1px;
+  background: var(--surface); color: var(--text-dim); white-space: nowrap;
+}
+.action-bubble.bet { background: rgba(212,168,67,0.2); color: var(--gold); }
+.action-bubble.fold { background: rgba(192,57,43,0.2); color: var(--red-light); }
+.action-bubble.check { background: rgba(39,174,96,0.15); color: #2ecc71; }
+.bet-chip {
+  position: absolute; font-size: 0.65rem; padding: 2px 6px;
+  background: var(--gold); color: #0d1a0d; border-radius: 10px; font-weight: 700;
+  white-space: nowrap;
+}
+
+/* Community / pot area */
+.community-area {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  position: relative;
+}
+.pot-label { 
+  font-family: 'Bebas Neue', sans-serif; font-size: 1.3rem; letter-spacing: 0.1em;
+  color: var(--gold-pale); text-shadow: 0 1px 4px rgba(0,0,0,0.5);
+}
+.community-cards { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+.stage-label { font-size: 0.68rem; letter-spacing: 0.18em; text-transform: uppercase; color: rgba(255,255,255,0.25); }
+
+/* Your hand area */
+.my-hand-area {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 8px 16px 0;
+}
+.my-cards { display: flex; gap: 10px; }
+.my-info { display: flex; align-items: center; gap: 10px; }
+.my-name { font-weight: 600; font-size: 0.9rem; }
+.my-chips { font-family: 'Bebas Neue', sans-serif; font-size: 1.1rem; color: var(--gold); letter-spacing: 0.05em; }
+
+/* Action buttons */
+.action-bar {
+  display: flex; gap: 8px; padding: 10px 12px 12px; background: rgba(0,0,0,0.4);
+  flex-wrap: wrap;
+}
+.action-bar .btn { flex: 1; min-width: 70px; font-size: 0.82rem; padding: 11px 8px; }
+.bet-slider-row {
+  display: flex; align-items: center; gap: 10px; padding: 0 14px 8px; background: rgba(0,0,0,0.4);
+}
+.bet-slider-row input[type=range] {
+  flex: 1; -webkit-appearance: none; height: 4px; background: var(--gold-dim); border-radius: 2px; outline: none;
+}
+.bet-slider-row input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 20px; height: 20px; border-radius: 50%;
+  background: var(--gold); cursor: pointer; box-shadow: 0 0 8px rgba(212,168,67,0.4);
+}
+.bet-amount-label { font-family: 'Bebas Neue', sans-serif; font-size: 1rem; color: var(--gold-pale); min-width: 56px; text-align: right; letter-spacing: 0.04em; }
+
+/* Turn timer */
+.turn-timer {
+  display: flex; align-items: center; justify-content: center;
+  position: relative; width: 36px; height: 36px; flex-shrink: 0;
+}
+.turn-timer svg { position: absolute; top: 0; left: 0; transform: rotate(-90deg); }
+.turn-timer-track { fill: none; stroke: rgba(255,255,255,0.08); stroke-width: 3; }
+.turn-timer-fill  { fill: none; stroke-width: 3; stroke-linecap: round;
+  transition: stroke-dashoffset 1s linear, stroke 0.5s; }
+.turn-timer-num {
+  font-family: 'Bebas Neue', sans-serif; font-size: 0.95rem;
+  color: var(--text); line-height: 1; z-index: 1;
+}
+
+/* Position badges D / SB / BB */
+.pos-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 50%;
+  font-family: 'Bebas Neue', sans-serif; font-size: 0.6rem; letter-spacing: 0.03em;
+  font-weight: 700; line-height: 1; flex-shrink: 0;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+}
+.pos-badge.dealer { background: #27ae60; color: #fff; }
+.pos-badge.sb     { background: #ecf0f1; color: #111; }
+.pos-badge.bb     { background: #2980b9; color: #fff; }
+.blind-timer-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 14px; background: rgba(0,0,0,0.25); font-size: 0.72rem;
+}
+.blind-timer-label { color: var(--text-dim); white-space: nowrap; }
+.blind-timer-track {
+  flex: 1; height: 4px; background: rgba(255,255,255,0.08); border-radius: 2px; overflow: hidden;
+}
+.blind-timer-fill {
+  height: 100%; background: var(--gold); border-radius: 2px;
+}
+.blind-timer-countdown { color: var(--gold); font-family: 'Bebas Neue', sans-serif; font-size: 0.85rem; min-width: 36px; text-align: right; letter-spacing: 0.05em; }
+
+/* Blind editor */
+.blind-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.blind-table th {
+  text-align: center; padding: 6px 4px; font-size: 0.65rem; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--text-dim); font-weight: 600; border-bottom: 1px solid var(--border);
+}
+.blind-table td { padding: 3px 4px; border-bottom: 1px solid rgba(255,255,255,0.04); text-align: center; }
+.blind-input {
+  background: var(--surface2); border: 1px solid var(--border); border-radius: 4px;
+  color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 0.82rem;
+  padding: 5px 4px; width: 58px; text-align: center; outline: none;
+}
+.blind-input:focus { border-color: var(--gold-dim); }
+.blind-row-del {
+  background: none; border: none; color: var(--text-dim); font-size: 1rem;
+  cursor: pointer; padding: 2px 6px; border-radius: 4px; line-height: 1;
+}
+.blind-row-del:active { color: var(--red-light); }
+
+/* Showdown reveal */
+.showdown-bar {
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.75); display: flex; align-items: center; justify-content: center;
+  flex-direction: column; gap: 12px; z-index: 10;
+  animation: fadeIn 0.3s ease;
+}
+@keyframes fadeIn { from{opacity:0}to{opacity:1} }
+@keyframes slideDown { from{opacity:0;transform:translateY(-16px)}to{opacity:1;transform:translateY(0)} }
+.showdown-result { font-family: 'Bebas Neue', sans-serif; font-size: 2.2rem; letter-spacing: 0.1em; text-align: center; }
+.showdown-result.win { color: var(--gold-pale); }
+.showdown-result.lose { color: var(--red-light); }
+.showdown-result.tie { color: #aaa; }
+.showdown-hand { font-size: 0.9rem; color: var(--text-dim); font-style: italic; }
+.winner-pot { font-size: 1rem; color: var(--gold); font-weight: 600; }
+
+/* Eliminated banner */
+.elim-banner {
+  position: absolute; inset: 0; background: rgba(0,0,0,0.85);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; z-index: 20;
+}
+.elim-title { font-family: 'Bebas Neue', sans-serif; font-size: 3rem; color: var(--red-light); letter-spacing: 0.1em; }
+.elim-place { font-size: 1.1rem; color: var(--text-dim); }
+
+/* Tournament result */
+.tourney-result {
+  position: absolute; inset: 0; background: rgba(8,15,11,0.95);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; z-index: 25;
+  padding: 30px;
+}
+.trophy { font-size: 5rem; }
+.tourney-title { font-family: 'Bebas Neue', sans-serif; font-size: 2.5rem; color: var(--gold-pale); letter-spacing: 0.1em; text-align: center; }
+.tourney-sub { color: var(--text-dim); text-align: center; }
+.final-places { width: 100%; max-width: 280px; }
+.place-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.place-medal { font-size: 1.1rem; }
+.place-name { font-weight: 500; }
+.place-chips { font-family: 'Bebas Neue', sans-serif; color: var(--gold); letter-spacing: 0.05em; }
+</style>
+</head>
+<body>
+<div id="root">
+
+  <!-- ─── SPLASH / AUTH ─────────────────────────────────────────────────── -->
+  <div class="screen active screen-full" id="screen-splash">
+    <div style="text-align:center; margin-bottom: 0;">
+      <div class="splash-suits">♠ ♥ ♦ ♣</div>
+      <div class="splash-logo">FELT RIGHT</div>
+      <div class="splash-sub">Texas Hold'em</div>
+    </div>
+    <div class="splash-form">
+      <div class="splash-tabs">
+        <div class="splash-tab active" onclick="switchTab('login')">Sign In</div>
+        <div class="splash-tab" onclick="switchTab('signup')">Create Account</div>
+      </div>
+      <!-- LOGIN -->
+      <div class="tab-content active" id="tab-login">
+        <div class="input-group">
+          <div class="input-label">Email</div>
+          <input class="input" id="login-email" type="email" placeholder="you@example.com" autocomplete="email">
+        </div>
+        <div class="input-group">
+          <div class="input-label">Password</div>
+          <input class="input" id="login-pass" type="password" placeholder="••••••••" autocomplete="current-password">
+        </div>
+        <button class="btn btn-primary btn-full" onclick="doLogin()" style="margin-top:8px">Sign In</button>
+        <div style="text-align:center;margin-top:12px">
+          <span style="color:var(--gold);cursor:pointer;font-size:0.82rem" onclick="doForgotPassword()">Forgot password?</span>
+        </div>
+        <div style="text-align:center; margin-top:10px; color:var(--text-dim); font-size:0.8rem;">
+          No account? <span style="color:var(--gold); cursor:pointer" onclick="switchTab('signup')">Sign up</span>
+        </div>
+        <div style="margin-top:16px; border-top:1px solid var(--border); padding-top:16px; text-align:center;">
+          <button class="btn btn-ghost btn-full btn-sm" onclick="enterDemoMode()">🃏 Try Demo Mode</button>
+          <div style="margin-top:8px; font-size:0.72rem; color:var(--text-dim);">No account needed · simulates friends joining</div>
+        </div>
+      </div>
+      <!-- SIGN UP -->
+      <div class="tab-content" id="tab-signup">
+        <div class="input-group">
+          <div class="input-label">Your Name</div>
+          <input class="input" id="signup-name" type="text" placeholder="Poker Face Pete" autocomplete="name">
+        </div>
+        <div class="input-group">
+          <div class="input-label">Email</div>
+          <input class="input" id="signup-email" type="email" placeholder="you@example.com" autocomplete="email">
+        </div>
+        <div class="input-group">
+          <div class="input-label">Phone <span style="color:var(--text-dim);font-weight:400">(optional, for friend search)</span></div>
+          <input class="input" id="signup-phone" type="tel" placeholder="(555) 867-5309" oninput="formatPhone(this)">
+        </div>
+        <div class="input-group">
+          <div class="input-label">Password</div>
+          <input class="input" id="signup-pass" type="password" placeholder="Min 8 characters" autocomplete="new-password">
+        </div>
+        <button class="btn btn-primary btn-full" onclick="doSignup()" style="margin-top:8px">Create Account</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── HOME ──────────────────────────────────────────────────────────── -->
+  <div class="screen" id="screen-home">
+    <div class="home-header">
+      <div>
+        <div class="home-greeting" id="home-greeting">FELT RIGHT</div>
+        <div class="home-sub" id="home-sub">Your games</div>
+      </div>
+      <div class="avatar lg" id="home-avatar" onclick="navTo('profile')" style="cursor:pointer">?</div>
+    </div>
+    <div id="demo-banner" style="display:none; margin: 0 16px 8px; background: rgba(212,168,67,0.1); border: 1px solid var(--gold-dim); border-radius: var(--r-sm); padding: 10px 14px; font-size: 0.8rem; color: var(--gold); align-items: center; gap: 10px;">
+      <span>🃏</span>
+      <span style="flex:1"><strong>Demo Mode</strong> — Friends joining the lobby are simulated. Tap + to create a game.</span>
+    </div>
+    <!-- Admin toolbar -->
+    <div id="admin-bar" style="display:none;padding:0 16px 8px;display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-surface btn-sm" onclick="archiveMyGames()" style="font-size:0.75rem">📦 Archive Finished</button>
+      <button id="admin-kill-btn" class="btn btn-surface btn-sm" onclick="killStuckGames()" style="font-size:0.75rem;color:var(--red-light);display:none">🗑 Kill Stuck Games</button>
+    </div>
+    <div class="section-head" style="display:flex;align-items:center;justify-content:space-between;padding-right:16px">
+      <span>Games</span>
+      <button onclick="toggleAdminBar()" style="background:none;border:none;color:var(--text-dim);font-size:0.72rem;cursor:pointer;letter-spacing:0.06em">⚙ Manage</button>
+    </div>
+    <div id="games-list">
+      <div style="padding: 40px 20px; text-align:center; color:var(--text-dim); font-size:0.9rem; font-style:italic;">
+        No games yet.<br>Tap + to start one.
+      </div>
+    </div>
+    <button class="fab" onclick="openCreateGame()">+</button>
+  </div>
+
+  <!-- ─── FRIENDS ───────────────────────────────────────────────────────── -->
+  <div class="screen" id="screen-friends">
+    <div class="friends-header">
+      <h2 style="margin-bottom:12px">Friends</h2>
+      <div class="search-bar">
+        <span class="search-icon">🔍</span>
+        <input id="friend-search" type="text" placeholder="Search by name or phone…" oninput="searchFriends(this.value)">
+      </div>
+    </div>
+    <div id="friend-requests-section" style="display:none">
+      <div class="section-head">Requests</div>
+      <div id="friend-requests-list"></div>
+    </div>
+    <div id="friend-search-results" style="display:none">
+      <div class="section-head">Search Results</div>
+      <div id="friend-results-list"></div>
+    </div>
+    <div class="section-head">Your Friends</div>
+    <div id="friends-list">
+      <div style="padding: 40px 20px; text-align:center; color:var(--text-dim); font-size:0.9rem; font-style:italic;">
+        Search above to find friends.
+      </div>
+    </div>
+    <div style="padding: 16px;">
+      <div style="background:var(--surface); border-radius:var(--r); padding:14px 16px; border:1px solid var(--border);">
+        <div style="font-size:0.78rem; color:var(--text-dim); margin-bottom:10px; text-transform:uppercase; letter-spacing:0.1em;">Invite a friend to Felt Right</div>
+        <button class="btn btn-ghost btn-full btn-sm" onclick="copyInviteLink()">📋 Copy Invite Link</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── GAME LOBBY ─────────────────────────────────────────────────────── -->
+  <div class="screen screen-full" id="screen-lobby">
+    <div class="lobby-header">
+      <button class="lobby-back" onclick="goBack()">‹</button>
+      <div class="lobby-title" id="lobby-game-name">GAME NAME</div>
+      <div class="lobby-code" id="lobby-game-id">Game ID: —</div>
+      <div style="margin-top:8px; display:flex; gap:8px; justify-content:center; flex-wrap:wrap;" id="lobby-badges">
+        <span class="badge badge-gold">Sit & Go</span>
+        <span class="badge badge-dim">Texas Hold'em</span>
+        <span class="badge badge-dim">1500 chips</span>
+      </div>
+    </div>
+
+    <div style="padding:16px 16px 8px; display:flex; align-items:center; justify-content:space-between;">
+      <div style="font-size:0.78rem; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.1em;">Players</div>
+      <div id="lobby-player-count" style="font-size:0.85rem; color:var(--text-dim);">0 joined</div>
+    </div>
+    <div class="seat-grid" id="lobby-seats"></div>
+
+    <div style="padding:0 16px 8px">
+      <div style="font-size:0.78rem; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.1em; margin-bottom:10px;">Invite Friends</div>
+      <div id="lobby-friend-invite-list"></div>
+      <div class="invite-link-box" style="margin-top:10px">
+        <div class="invite-link-text" id="lobby-invite-url">felt.app/join/———</div>
+        <button class="btn btn-ghost btn-sm" onclick="copyLobbyLink()">Copy</button>
+      </div>
+    </div>
+
+    <div class="lobby-actions" id="lobby-actions-area">
+      <!-- Blind structure editor (host only) -->
+      <div id="blind-editor-section" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <div style="font-size:0.78rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.1em">Blind Structure</div>
+          <button class="btn btn-ghost btn-sm" onclick="addBlindLevel()">+ Add Level</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+          <div style="font-size:0.78rem;color:var(--text-dim)">Minutes per level</div>
+          <input class="blind-input" id="blind-duration-input" type="number" min="1" max="60" value="10"
+            oninput="blindDurationSeconds = Math.max(1, parseInt(this.value)||10) * 60"
+            style="width:52px">
+        </div>
+        <div style="overflow-x:auto">
+          <table class="blind-table">
+            <thead>
+              <tr>
+                <th>Lvl</th><th>Small</th><th>Big</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="blind-editor-body"></tbody>
+          </table>
+        </div>
+        <button class="btn btn-ghost btn-full btn-sm" onclick="resetBlinds()" style="margin-top:8px">Reset to Default</button>
+      </div>
+
+      <button class="btn btn-primary btn-full" id="lobby-start-btn" onclick="startGame()" style="display:none">
+        Start Game
+      </button>
+      <div class="waiting-msg" id="lobby-waiting-msg">Waiting for host to start…</div>
+    </div>
+  </div>
+
+  <!-- ─── GAME TABLE ─────────────────────────────────────────────────────── -->
+  <div class="screen screen-full" id="screen-game">
+    <div class="table-wrap" id="table-wrap">
+      <!-- Top bar -->
+      <div class="game-topbar">
+        <div class="blind-info" id="blind-info">Blinds: 10/20</div>
+        <div class="stage-label" id="stage-label">PRE-FLOP</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="hand-num" id="hand-num">Hand #1</div>
+          <div class="turn-timer" id="turn-timer" style="display:none">
+            <svg width="36" height="36" viewBox="0 0 36 36">
+              <circle class="turn-timer-track" cx="18" cy="18" r="15"/>
+              <circle class="turn-timer-fill" id="timer-arc" cx="18" cy="18" r="15"
+                stroke-dasharray="94.25" stroke-dashoffset="0" stroke="var(--gold)"/>
+            </svg>
+            <div class="turn-timer-num" id="timer-num">30</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Blind level timer -->
+      <div class="blind-timer-row" id="blind-timer-row">
+        <div class="blind-timer-label" id="blind-level-label">Level 1</div>
+        <div class="blind-timer-track">
+          <div class="blind-timer-fill" id="blind-timer-fill" style="width:100%"></div>
+        </div>
+        <div class="blind-timer-countdown" id="blind-timer-countdown">10:00</div>
+      </div>
+
+      <!-- Opponents -->
+      <div class="opponents-ring" id="opponents-ring"></div>
+
+      <!-- Community cards + pot -->
+      <div class="community-area">
+        <div class="pot-label" id="pot-display">POT: 0</div>
+        <div class="community-cards" id="community-cards"></div>
+        <div class="stage-label" id="community-stage"></div>
+      </div>
+
+      <!-- My hand -->
+      <div class="my-hand-area">
+        <div class="my-cards" id="my-cards"></div>
+        <div class="my-info">
+          <div style="position:relative;display:inline-block">
+            <div class="avatar sm" id="my-avatar">?</div>
+            <div id="my-pos-badges" style="position:absolute;bottom:-6px;right:-6px;display:flex;gap:2px"></div>
+          </div>
+          <div>
+            <div class="my-name" id="my-name">You</div>
+            <div class="my-chips" id="my-chips">1500</div>
+          </div>
+          <div id="my-action-bubble"></div>
+        </div>
+      </div>
+
+      <!-- Bet slider (shown when raising) -->
+      <div class="bet-slider-row" id="bet-slider-row" style="display:none">
+        <input type="range" id="bet-slider" min="20" max="1500" step="10" value="40" oninput="updateBetLabel()">
+        <div class="bet-amount-label" id="bet-amount-label">40</div>
+      </div>
+
+      <!-- Auto-action (step away) bar -->
+      <div id="auto-action-bar" style="display:flex;align-items:center;gap:6px;padding:4px 12px 0;flex-wrap:wrap;background:rgba(0,0,0,0.3);min-height:0"></div>
+
+      <!-- Action buttons -->
+      <div class="action-bar" id="action-bar">
+        <div class="waiting-msg" style="width:100%; padding:8px 0">Waiting for your turn…</div>
+      </div>
+
+      <!-- Overlays -->
+      <div id="showdown-overlay" style="display:none"></div>
+      <div id="elim-overlay" style="display:none"></div>
+      <div id="tourney-overlay" style="display:none"></div>
+    </div>
+  </div>
+
+  <!-- ─── PROFILE ───────────────────────────────────────────────────────────── -->
+  <div class="screen" id="screen-profile">
+    <div style="padding: calc(var(--safe-top) + 20px) 16px 16px; background: linear-gradient(to bottom, var(--surface), transparent);">
+      <h2>Profile</h2>
+    </div>
+
+    <!-- Avatar -->
+    <div style="display:flex;flex-direction:column;align-items:center;gap:10px;padding:20px 16px 16px;">
+      <div id="profile-avatar-display" style="
+        width:80px;height:80px;border-radius:50%;background:var(--felt-light);
+        display:flex;align-items:center;justify-content:center;
+        font-size:2.4rem;border:2px solid var(--gold-dim);cursor:pointer;"
+        onclick="toggleEmojiPicker()">🃏</div>
+      <div style="font-size:0.78rem;color:var(--text-dim)">Tap to change avatar</div>
+
+      <!-- Emoji grid -->
+      <div id="emoji-picker" style="display:none;width:100%;max-width:320px;
+        background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:12px 8px;">
+        <div id="emoji-grid" style="display:grid;grid-template-columns:repeat(6,1fr);gap:4px;"></div>
+      </div>
+    </div>
+
+    <!-- Fields -->
+    <div style="padding:0 16px 16px">
+      <div class="input-group">
+        <div class="input-label">Display Name</div>
+        <input class="input" id="profile-name" type="text" placeholder="Your name" maxlength="20">
+      </div>
+      <div class="input-group">
+        <div class="input-label">Email</div>
+        <input class="input" id="profile-email" type="text" readonly style="color:var(--text-dim)">
+      </div>
+      <div class="input-group">
+        <div class="input-label">Phone <span style="color:var(--text-dim);font-weight:400">(optional, for friend search)</span></div>
+        <input class="input" id="profile-phone" type="tel" placeholder="(555) 867-5309" oninput="formatPhone(this)">
+      </div>
+      <button class="btn btn-primary btn-full" onclick="saveProfile()">Save Changes</button>
+    </div>
+
+    <!-- Share -->
+    <div style="margin:0 16px 16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px">
+      <div style="font-size:0.78rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px">Invite Friends</div>
+      <button class="btn btn-ghost btn-full btn-sm" onclick="copyInviteLink()">📋 Copy App Link</button>
+    </div>
+
+    <!-- Sign out -->
+    <div style="padding:0 16px 24px;">
+      <button class="btn btn-full" onclick="signOut()"
+        style="background:none;color:var(--red-light);border:1px solid rgba(192,57,43,0.3)">Sign Out</button>
+    </div>
+  </div>
+
+  <!-- ─── BOTTOM NAV ─────────────────────────────────────────────────────── -->
+  <nav id="nav">
+    <div class="nav-item active" onclick="navTo('home')">
+      <div class="nav-icon">🏠</div>
+      <div class="nav-label">Home</div>
+    </div>
+    <div class="nav-item" onclick="navTo('friends')">
+      <div class="nav-icon">👥</div>
+      <div class="nav-label">Friends</div>
+    </div>
+    <div class="nav-item" onclick="navTo('profile')">
+      <div class="nav-icon" id="nav-profile-icon">🃏</div>
+      <div class="nav-label">Profile</div>
+    </div>
+  </nav>
+</div>
+
+<!-- ─── MODALS ─────────────────────────────────────────────────────────────── -->
+<div class="modal-backdrop" id="modal-create-game" onclick="closeModal('modal-create-game')">
+  <div class="modal-sheet" onclick="event.stopPropagation()">
+    <div class="modal-handle"></div>
+    <div class="modal-title">New Game</div>
+    <div class="input-group">
+      <div class="input-label">Game Name</div>
+      <input class="input" id="new-game-name" type="text" placeholder="Friday Night Poker">
+    </div>
+    <div style="background:var(--surface2); border-radius:var(--r-sm); padding:12px 14px; margin-bottom:16px; font-size:0.85rem; color:var(--text-dim); line-height:1.5;">
+      <strong style="color:var(--text)">Sit & Go · Texas Hold'em</strong><br>
+      1500 starting chips · Moderate blinds<br>
+      Invite friends after creating
+    </div>
+    <button class="btn btn-primary btn-full" onclick="createGame()">Create Game</button>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<!-- ─── SUPABASE CDN ────────────────────────────────────────────────────────── -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+
+<script>
+// ════════════════════════════════════════════════════════════════════════════
+// CONFIG — Replace with your Supabase project values
+// ════════════════════════════════════════════════════════════════════════════
+const SUPABASE_URL     = 'https://dcfsbtefwkcbdeqreiyx.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRjZnNidGVmd2tjYmRlcXJlaXl4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY4Njc0MjcsImV4cCI6MjA5MjQ0MzQyN30.yTf3TCkZvDYZOpHC-2KOIvavzgnG__s6FzrGP5e3HTU';
+
+// ════════════════════════════════════════════════════════════════════════════
+// GAME ENGINE
+// ════════════════════════════════════════════════════════════════════════════
+const SUITS     = ['♠','♥','♦','♣'];
+const RANKS     = ['2','3','4','5','6','7','8','9','10','J','Q','K','A'];
+const RANK_VAL  = {2:2,3:3,4:4,5:5,6:6,7:7,8:8,9:9,10:10,J:11,Q:12,K:13,A:14};
+const STARTING_CHIPS   = 1500;
+const DEFAULT_BLIND_DURATION = 10 * 60; // 10 minutes per level default
+
+// Mutable — can be edited in lobby before game starts
+let BLIND_LEVELS = [
+  {level:1,  small:10,  big:20  },
+  {level:2,  small:15,  big:30  },
+  {level:3,  small:25,  big:50  },
+  {level:4,  small:50,  big:100 },
+  {level:5,  small:75,  big:150 },
+  {level:6,  small:100, big:200 },
+  {level:7,  small:150, big:300 },
+  {level:8,  small:200, big:400 },
+  {level:9,  small:300, big:600 },
+  {level:10, small:500, big:1000},
+];
+let blindDurationSeconds = DEFAULT_BLIND_DURATION;
+
+function getBlinds(levelIndex) {
+  if (levelIndex < BLIND_LEVELS.length) {
+    return BLIND_LEVELS[levelIndex];
+  }
+  // Beyond the defined structure: keep doubling from the last level
+  const last = BLIND_LEVELS[BLIND_LEVELS.length - 1];
+  const doublings = levelIndex - (BLIND_LEVELS.length - 1);
+  const factor = Math.pow(2, doublings);
+  return {
+    level: levelIndex + 1,
+    small: last.small * factor,
+    big:   last.big   * factor,
+  };
+}
+
+function makeDeck() {
+  const d = [];
+  for (const s of SUITS) for (const r of RANKS) d.push({rank:r,suit:s});
+  for (let i=d.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[d[i],d[j]]=[d[j],d[i]];}
+  return d;
+}
+function isRed(c){ return c.suit==='♥'||c.suit==='♦'; }
+
+function choose5(cards) {
+  if(cards.length===5) return [cards];
+  const res=[];
+  function comb(s,cur){
+    if(cur.length===5){res.push(cur.slice());return;}
+    for(let i=s;i<=cards.length-(5-cur.length);i++){cur.push(cards[i]);comb(i+1,cur);cur.pop();}
+  }
+  comb(0,[]);return res;
+}
+function score5(cards) {
+  const vals=cards.map(c=>RANK_VAL[c.rank]).sort((a,b)=>b-a);
+  const suits=cards.map(c=>c.suit);
+  const flush=suits.every(s=>s===suits[0]);
+  const straight=vals[0]-vals[4]===4&&new Set(vals).size===5;
+  const wheel=vals.join()===[14,5,4,3,2].join();
+  const cnt={};for(const v of vals)cnt[v]=(cnt[v]||0)+1;
+  const grps=Object.entries(cnt).map(([v,c])=>({val:+v,count:c})).sort((a,b)=>b.count-a.count||b.val-a.val);
+  const gc=grps.map(g=>g.count);
+  let rank,name;
+  if((straight||wheel)&&flush){rank=8;name='Straight Flush';}
+  else if(gc[0]===4){rank=7;name='Four of a Kind';}
+  else if(gc[0]===3&&gc[1]===2){rank=6;name='Full House';}
+  else if(flush){rank=5;name='Flush';}
+  else if(straight||wheel){rank=4;name='Straight';}
+  else if(gc[0]===3){rank=3;name='Three of a Kind';}
+  else if(gc[0]===2&&gc[1]===2){rank=2;name='Two Pair';}
+  else if(gc[0]===2){rank=1;name='One Pair';}
+  else{rank=0;name='High Card';}
+  const tieVals=grps.flatMap(g=>Array(g.count).fill(g.val));
+  return{rank,name,tieVals};
+}
+function evalBest(hole,comm){
+  const all=[...hole,...comm];
+  const combos=choose5(all);
+  let best=null;
+  for(const c of combos){
+    const h=score5(c);
+    if(!best||cmpScore(h,best)>0)best=h;
+  }
+  return best;
+}
+function cmpScore(a,b){
+  if(a.rank!==b.rank)return a.rank-b.rank;
+  for(let i=0;i<a.tieVals.length;i++)if(a.tieVals[i]!==b.tieVals[i])return a.tieVals[i]-b.tieVals[i];
+  return 0;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// APP STATE
+// ════════════════════════════════════════════════════════════════════════════
+let sb = null; // supabase client
+let me = null; // { id, display_name, avatar_emoji }
+let myFriends = [];
+let myGames   = [];
+let currentGameId = null;
+let currentLobbyId = null;
+let gameSubscription = null;
+let lobbySubscription = null;
+let actionSubscription = null; // host listens for non-host actions
+let amHost = false; // true if this client is the game host (game engine runner)
+
+// Local game state (maintained by host, synced to all via Supabase)
+let G = null; // full game state object
+
+// ════════════════════════════════════════════════════════════════════════════
+// INIT
+// ════════════════════════════════════════════════════════════════════════════
+async function init() {
+  try {
+    sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const { data: { session } } = await sb.auth.getSession();
+    if (session) {
+      me = await getProfile(session.user.id);
+      if (me) { me.email = session.user.email; enterApp(); return; }
+    }
+  } catch(e) {
+    console.warn('Supabase not configured, running in demo mode');
+    enterDemoMode();
+    return;
+  }
+}
+
+function enterDemoMode() {
+  me = { id: 'demo', display_name: 'You', avatar_emoji: '🃏' };
+  // DEMO_FRIENDS defined near startGame — same list
+  myFriends = [...DEMO_FRIENDS];
+  myGames = [];
+  enterApp();
+}
+
+function enterApp() {
+  showScreen('home');
+  document.getElementById('nav').classList.add('visible');
+  document.getElementById('home-greeting').textContent = `Hey, ${me.display_name.split(' ')[0]}`;
+  updateAvatarEverywhere(me.avatar_emoji);
+  document.getElementById('my-name').textContent = me.display_name;
+
+  const demoBanner = document.getElementById('demo-banner');
+  if (demoBanner) demoBanner.style.display = me.id === 'demo' ? 'flex' : 'none';
+
+  // Show admin kill button only for Fallz
+  const killBtn = document.getElementById('admin-kill-btn');
+  if (killBtn) killBtn.style.display = me.display_name === 'Fallz' ? 'inline-flex' : 'none';
+
+  // Request notification permission for turn alerts
+  if (me.id !== 'demo' && 'Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission();
+  }
+
+  renderFriendsList();
+  loadGames();
+
+  // Global: listen for game invites arriving in real time
+  if (me.id !== 'demo' && sb) subscribeToInvites();
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// AUTH
+// ════════════════════════════════════════════════════════════════════════════
+async function doLogin() {
+  const email = document.getElementById('login-email').value.trim();
+  const pass  = document.getElementById('login-pass').value;
+  if (!email || !pass) { toast('Enter email and password'); return; }
+  try {
+    const { data, error } = await sb.auth.signInWithPassword({ email, password: pass });
+    if (error) throw error;
+    me = await getProfile(data.user.id);
+    if (!me) {
+      const meta = data.user.user_metadata || {};
+      await sb.from('users').insert({
+        id: data.user.id,
+        phone: meta.phone || '',
+        display_name: meta.display_name || email.split('@')[0],
+      });
+      me = await getProfile(data.user.id);
+    }
+    me.email = data.user.email; // store for profile display
+    enterApp();
+  } catch(e) { toast('Sign in failed: ' + e.message); }
+}
+
+async function doSignup() {
+  const name  = document.getElementById('signup-name').value.trim();
+  const email = document.getElementById('signup-email').value.trim();
+  const phone = document.getElementById('signup-phone').value.replace(/\D/g,'');
+  const pass  = document.getElementById('signup-pass').value;
+  if (!name || !email || !pass) { toast('Name, email and password are required'); return; }
+  if (pass.length < 8) { toast('Password must be 8+ characters'); return; }
+  try {
+    const { data, error } = await sb.auth.signUp({
+      email,
+      password: pass,
+      options: { data: { display_name: name, phone } }
+    });
+    if (error) throw error;
+
+    if (data.session) {
+      await sb.from('users').upsert({
+        id: data.user.id, phone, display_name: name,
+      });
+      me = { id: data.user.id, display_name: name, avatar_emoji: '🃏', phone, email };
+      enterApp();
+    } else {
+      // Email confirmation on — tell them to check email
+      toast('Check your email to confirm your account, then sign in');
+      switchTab('login');
+      document.getElementById('login-email').value = email;
+    }
+  } catch(e) { toast('Sign up failed: ' + e.message); }
+}
+
+async function doForgotPassword() {
+  const email = document.getElementById('login-email').value.trim();
+  if (!email) { toast('Enter your email first'); return; }
+  try {
+    const { error } = await sb.auth.resetPasswordForEmail(email, {
+      redirectTo: location.origin + location.pathname,
+    });
+    if (error) throw error;
+    toast('Password reset email sent — check your inbox');
+  } catch(e) { toast('Could not send reset email: ' + e.message); }
+}
+
+async function getProfile(userId) {
+  const { data } = await sb.from('users').select('*').eq('id', userId).single();
+  return data;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// NAVIGATION
+// ════════════════════════════════════════════════════════════════════════════
+let screenStack = [];
+
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('screen-' + id).classList.add('active');
+  document.querySelectorAll('.nav-item').forEach((n,i) => {
+    const map = ['home','friends','profile'];
+    n.classList.toggle('active', map[i] === id);
+  });
+  const hideNav = ['splash','lobby','game'].includes(id);
+  document.getElementById('nav').classList.toggle('visible', !hideNav && !!me);
+}
+
+function navTo(id) {
+  screenStack = [id];
+  showScreen(id);
+  if (id === 'friends') loadFriends();
+  if (id === 'home')    loadGames();
+  if (id === 'profile') loadProfileScreen();
+}
+
+function pushScreen(id) {
+  screenStack.push(id);
+  showScreen(id);
+}
+
+function goBack() {
+  stopLobbyWatchdog();
+  if (demoJoinTimers && demoJoinTimers.length) {
+    demoJoinTimers.forEach(t => clearTimeout(t));
+    demoJoinTimers = [];
+  }
+  screenStack.pop();
+  const prev = screenStack[screenStack.length - 1] || 'home';
+  showScreen(prev);
+}
+
+function switchTab(tab) {
+  document.querySelectorAll('.splash-tab').forEach((t,i) => {
+    t.classList.toggle('active', (i===0&&tab==='login')||(i===1&&tab==='signup'));
+  });
+  document.querySelectorAll('.tab-content').forEach((t,i) => {
+    t.classList.toggle('active', (i===0&&tab==='login')||(i===1&&tab==='signup'));
+  });
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// FRIENDS
+// ════════════════════════════════════════════════════════════════════════════
+async function loadFriends() {
+  if (!sb || me.id === 'demo') return;
+  try {
+    // Load accepted friends
+    const { data } = await sb.from('friendships')
+      .select(`id,status,requester_id,addressee_id,
+        requester:users!requester_id(id,display_name,avatar_emoji),
+        addressee:users!addressee_id(id,display_name,avatar_emoji)`)
+      .or(`requester_id.eq.${me.id},addressee_id.eq.${me.id}`)
+      .eq('status','accepted');
+    myFriends = (data||[]).map(f => {
+      const fr = f.requester_id === me.id ? f.addressee : f.requester;
+      return {...fr, friendshipId: f.id};
+    });
+    renderFriendsList();
+
+    // Load pending requests sent BY me (so we can show "Sent" in search)
+    const { data: sent } = await sb.from('friendships')
+      .select('addressee_id')
+      .eq('requester_id', me.id)
+      .eq('status', 'pending');
+    myPendingSent = (sent || []).map(r => r.addressee_id);
+
+    // Load pending requests sent TO me
+    const { data: pending } = await sb.from('friendships')
+      .select(`id,requester:users!requester_id(id,display_name,avatar_emoji)`)
+      .eq('addressee_id', me.id)
+      .eq('status','pending');
+    renderPendingRequests(pending || []);
+
+  } catch(e) { console.warn(e); }
+}
+
+function renderPendingRequests(requests) {
+  const section = document.getElementById('friend-requests-section');
+  const list = document.getElementById('friend-requests-list');
+  if (!requests.length) { section.style.display = 'none'; return; }
+  section.style.display = 'block';
+  list.innerHTML = requests.map(r => `
+    <div class="list-row">
+      <div class="avatar">${r.requester?.avatar_emoji || r.requester?.display_name[0] || '?'}</div>
+      <div class="list-row-info">
+        <div class="name">${r.requester?.display_name || 'Someone'}</div>
+        <div class="sub">Wants to be friends</div>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="acceptFriend('${r.id}','${r.requester?.display_name}')">Accept</button>
+    </div>`).join('');
+}
+
+async function acceptFriend(friendshipId, name) {
+  try {
+    await sb.from('friendships').update({ status: 'accepted' }).eq('id', friendshipId);
+    toast(`You and ${name} are now friends!`);
+    loadFriends(); // refresh both lists
+  } catch(e) { toast('Could not accept request'); }
+}
+
+function renderFriendsList() {
+  const el = document.getElementById('friends-list');
+  if (!myFriends.length) {
+    el.innerHTML = `<div style="padding:40px 20px;text-align:center;color:var(--text-dim);font-size:0.9rem;font-style:italic;">No friends yet — search above.</div>`;
+    return;
+  }
+  el.innerHTML = myFriends.map(f => `
+    <div class="list-row">
+      <div class="avatar">${f.avatar_emoji||f.display_name[0]}</div>
+      <div class="list-row-info">
+        <div class="name">${f.display_name}</div>
+        <div class="sub">Friend</div>
+      </div>
+      <button onclick="removeFriend('${f.friendshipId}','${f.display_name}')"
+        style="background:none;border:1px solid rgba(192,57,43,0.3);color:var(--red-light);
+          border-radius:50%;width:28px;height:28px;font-size:1.1rem;cursor:pointer;
+          display:flex;align-items:center;justify-content:center;flex-shrink:0;line-height:1">−</button>
+    </div>`).join('');
+}
+
+async function removeFriend(friendshipId, name) {
+  if (!confirm(`Remove ${name}?`)) return;
+  if (me.id === 'demo') {
+    myFriends = myFriends.filter(f => f.friendshipId !== friendshipId);
+    renderFriendsList(); toast(`${name} removed`); return;
+  }
+  try {
+    const { error } = await sb.from('friendships').delete().eq('id', friendshipId);
+    if (error) throw error;
+    // Remove from local cache immediately
+    myFriends = myFriends.filter(f => f.friendshipId !== friendshipId);
+    renderFriendsList();
+    toast(`${name} removed`);
+    // Also refresh from DB to confirm
+    await loadFriends();
+  } catch(e) {
+    if (e.message?.includes('policy') || e.code === '42501') {
+      toast('Run the delete policy SQL first — see setup guide');
+    } else {
+      toast('Could not remove: ' + e.message);
+    }
+  }
+}
+
+let searchTimer = null;
+function searchFriends(q) {
+  clearTimeout(searchTimer);
+  const resultsSec = document.getElementById('friend-search-results');
+  if (!q.trim()) { resultsSec.style.display='none'; return; }
+  searchTimer = setTimeout(async () => {
+    resultsSec.style.display = 'block';
+    const list = document.getElementById('friend-results-list');
+    if (me.id === 'demo') {
+      // Demo: show fake results
+      const fakeUsers = [
+        { id:'x1', display_name:'Tyler B.', avatar_emoji:'♠' },
+        { id:'x2', display_name:'Nicole P.', avatar_emoji:'♥' },
+      ].filter(u => u.display_name.toLowerCase().includes(q.toLowerCase()));
+      list.innerHTML = fakeUsers.length
+        ? fakeUsers.map(u => userRow(u)).join('')
+        : `<div style="padding:16px 20px;color:var(--text-dim);font-size:0.88rem">No results</div>`;
+      return;
+    }
+    try {
+      const { data } = await sb.from('users')
+        .select('id,display_name,avatar_emoji,phone')
+        .or(`display_name.ilike.%${q}%,phone.ilike.%${q}%`)
+        .neq('id', me.id).limit(15);
+      list.innerHTML = (data||[]).length
+        ? (data||[]).map(u => userRow(u)).join('')
+        : `<div style="padding:16px 20px;color:var(--text-dim);font-size:0.88rem">No results found</div>`;
+    } catch(e) { list.innerHTML = `<div style="padding:16px 20px;color:var(--text-dim)">Error searching</div>`; }
+  }, 350);
+}
+
+let myPendingSent = []; // IDs of users I've sent requests to
+
+function userRow(u) {
+  const isFriend = myFriends.some(f => f.id === u.id);
+  const isPending = myPendingSent.includes(u.id);
+  return `<div class="list-row">
+    <div class="avatar">${u.avatar_emoji||u.display_name[0]}</div>
+    <div class="list-row-info">
+      <div class="name">${u.display_name}</div>
+      <div class="sub" style="font-size:0.75rem">${u.phone ? u.phone.replace(/(\d{3})(\d{3})(\d{4})/, '($1) $2-$3') : ''}</div>
+    </div>
+    ${isFriend
+      ? `<span class="badge badge-green">Friends</span>`
+      : isPending
+        ? `<span class="badge badge-dim">Sent</span>`
+        : `<button class="btn btn-ghost btn-sm" onclick="addFriend('${u.id}','${u.display_name}')">Add</button>`}
+  </div>`;
+}
+
+async function addFriend(userId, name) {
+  if (me.id === 'demo') {
+    myFriends.push({ id: userId, display_name: name, avatar_emoji: '🃏' });
+    renderFriendsList(); toast(`Added ${name}!`); return;
+  }
+  try {
+    await sb.from('friendships').insert({ requester_id: me.id, addressee_id: userId });
+    myPendingSent.push(userId);
+    toast(`Friend request sent to ${name} ✓`);
+    // Re-render search results to show Sent state
+    const q = document.getElementById('friend-search').value;
+    if (q) searchFriends(q);
+  } catch(e) {
+    if (e.message?.includes('duplicate')) toast('Request already sent');
+    else toast('Could not send request');
+  }
+}
+
+function copyInviteLink() {
+  const link = `${location.origin}${location.pathname}?invite=true`;
+  navigator.clipboard?.writeText(link).then(() => toast('Invite link copied!'));
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// GAMES LIST
+// ════════════════════════════════════════════════════════════════════════════
+async function loadGames() {
+  if (me.id === 'demo') { renderGamesList(); return; }
+  try {
+    // Fetch all game_players rows for me — including invited status
+    const { data, error } = await sb
+      .from('game_players')
+      .select(`
+        status,
+        game:games(
+          id, name, status, host_id, hand_number, created_at, state,
+          game_players(count)
+        )
+      `)
+      .eq('user_id', me.id);
+
+    if (error) throw error;
+
+    myGames = (data || [])
+      .filter(d => d.game)
+      .map(d => ({
+        ...d.game,
+        player_count: d.game?.game_players?.[0]?.count || 0,
+        i_am_host: d.game?.host_id === me.id,
+        my_status: d.status, // 'invited' | 'joined' | 'playing' | 'eliminated'
+      }))
+      // Sort newest first
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+    renderGamesList();
+  } catch(e) { console.warn('loadGames error:', e); renderGamesList(); }
+}
+
+function renderGamesList() {
+  const el = document.getElementById('games-list');
+
+  if (!myGames.length) {
+    el.innerHTML = `<div style="padding:40px 20px;text-align:center;color:var(--text-dim);font-size:0.9rem;font-style:italic;">No games yet.<br>Tap + to create one.</div>`;
+    return;
+  }
+
+  const invites   = myGames.filter(g => g.my_status === 'invited' && g.status === 'lobby');
+  const myLobbies = myGames.filter(g => g.status === 'lobby' && g.i_am_host);
+  const active    = myGames.filter(g => g.status === 'active');
+  const finished  = myGames.filter(g => g.status === 'finished');
+
+  let html = '';
+
+  if (invites.length) {
+    html += `<div class="section-head" style="color:var(--gold)">📨 Invited — Waiting to Start</div>`;
+    html += invites.map(g => gameCard(g, 'invite')).join('');
+  }
+
+  if (active.length) {
+    html += `<div class="section-head">Active</div>`;
+    html += active.map(g => gameCard(g, 'active')).join('');
+  }
+
+  if (myLobbies.length) {
+    html += `<div class="section-head">Your Lobbies</div>`;
+    html += myLobbies.map(g => gameCard(g, 'lobby')).join('');
+  }
+
+  if (finished.length) {
+    html += `<div class="section-head">Recent</div>`;
+    html += finished.map(g => gameCard(g, 'finished')).join('');
+  }
+
+  el.innerHTML = html;
+}
+
+function gameCard(g, type) {
+  const badgeClass = type==='active' ? 'badge-green' : type==='invite' ? 'badge-gold' : type==='lobby' ? 'badge-gold' : 'badge-dim';
+  const badgeText  = type==='active' ? 'ACTIVE' : type==='invite' ? 'INVITED' : type==='lobby' ? 'LOBBY' : 'DONE';
+  const btnClass   = type==='active' ? 'btn-primary' : type==='invite' ? 'btn-primary' : 'btn-ghost';
+  const btnText    = type==='active' ? 'Rejoin' : type==='invite' ? 'Join' : type==='lobby' ? 'Open' : 'View';
+
+  // Find my chips in this game from the state if available
+  let myChipsHtml = '';
+  if (type === 'active' && g.state?.players) {
+    const me_in_game = g.state.players.find(p => p.id === me.id);
+    if (me_in_game) {
+      const eliminated = me_in_game.eliminated;
+      myChipsHtml = eliminated
+        ? `<div class="game-card-stat"><div class="val" style="color:var(--red-light)">Out</div><div class="lbl">Status</div></div>`
+        : `<div class="game-card-stat"><div class="val">${me_in_game.chips.toLocaleString()}</div><div class="lbl">My Chips</div></div>`;
+    }
+  }
+
+  const timeStamp = type === 'invite'
+    ? `<div style="font-size:0.7rem;color:var(--text-dim);margin-top:2px">${timeAgo(g.created_at)}</div>`
+    : '';
+
+  const handInfo = type === 'active'
+    ? `<div class="game-card-stat"><div class="val">#${g.hand_number||0}</div><div class="lbl">Hand</div></div>`
+    : '';
+
+  return `
+    <div class="game-card" onclick="openLobby('${g.id}')">
+      <div class="game-card-header">
+        <div>
+          <div class="game-card-name">${g.name}</div>
+          ${timeStamp}
+        </div>
+        <span class="badge ${badgeClass}">${badgeText}</span>
+      </div>
+      <div class="game-card-body">
+        <div class="game-card-meta">
+          <div class="game-card-stat"><div class="val">${g.player_count||'—'}</div><div class="lbl">Players</div></div>
+          ${handInfo}
+          ${myChipsHtml}
+        </div>
+        <button class="btn ${btnClass} btn-sm">${btnText}</button>
+      </div>
+    </div>`;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// CREATE GAME
+// ════════════════════════════════════════════════════════════════════════════
+function openCreateGame() {
+  document.getElementById('new-game-name').value = '';
+  openModal('modal-create-game');
+}
+
+async function createGame() {
+  const name = document.getElementById('new-game-name').value.trim() || 'Friday Night Poker';
+  closeModal('modal-create-game');
+
+  if (me.id === 'demo') {
+    const fakeId = 'demo-' + Math.random().toString(36).slice(2,8);
+    myGames.unshift({ id: fakeId, name, status:'lobby', hand_number:0, host_id: me.id, player_count:1 });
+    renderGamesList();
+    openLobby(fakeId);
+    return;
+  }
+
+  try {
+    const { data, error } = await sb.from('games')
+      .insert({ name, host_id: me.id, status:'lobby' }).select().single();
+    if (error) throw error;
+    await sb.from('game_players').insert({ game_id: data.id, user_id: me.id, seat_index:0 });
+    await loadGames();
+    openLobby(data.id);
+  } catch(e) { toast('Error creating game: ' + e.message); }
+}
+
+// ── LOBBY HOST MIGRATION ──────────────────────────────────────────────────────
+// If host leaves the lobby before starting, promote the next joined player
+let _lobbyHostCheckInterval = null;
+
+function startLobbyHostWatch(gameId) {
+  // Non-host players watch for the host to disappear
+  clearInterval(_lobbyHostCheckInterval);
+  _lobbyHostCheckInterval = setInterval(async () => {
+    if (!currentLobbyId) { clearInterval(_lobbyHostCheckInterval); return; }
+    try {
+      const { data: game } = await sb.from('games').select('host_id, status').eq('id', gameId).single();
+      if (!game || game.status !== 'lobby') { clearInterval(_lobbyHostCheckInterval); return; }
+
+      // Check if host is still in game_players
+      const { data: hostRow } = await sb.from('game_players')
+        .select('id').eq('game_id', gameId).eq('user_id', game.host_id).eq('status', 'joined').single();
+
+      if (!hostRow) {
+        // Host left — longest-waiting joined player takes over
+        const { data: players } = await sb.from('game_players')
+          .select('user_id, joined_at').eq('game_id', gameId).eq('status', 'joined')
+          .order('joined_at', { ascending: true });
+
+        if (!players?.length) return;
+        const newHost = players[0];
+        if (newHost.user_id !== me.id) return; // not my turn to promote
+
+        await sb.from('games').update({ host_id: me.id }).eq('id', gameId).eq('host_id', game.host_id);
+        toast('You are now the lobby host');
+        clearInterval(_lobbyHostCheckInterval);
+        // Reload lobby with host privileges
+        openLobby(gameId);
+      }
+    } catch(e) { /* silent */ }
+  }, 10000); // check every 10s
+}
+
+function stopLobbyWatchdog() {
+  clearInterval(_lobbyWatchdog); _lobbyWatchdog = null;
+  clearInterval(_lobbyHostCheckInterval); _lobbyHostCheckInterval = null;
+}
+
+async function ensureFriendsLoaded() {
+  if (myFriends.length > 0 || me.id === 'demo') return;
+  // Friends tab hasn't been visited yet — load now
+  try {
+    const { data } = await sb.from('friendships')
+      .select(`id,requester_id,addressee_id,
+        requester:users!requester_id(id,display_name,avatar_emoji),
+        addressee:users!addressee_id(id,display_name,avatar_emoji)`)
+      .or(`requester_id.eq.${me.id},addressee_id.eq.${me.id}`)
+      .eq('status','accepted');
+    myFriends = (data||[]).map(f => {
+      const fr = f.requester_id === me.id ? f.addressee : f.requester;
+      return {...fr, friendshipId: f.id};
+    });
+  } catch(e) { console.warn('ensureFriendsLoaded error:', e); }
+}
+
+function renderLobbyFriendList() {
+  const fList = document.getElementById('lobby-friend-invite-list');
+  if (!fList) return;
+  fList.innerHTML = myFriends.length
+    ? myFriends.map(f => `
+        <div class="list-row" style="padding:8px 0;border:none">
+          <div class="avatar sm">${f.avatar_emoji||f.display_name[0]}</div>
+          <div class="list-row-info"><div class="name" style="font-size:0.88rem">${f.display_name}</div></div>
+          <button class="btn btn-ghost btn-sm" onclick="inviteFriend('${f.id}','${f.display_name}')">Invite</button>
+        </div>`).join('')
+    : `<div style="color:var(--text-dim);font-size:0.85rem;padding:8px 0">Add friends to invite them</div>`;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// REJOIN ACTIVE GAME
+// ════════════════════════════════════════════════════════════════════════════
+async function rejoinActiveGame(gameId, gameRef) {
+  try {
+    const { data, error } = await sb.from('games').select('state,host_id,blind_config').eq('id', gameId).single();
+    if (error || !data?.state) { toast('Could not load game'); return; }
+
+    amHost = data.host_id === me.id;
+    if (data.blind_config) {
+      BLIND_LEVELS = data.blind_config.levels || BLIND_LEVELS;
+      blindDurationSeconds = data.blind_config.duration || blindDurationSeconds;
+    }
+    currentGameId = gameId;
+    G = data.state;
+    showScreen('game');
+    screenStack = ['home', 'game'];
+    startBlindTimer();
+
+    if (amHost) {
+      renderGame();
+      hostListenForActions(gameId);
+      startHostHeartbeat(gameId);
+      if (!isMyTurn()) setTimeout(runCpuTurn, 800);
+    } else {
+      // Clear any stale auto-action from previous session
+      _autoAction = null;
+      guestSubscribeToGame(gameId);
+      startDisconnectWatcher(gameId);
+      renderGame();
+      // If it's already our turn, show buttons immediately — don't wait for next state update
+      if (isMyTurn()) {
+        startTurnTimer(30);
+        pushTurnNotification();
+      }
+    }
+    toast('Rejoined game');
+  } catch(e) { toast('Rejoin failed: ' + e.message); }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// LOBBY
+// ════════════════════════════════════════════════════════════════════════════
+let lobbyPlayers = [];
+
+async function openLobby(gameId) {
+  currentLobbyId = gameId;
+
+  // If game is already active, check if we should rejoin directly
+  const gameRef = myGames.find(g => g.id === gameId);
+  if (gameRef?.status === 'active' && me.id !== 'demo') {
+    await rejoinActiveGame(gameId, gameRef);
+    return;
+  }
+
+  // If this is a lobby invite, join properly (update status to 'joined' and get a seat)
+  if (gameRef?.status === 'lobby' && !gameRef?.i_am_host && me.id !== 'demo') {
+    try {
+      // Check current status
+      const { data: myRow } = await sb.from('game_players')
+        .select('id, status, seat_index')
+        .eq('game_id', gameId)
+        .eq('user_id', me.id)
+        .single();
+
+      if (!myRow) {
+        // Not in the game at all — insert as joined
+        const { data: seated } = await sb.from('game_players')
+          .select('seat_index').eq('game_id', gameId).eq('status','joined');
+        const nextSeat = (seated||[]).length;
+        await sb.from('game_players').insert({
+          game_id: gameId, user_id: me.id, seat_index: nextSeat, status: 'joined'
+        });
+      } else if (myRow.status === 'invited') {
+        // Move from invited → joined, assign a seat
+        const { data: seated } = await sb.from('game_players')
+          .select('seat_index').eq('game_id', gameId).eq('status','joined');
+        const nextSeat = (seated||[]).length;
+        await sb.from('game_players').update({ status: 'joined', seat_index: nextSeat })
+          .eq('id', myRow.id);
+      }
+      await loadGames();
+    } catch(e) {
+      // Already joined — continue
+    }
+  }
+
+  pushScreen('lobby');
+  screenStack = ['home', 'lobby'];
+
+  const game = myGames.find(g => g.id === gameId);
+  document.getElementById('lobby-game-name').textContent = game?.name || 'Game';
+  document.getElementById('lobby-game-id').textContent = `Game ID: ${gameId.slice(0,8).toUpperCase()}`;
+  document.getElementById('lobby-invite-url').textContent = `${location.origin}${location.pathname}?join=${gameId.slice(0,8)}`;
+
+  const isHost = !game || game.host_id === me.id;
+  const canInvite = isHost || (game?.my_status === 'joined'); // anyone joined can invite
+  document.getElementById('lobby-start-btn').style.display = isHost ? 'block' : 'none';
+  document.getElementById('lobby-waiting-msg').style.display = isHost ? 'none' : 'block';
+  document.getElementById('blind-editor-section').style.display = isHost ? 'block' : 'none';
+  if (isHost) renderBlindEditor();
+
+  // Render friend invite list — all joined players can invite
+  await ensureFriendsLoaded();
+  if (canInvite) renderLobbyFriendList();
+  else document.getElementById('lobby-friend-invite-list').innerHTML =
+    `<div style="color:var(--text-dim);font-size:0.85rem;padding:8px 0">Join the lobby to invite friends</div>`;
+
+  if (me.id === 'demo') {
+    lobbyPlayers = [{ user: me, seat_index: 0 }];
+    renderLobbySeats();
+    startDemoLobby();
+    return;
+  }
+
+  // Host: nothing extra needed in lobby
+  // Guests: watch in case host leaves so we can promote
+  if (!isHost && me.id !== 'demo') startLobbyHostWatch(gameId);
+
+  // Load players
+  try {
+    const { data } = await sb.from('game_players')
+      .select('*,user:users(id,display_name,avatar_emoji)')
+      .eq('game_id', gameId).order('seat_index');
+
+    // Only seated/joined players count toward the game
+    lobbyPlayers = (data || []).filter(p => p.status === 'joined' || p.status === 'playing' || p.status === 'waiting');
+    const invitedPlayers = (data || []).filter(p => p.status === 'invited');
+    renderLobbySeats();
+    renderInvitedList(invitedPlayers);
+
+function renderInvitedList(invited) {
+  // Show pending invites below the seat grid
+  let el = document.getElementById('lobby-invited-list');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'lobby-invited-list';
+    el.style.cssText = 'padding:0 16px 8px';
+    const seatsEl = document.getElementById('lobby-seats');
+    seatsEl.parentNode.insertBefore(el, seatsEl.nextSibling);
+  }
+  if (!invited.length) { el.innerHTML = ''; return; }
+  el.innerHTML = `
+    <div style="font-size:0.72rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px">Invited — Pending</div>
+    ${invited.map(p => `
+      <div style="display:flex;align-items:center;gap:10px;padding:6px 0">
+        <div class="avatar sm">${p.user?.avatar_emoji||p.user?.display_name?.[0]||'?'}</div>
+        <div style="font-size:0.85rem;color:var(--text-dim);flex:1">${p.user?.display_name||'...'}</div>
+        <span class="badge badge-dim">Invited</span>
+      </div>`).join('')}`;
+}
+
+    // Subscribe — watch both new joins and status updates
+    if (lobbySubscription) lobbySubscription.unsubscribe();
+    lobbySubscription = sb.channel(`lobby:${gameId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'game_players', filter: `game_id=eq.${gameId}` },
+        async () => {
+          // Re-fetch the full list on any change
+          const { data: fresh } = await sb.from('game_players')
+            .select('*,user:users(id,display_name,avatar_emoji)')
+            .eq('game_id', gameId).order('seat_index');
+          lobbyPlayers = (fresh||[]).filter(p => p.status !== 'invited');
+          const invitedPlayers = (fresh||[]).filter(p => p.status === 'invited');
+          renderLobbySeats();
+          renderInvitedList(invitedPlayers);
+          const joiner = (fresh||[]).find(p => p.status !== 'invited' && !lobbyPlayers.find(lp => lp.id === p.id));
+          if (joiner) toast(`${joiner.user?.display_name||'Someone'} joined!`);
+          if (lobbyPlayers.length >= 2) {
+            document.getElementById('lobby-start-btn').style.display = 'block';
+            document.getElementById('lobby-waiting-msg').style.display = 'none';
+          }
+        })
+      .subscribe();
+
+    // Also watch for game status change (host started)
+    sb.channel(`gamestart:${gameId}`)
+      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'games',filter:`id=eq.${gameId}`},
+        (payload) => {
+          if (payload.new.status === 'active') {
+            toast('Game starting!');
+            setTimeout(() => enterGame(gameId, payload.new.state), 800);
+          }
+        })
+      .subscribe();
+  } catch(e) { console.warn(e); lobbyPlayers = [{user:me,seat_index:0}]; renderLobbySeats(); }
+}
+
+function renderLobbySeats() {
+  const el = document.getElementById('lobby-seats');
+  const count = Math.max(lobbyPlayers.length + 1, 4);
+  let html = '';
+  for (let i = 0; i < count; i++) {
+    const p = lobbyPlayers.find(lp => lp.seat_index === i);
+    if (p) {
+      const isHost = i === 0;
+      html += `<div class="seat filled">
+        <div class="avatar sm">${p.user?.avatar_emoji||p.user?.display_name?.[0]||'?'}</div>
+        <div class="seat-name">${p.user?.display_name||'Player'}</div>
+        ${isHost ? `<div class="seat-host">Host</div>` : ''}
+      </div>`;
+    } else {
+      html += `<div class="seat"><div class="seat-empty">+</div><div class="seat-name" style="color:var(--text-dim);font-size:0.72rem">Open</div></div>`;
+    }
+  }
+  el.innerHTML = html;
+  document.getElementById('lobby-player-count').textContent = `${lobbyPlayers.length} joined`;
+}
+
+// ── GLOBAL INVITE LISTENER ────────────────────────────────────────────────────
+let inviteSubscription = null;
+let _invitePollInterval = null;
+let _lastKnownGameIds = new Set();
+
+function subscribeToInvites() {
+  if (inviteSubscription) inviteSubscription.unsubscribe();
+
+  // Track games we already know about so we can detect new ones
+  myGames.forEach(g => _lastKnownGameIds.add(g.id));
+
+  // Supabase column filters on INSERT aren't reliable without REPLICA IDENTITY FULL.
+  // Use a broader subscription (no filter) and check client-side.
+  inviteSubscription = sb.channel(`invites-broad:${me.id}`)
+    .on('postgres_changes', {
+      event: 'INSERT',
+      schema: 'public',
+      table: 'game_players',
+    }, async payload => {
+      // Client-side filter — only care about rows for me
+      if (payload.new.user_id !== me.id) return;
+      await handleNewInvite(payload.new.game_id);
+    })
+    .subscribe();
+
+  // Polling fallback — check every 15s for new games in case Realtime misses it
+  clearInterval(_invitePollInterval);
+  _invitePollInterval = setInterval(async () => {
+    const prevIds = new Set(_lastKnownGameIds);
+    await loadGames();
+    const newGames = myGames.filter(g => !prevIds.has(g.id) && g.status === 'lobby' && !g.i_am_host);
+    for (const g of newGames) {
+      await handleNewInvite(g.id);
+    }
+  }, 15000);
+}
+
+async function handleNewInvite(gameId) {
+  if (_lastKnownGameIds.has(gameId)) return; // already know about this one
+  _lastKnownGameIds.add(gameId);
+
+  try {
+    const { data: game } = await sb
+      .from('games')
+      .select('id, name, host_id, status, users!host_id(display_name)')
+      .eq('id', gameId)
+      .single();
+
+    if (!game || game.host_id === me.id) return;
+
+    const hostName = game.users?.display_name || 'Someone';
+
+    showInviteBanner(game, hostName);
+
+    if ('Notification' in window && Notification.permission === 'granted' && document.visibilityState !== 'visible') {
+      new Notification(`Felt Right — Game Invite`, {
+        body: `${hostName} invited you to "${game.name}"`,
+        tag: `invite-${game.id}`,
+      });
+    }
+
+    await loadGames();
+  } catch(e) { console.warn('handleNewInvite error:', e); }
+}
+
+function showInviteBanner(game, hostName) {
+  // Remove any existing banner
+  const existing = document.getElementById('invite-banner');
+  if (existing) existing.remove();
+
+  const banner = document.createElement('div');
+  banner.id = 'invite-banner';
+  banner.style.cssText = `
+    position: fixed; top: calc(var(--safe-top) + 12px); left: 12px; right: 12px;
+    background: var(--surface); border: 1px solid var(--gold-dim);
+    border-radius: var(--r-sm); padding: 12px 14px; z-index: 500;
+    display: flex; align-items: center; gap: 12px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+    animation: slideDown 0.25s ease;
+  `;
+  banner.innerHTML = `
+    <div style="font-size:1.4rem">🃏</div>
+    <div style="flex:1;min-width:0">
+      <div style="font-weight:600;font-size:0.88rem">${hostName} invited you</div>
+      <div style="font-size:0.78rem;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${game.name}</div>
+    </div>
+    <button class="btn btn-primary btn-sm" onclick="openLobby('${game.id}');document.getElementById('invite-banner')?.remove()">Join</button>
+    <button onclick="this.closest('#invite-banner').remove()"
+      style="background:none;border:none;color:var(--text-dim);font-size:1.2rem;cursor:pointer;padding:0 4px">×</button>
+  `;
+  document.body.appendChild(banner);
+
+  // Auto-dismiss after 8 seconds
+  setTimeout(() => banner.remove(), 8000);
+}
+
+function inviteFriend(friendId, name) {
+  if (me.id === 'demo' || !sb || !currentLobbyId) {
+    const link = `${location.origin}${location.pathname}?join=${currentLobbyId?.slice(0,8)||'—'}`;
+    navigator.clipboard?.writeText(link).then(() => toast(`Invite link copied for ${name}`));
+    return;
+  }
+  // Insert with status='invited' — they get the notification but aren't seated yet.
+  // They become 'joined' only when they explicitly tap Join in the lobby.
+  sb.from('game_players')
+    .insert({
+      game_id: currentLobbyId,
+      user_id: friendId,
+      seat_index: null,
+      status: 'invited',
+    })
+    .then(({ error }) => {
+      if (error && error.code === '23505') {
+        toast(`${name} already invited`);
+      } else if (error) {
+        toast(`Could not invite ${name}`);
+      } else {
+        toast(`${name} invited ✓`);
+      }
+    });
+}
+
+function copyLobbyLink() {
+  const url = document.getElementById('lobby-invite-url').textContent;
+  navigator.clipboard?.writeText(url).then(() => toast('Link copied!'));
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// DEMO LOBBY — simulate friends joining one by one
+// ════════════════════════════════════════════════════════════════════════════
+const DEMO_FRIENDS = [
+  { id:'f1', display_name:'Amanda', avatar_emoji:'♠' },
+  { id:'f2', display_name:'Jake',   avatar_emoji:'♥' },
+  { id:'f3', display_name:'Sara',   avatar_emoji:'♦' },
+  { id:'f4', display_name:'Mike',   avatar_emoji:'♣' },
+];
+let demoJoinTimers = [];
+
+function startDemoLobby() {
+  // Clear any previous timers
+  demoJoinTimers.forEach(t => clearTimeout(t));
+  demoJoinTimers = [];
+
+  // Simulate 3 friends joining at staggered intervals (1.5s, 3s, 5s)
+  const joining = DEMO_FRIENDS.slice(0, 3);
+  joining.forEach((friend, i) => {
+    const t = setTimeout(() => {
+      if (document.getElementById('screen-lobby').classList.contains('active')) {
+        lobbyPlayers.push({ user: friend, seat_index: lobbyPlayers.length });
+        renderLobbySeats();
+        toast(`${friend.display_name} joined the lobby!`);
+        // Reveal Start button once 2+ players are in
+        if (lobbyPlayers.length >= 2) {
+          document.getElementById('lobby-start-btn').style.display = 'block';
+          document.getElementById('lobby-waiting-msg').style.display = 'none';
+        }
+      }
+    }, 1500 + i * 1800);
+    demoJoinTimers.push(t);
+  });
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// START GAME
+// ════════════════════════════════════════════════════════════════════════════
+function startGame() {
+  if (me.id !== 'demo' && lobbyPlayers.length < 2) {
+    toast('Need at least 2 players');
+    return;
+  }
+
+  // Only include players who explicitly joined (not just invited)
+  let playerSource = lobbyPlayers.filter(lp =>
+    lp.status === 'joined' || lp.status === 'playing' || lp.status === 'waiting' || me.id === 'demo'
+  );
+  if (me.id === 'demo' && lobbyPlayers.length < 2) {
+    // In case user tapped Start before friends "arrived", fill with demo players
+    playerSource = [
+      { user: me, seat_index: 0 },
+      ...DEMO_FRIENDS.slice(0, 3).map((f, i) => ({ user: f, seat_index: i+1 })),
+    ];
+  }
+
+  // Build player array
+  const players = playerSource.map((lp, i) => ({
+    id: lp.user?.id || lp.id || `p${i}`,
+    name: lp.user?.display_name || `Player ${i+1}`,
+    emoji: lp.user?.avatar_emoji || '🃏',
+    chips: STARTING_CHIPS,
+    hand: [],
+    bet: 0,
+    totalBet: 0,
+    folded: false,
+    allIn: false,
+    lastAction: null,
+    seatIndex: i,
+    isDealer: false,
+    eliminated: false,
+  }));
+
+  // Random dealer
+  const dealerIdx = Math.floor(Math.random() * players.length);
+  players[dealerIdx].isDealer = true;
+
+  // Shuffle seating order
+  for (let i = players.length-1; i > 0; i--) {
+    const j = Math.floor(Math.random()*(i+1));
+    [players[i], players[j]] = [players[j], players[i]];
+  }
+  players.forEach((p,i) => p.seatIndex = i);
+
+  const initialState = {
+    players,
+    handNumber: 0,
+    stage: 'deal',
+    community: [],
+    pot: 0,
+    deck: [],
+    currentBet: 0,
+    actionIndex: -1,
+    dealerId: null,
+    dealerPos: -1,
+    sbIdx: -1,
+    bbIdx: -1,
+    finalPlacements: [],
+  };
+
+  if (me.id !== 'demo' && sb && currentLobbyId) {
+    amHost = true;
+    stopLobbyWatchdog(); // game is starting — no need for inactivity check
+    sb.from('games').update({
+      status: 'active',
+      state: initialState,
+      started_at: new Date().toISOString(),
+      // Store blind config so guests can read it
+      blind_config: { levels: BLIND_LEVELS, duration: blindDurationSeconds },
+    }).eq('id', currentLobbyId).then(({ error }) => {
+      if (error) console.warn('startGame sync error:', error);
+    });
+  } else {
+    amHost = me.id === 'demo'; // demo always acts as host
+  }
+
+  enterGame(currentLobbyId, initialState);
+}
+
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// BLIND STRUCTURE EDITOR
+// ════════════════════════════════════════════════════════════════════════════
+const DEFAULT_BLIND_LEVELS = [
+  {level:1,  small:10,  big:20  },
+  {level:2,  small:15,  big:30  },
+  {level:3,  small:25,  big:50  },
+  {level:4,  small:50,  big:100 },
+  {level:5,  small:75,  big:150 },
+  {level:6,  small:100, big:200 },
+  {level:7,  small:150, big:300 },
+  {level:8,  small:200, big:400 },
+  {level:9,  small:300, big:600 },
+  {level:10, small:500, big:1000},
+];
+
+function renderBlindEditor() {
+  const tbody = document.getElementById('blind-editor-body');
+  if (!tbody) return;
+  tbody.innerHTML = BLIND_LEVELS.map((lvl, i) => `
+    <tr>
+      <td style="color:var(--text-dim);font-size:0.78rem;padding-left:6px">${i+1}</td>
+      <td><input class="blind-input" type="number" min="5" step="5" value="${lvl.small}"
+        oninput="BLIND_LEVELS[${i}].small=Math.max(5,parseInt(this.value)||5); BLIND_LEVELS[${i}].big=BLIND_LEVELS[${i}].small*2; this.closest('tr').cells[2].querySelector('input').value=BLIND_LEVELS[${i}].big"></td>
+      <td><input class="blind-input" type="number" min="10" step="5" value="${lvl.big}"
+        oninput="BLIND_LEVELS[${i}].big=Math.max(10,parseInt(this.value)||10)"></td>
+      <td>${BLIND_LEVELS.length > 2 ? `<button class="blind-row-del" onclick="removeBlindLevel(${i})">×</button>` : ''}</td>
+    </tr>`).join('');
+}
+
+function addBlindLevel() {
+  const last = BLIND_LEVELS[BLIND_LEVELS.length - 1];
+  BLIND_LEVELS.push({ level: BLIND_LEVELS.length + 1, small: last.small * 2, big: last.big * 2 });
+  renderBlindEditor();
+}
+
+function removeBlindLevel(i) {
+  if (BLIND_LEVELS.length <= 2) return;
+  BLIND_LEVELS.splice(i, 1);
+  BLIND_LEVELS.forEach((l, idx) => l.level = idx + 1);
+  renderBlindEditor();
+}
+
+function resetBlinds() {
+  BLIND_LEVELS = DEFAULT_BLIND_LEVELS.map(l => ({...l}));
+  document.getElementById('blind-duration-input').value = 10;
+  blindDurationSeconds = DEFAULT_BLIND_DURATION;
+  renderBlindEditor();
+  toast('Blind structure reset to default');
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// BLIND LEVEL TIMER (time-based, runs during the game)
+// ════════════════════════════════════════════════════════════════════════════
+let _blindTimerInterval = null;
+let _blindLevelStartTime = null;
+let _currentBlindLevel  = 0;
+
+function startBlindTimer() {
+  stopBlindTimer();
+  _currentBlindLevel = 0;
+  _blindLevelStartTime = Date.now();
+  updateBlindTimerDisplay(); // paint immediately at 100%
+  _blindTimerInterval = setInterval(tickBlindTimer, 1000);
+}
+
+function stopBlindTimer() {
+  clearInterval(_blindTimerInterval);
+  _blindTimerInterval = null;
+}
+
+function tickBlindTimer() {
+  if (!G) { stopBlindTimer(); return; }
+  const elapsed = Math.floor((Date.now() - _blindLevelStartTime) / 1000);
+  const remaining = blindDurationSeconds - elapsed;
+
+  if (remaining <= 0) {
+    _currentBlindLevel++;
+    _blindLevelStartTime = Date.now();
+    const b = getBlinds(_currentBlindLevel);
+    toast(`Blinds up! Now ${b.small} / ${b.big}`);
+    const bi = document.getElementById('blind-info');
+    if (bi) bi.innerHTML =
+      `<span class="pos-badge sb" style="font-size:0.5rem;width:16px;height:16px">SB</span> ${b.small} &nbsp;` +
+      `<span class="pos-badge bb" style="font-size:0.5rem;width:16px;height:16px">BB</span> ${b.big}`;
+  }
+
+  updateBlindTimerDisplay();
+}
+
+function getCurrentBlindLevel() {
+  return _currentBlindLevel;
+}
+
+function updateBlindTimerDisplay() {
+  const elapsed = Math.floor((Date.now() - (_blindLevelStartTime || Date.now())) / 1000);
+  const remaining = Math.max(0, blindDurationSeconds - elapsed);
+  const pct = remaining / blindDurationSeconds;
+
+  const fill = document.getElementById('blind-timer-fill');
+  const countdown = document.getElementById('blind-timer-countdown');
+  const label = document.getElementById('blind-level-label');
+
+  if (fill) {
+    fill.style.width = (pct * 100) + '%';
+    fill.style.background = pct > 0.4 ? 'var(--gold)' : pct > 0.15 ? '#e67e22' : 'var(--red-light)';
+  }
+  if (countdown) {
+    const m = Math.floor(remaining / 60);
+    const s = remaining % 60;
+    countdown.textContent = `${m}:${s.toString().padStart(2,'0')}`;
+    countdown.style.color = pct > 0.4 ? 'var(--gold)' : pct > 0.15 ? '#e67e22' : 'var(--red-light)';
+  }
+  if (label) {
+    const pastStructure = _currentBlindLevel >= BLIND_LEVELS.length;
+    label.textContent = `Lvl ${_currentBlindLevel + 1}${pastStructure ? ' ×2' : ' →'}`;
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// GAME TABLE — MULTIPLAYER ENGINE
+// ════════════════════════════════════════════════════════════════════════════
+
+// ── HOST HEARTBEAT ────────────────────────────────────────────────────────────
+const HEARTBEAT_INTERVAL  = 15000; // host pings every 15s
+const DISCONNECT_TIMEOUT  = 35000; // guest waits 35s before declaring host gone
+const MIGRATION_COUNTDOWN = 30;    // seconds shown on pause overlay before migration
+
+let _heartbeatInterval    = null;
+let _disconnectWatchTimer = null;
+let _migrationCountdown   = null;
+let _gamePaused           = false;
+
+function startHostHeartbeat(gameId) {
+  stopHostHeartbeat();
+  // Write immediately, then every 15s
+  pingHostSeen(gameId);
+  _heartbeatInterval = setInterval(() => pingHostSeen(gameId), HEARTBEAT_INTERVAL);
+}
+
+function stopHostHeartbeat() {
+  clearInterval(_heartbeatInterval);
+  _heartbeatInterval = null;
+}
+
+async function pingHostSeen(gameId) {
+  if (!sb || !gameId) return;
+  await sb.from('games')
+    .update({ last_host_seen: new Date().toISOString() })
+    .eq('id', gameId);
+}
+
+// ── GUEST DISCONNECT WATCHER ──────────────────────────────────────────────────
+function startDisconnectWatcher(gameId) {
+  stopDisconnectWatcher();
+  _disconnectWatchTimer = setInterval(() => checkHostAlive(gameId), 5000);
+}
+
+function stopDisconnectWatcher() {
+  clearInterval(_disconnectWatchTimer);
+  _disconnectWatchTimer = null;
+}
+
+async function checkHostAlive(gameId) {
+  if (!sb || !gameId || amHost) return;
+  try {
+    const { data } = await sb.from('games')
+      .select('last_host_seen, host_id')
+      .eq('id', gameId)
+      .single();
+    if (!data?.last_host_seen) return;
+
+    const age = Date.now() - new Date(data.last_host_seen).getTime();
+    if (age > DISCONNECT_TIMEOUT && !_gamePaused) {
+      showDisconnectPause(gameId, data.host_id);
+    }
+  } catch(e) { /* silent */ }
+}
+
+function showDisconnectPause(gameId, oldHostId) {
+  if (_gamePaused) return;
+  _gamePaused = true;
+  stopTurnTimer();
+
+  let secsLeft = MIGRATION_COUNTDOWN;
+  const overlay = document.getElementById('showdown-overlay');
+  overlay.style.display = 'flex';
+
+  const render = () => {
+    overlay.innerHTML = `
+      <div class="showdown-bar" style="gap:12px">
+        <div style="font-size:2rem">📡</div>
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:1.4rem;color:var(--gold-pale);letter-spacing:0.08em">
+          Host Disconnected
+        </div>
+        <div style="font-size:0.85rem;color:var(--text-dim);text-align:center;line-height:1.6">
+          Waiting for host to reconnect…<br>
+          <span style="color:var(--gold)">Taking over in ${secsLeft}s</span> if they don't return
+        </div>
+        <div style="width:80%;height:4px;background:rgba(255,255,255,0.08);border-radius:2px;overflow:hidden">
+          <div style="height:100%;background:var(--gold);width:${(secsLeft/MIGRATION_COUNTDOWN)*100}%;transition:width 1s linear"></div>
+        </div>
+      </div>`;
+  };
+
+  render();
+
+  _migrationCountdown = setInterval(async () => {
+    secsLeft--;
+    render();
+    if (secsLeft <= 0) {
+      clearInterval(_migrationCountdown);
+      _migrationCountdown = null;
+      await attemptHostMigration(gameId, oldHostId);
+    }
+  }, 1000);
+}
+
+async function attemptHostMigration(gameId, oldHostId) {
+  // Determine who should become host: non-eliminated player with lowest seat index
+  // All clients run this same logic independently — only the "winner" will succeed
+  // because the DB update is conditional on host_id still being the old host
+  if (!G) return;
+
+  const candidates = G.players
+    .filter(p => !p.eliminated && p.chips > 0 && p.id !== oldHostId)
+    .sort((a, b) => a.seatIndex - b.seatIndex);
+
+  if (!candidates.length) return;
+  const newHostPlayer = candidates[0];
+
+  // Only the designated new host does the migration
+  if (newHostPlayer.id !== me.id) {
+    // I'm not the designated new host — just wait and re-subscribe
+    // The new host will update host_id and we'll continue as guest
+    setTimeout(() => {
+      _gamePaused = false;
+      document.getElementById('showdown-overlay').style.display = 'none';
+      guestSubscribeToGame(gameId);
+    }, 3000);
+    return;
+  }
+
+  // I AM the new host — take over
+  try {
+    const { error } = await sb.from('games')
+      .update({
+        host_id: me.id,
+        last_host_seen: new Date().toISOString(),
+      })
+      .eq('id', gameId)
+      .eq('host_id', oldHostId); // only succeeds if no one else already migrated
+
+    if (error) {
+      // Someone else won the migration race — become a guest
+      _gamePaused = false;
+      document.getElementById('showdown-overlay').style.display = 'none';
+      amHost = false;
+      guestSubscribeToGame(gameId);
+      return;
+    }
+
+    // Migration successful — take over as host
+    amHost = true;
+    _gamePaused = false;
+    stopDisconnectWatcher();
+    document.getElementById('showdown-overlay').style.display = 'none';
+    toast('You are now the host');
+    startHostHeartbeat(gameId);
+    hostListenForActions(gameId);
+
+    // Resume the game — if mid-hand, continue from current state
+    // If we're waiting between hands, deal a new one
+    renderGame();
+    if (G.stage === 'deal' || G.stage === 'showdown') {
+      setTimeout(dealNewHand, 1000);
+    } else if (!isMyTurn()) {
+      setTimeout(runCpuTurn, 800);
+    }
+
+  } catch(e) {
+    console.warn('Migration failed:', e);
+    _gamePaused = false;
+  }
+}
+
+// ── ENTER GAME ────────────────────────────────────────────────────────────────
+function enterGame(gameId, state) {
+  currentGameId = gameId;
+  G = JSON.parse(JSON.stringify(state));
+  showScreen('game');
+  screenStack = ['home', 'game'];
+  startBlindTimer();
+  _gamePaused = false;
+  startPresence(gameId);
+
+  if (me.id === 'demo' || amHost) {
+    dealNewHand();
+    if (amHost && sb) {
+      hostListenForActions(gameId);
+      startHostHeartbeat(gameId);
+    }
+  } else {
+    guestSubscribeToGame(gameId);
+    startDisconnectWatcher(gameId);
+    renderGame();
+  }
+}
+
+// ── HOST: push full state after every action ──────────────────────────────────
+function syncGameState() {
+  if (!sb || !currentGameId || me.id === 'demo') return;
+  sb.from('games')
+    .update({ state: G, hand_number: G.handNumber, last_host_seen: new Date().toISOString() })
+    .eq('id', currentGameId)
+    .then(({ error }) => { if (error) console.warn('sync error:', error); });
+}
+
+// ── HOST: listen for actions submitted by non-host players ───────────────────
+function hostListenForActions(gameId) {
+  if (actionSubscription) actionSubscription.unsubscribe();
+  actionSubscription = sb.channel(`actions:${gameId}`)
+    .on('postgres_changes', {
+      event: 'INSERT', schema: 'public', table: 'player_actions',
+      filter: `game_id=eq.${gameId}`,
+    }, payload => {
+      const { player_id, action, amount } = payload.new;
+      const acting = G?.players[G.actionIndex];
+      if (!acting || acting.id !== player_id) return;
+      applyRemoteAction(player_id, action, amount);
+    })
+    .subscribe();
+}
+
+function applyRemoteAction(playerId, action, amount) {
+  const p = G.players.find(pl => pl.id === playerId);
+  if (!p || p.folded || p.eliminated) return;
+  stopTurnTimer();
+
+  if (action === 'fold') {
+    p.folded = true; p.lastAction = { type:'fold', label:'Fold' };
+  } else if (action === 'check') {
+    p.lastAction = { type:'check', label:'Check' };
+  } else if (action === 'call') {
+    const amt = Math.min(G.currentBet - p.bet, p.chips);
+    p.chips -= amt; p.bet += amt; p.totalBet += amt; G.pot += amt;
+    if (p.chips === 0) p.allIn = true;
+    p.lastAction = { type:'bet', label:`Call ${amt}` };
+  } else if (['raise','pot','twopot'].includes(action)) {
+    const raiseTotal = Math.min(amount || 0, p.chips + p.bet);
+    const add = raiseTotal - p.bet;
+    if (add > 0) { p.chips -= add; p.bet = raiseTotal; p.totalBet += add; G.pot += add; }
+    if (p.chips === 0) p.allIn = true;
+    G.currentBet = raiseTotal;
+    p.lastAction = { type:'bet', label:`Raise ${raiseTotal}` };
+    G.players.forEach(op => {
+      if (op.id !== p.id && !op.folded && !op.eliminated && !op.allIn) op.lastAction = null;
+    });
+  }
+  renderGame();
+  syncGameState();
+  setTimeout(advanceAction, 400);
+}
+
+// ── GUEST: receive state updates from host ────────────────────────────────────
+function guestSubscribeToGame(gameId) {
+  if (gameSubscription) gameSubscription.unsubscribe();
+  gameSubscription = sb.channel(`game-state:${gameId}`)
+    .on('postgres_changes', {
+      event: 'UPDATE', schema: 'public', table: 'games',
+      filter: `id=eq.${gameId}`,
+    }, payload => {
+      const row = payload.new;
+      if (!row.state) return;
+
+      const prevHandNumber = G?.handNumber || 0;
+      const prevActionIndex = G?.actionIndex;
+
+      // Clear pause overlay if host reconnected
+      if (_gamePaused) {
+        _gamePaused = false;
+        clearInterval(_migrationCountdown); _migrationCountdown = null;
+        document.getElementById('showdown-overlay').style.display = 'none';
+        toast('Host reconnected — game resumed');
+      }
+
+      G = row.state;
+      if (row.blind_config) {
+        BLIND_LEVELS = row.blind_config.levels || BLIND_LEVELS;
+        blindDurationSeconds = row.blind_config.duration || blindDurationSeconds;
+      }
+
+      // New hand started — clear auto action so it doesn't immediately fire
+      if (G.handNumber !== prevHandNumber) {
+        _autoAction = null;
+        const autoBar = document.getElementById('auto-action-bar');
+        if (autoBar) autoBar.innerHTML = '';
+      }
+
+      renderGame();
+
+      if (isMyTurn()) {
+        // Only start a fresh timer if the action index changed to us
+        // Prevents re-triggering the timer on every state sync while it's our turn
+        if (G.actionIndex !== prevActionIndex) {
+          startTurnTimer(30);
+          pushTurnNotification();
+        }
+      } else {
+        stopTurnTimer();
+      }
+    })
+    .subscribe();
+}
+
+// ── GUEST: submit action to DB ────────────────────────────────────────────────
+async function submitAction(action, amount) {
+  if (!sb || !currentGameId || amHost || me.id === 'demo') return;
+  try {
+    await sb.from('player_actions').insert({
+      game_id: currentGameId,
+      player_id: me.id,
+      action,
+      amount: amount || null,
+    });
+  } catch(e) { toast('Action failed — try again'); }
+}
+
+// ── NOTIFICATIONS ─────────────────────────────────────────────────────────────
+function pushTurnNotification() {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  if (document.visibilityState === 'visible') return;
+  new Notification('Felt Right — Your Turn', {
+    body: "It's your turn! 30 seconds to act.",
+    tag: 'your-turn',
+    renotify: true,
+  });
+}
+
+
+// ── DEAL ─────────────────────────────────────────────────────────────────────
+function dealNewHand() {
+  const activePlayers = G.players.filter(p => !p.eliminated && p.chips > 0);
+  if (activePlayers.length < 2) { endTournament(); return; }
+  // No more auto chop popup — players can use the Chop button in the action bar
+  proceedToDeal();
+}
+
+function proceedToDeal() {
+  const activePlayers = G.players.filter(p => !p.eliminated && p.chips > 0);
+
+  G.handNumber++;
+  G.stage = 'preflop';
+  G.community = [];
+  G.pot = 0;
+  G.deck = makeDeck();
+  _animatedCards.clear();
+  stopTurnTimer();
+  _autoAction = null;
+  const autoBar = document.getElementById('auto-action-bar');
+  if (autoBar) autoBar.innerHTML = '';
+
+  const blinds = getBlinds(getCurrentBlindLevel());
+
+  // Reset players — totalBet tracks cumulative contribution this hand for side pot math
+  G.players.forEach(p => {
+    p.hand = []; p.bet = 0; p.totalBet = 0; p.folded = false;
+    p.allIn = false; p.lastAction = null;
+    if (p.eliminated || p.chips <= 0) p.folded = true;
+  });
+
+  // Rotate dealer — if prev dealer busted, findIndex returns -1 → (0 % n) = next player
+  const eligible = G.players.filter(p => !p.eliminated && p.chips > 0);
+  G.players.forEach(p => p.isDealer = false);
+  let newDealerEligIdx;
+  if (G.handNumber === 1) {
+    newDealerEligIdx = Math.floor(Math.random() * eligible.length);
+  } else {
+    const prevIdx = eligible.findIndex(p => p.id === G.dealerId);
+    newDealerEligIdx = (prevIdx + 1) % eligible.length;
+  }
+  const dealer = eligible[newDealerEligIdx];
+  dealer.isDealer = true;
+  G.dealerId = dealer.id;
+
+  // Deal 2 cards to each active player
+  for (const p of G.players) {
+    if (!p.folded) { p.hand = [G.deck.pop(), G.deck.pop()]; }
+  }
+
+  // Post blinds — heads-up: dealer = SB
+  G.currentBet = blinds.big;
+  const dealerPos = G.players.findIndex(p => p.id === G.dealerId);
+  let sbIdx, bbIdx;
+  if (eligible.length === 2) {
+    sbIdx = dealerPos;
+    bbIdx = nextActive(dealerPos);
+  } else {
+    sbIdx = nextActive(dealerPos);
+    bbIdx = nextActive(sbIdx);
+  }
+
+  G.dealerPos = dealerPos;
+  G.sbIdx = sbIdx;
+  G.bbIdx = bbIdx;
+
+  postBlind(sbIdx, blinds.small);
+  postBlind(bbIdx, blinds.big);
+  G.players[sbIdx].lastAction = { type:'bet', label:`SB ${blinds.small}` };
+
+  // Heads-up preflop: dealer/SB acts first
+  G.actionIndex = eligible.length === 2 ? sbIdx : nextActive(bbIdx);
+
+  renderGame();
+  if (!isMyTurn()) setTimeout(runCpuTurn, 1000);
+}
+
+function postBlind(idx, amount) {
+  const p = G.players[idx];
+  const paid = Math.min(amount, p.chips);
+  p.chips -= paid; p.bet += paid; p.totalBet += paid; G.pot += paid;
+  if (p.chips === 0) p.allIn = true;
+}
+
+function nextActive(fromIdx) {
+  const n = G.players.length;
+  for (let i = 1; i < n; i++) {
+    const idx = (fromIdx + i) % n;
+    if (!G.players[idx].folded && !G.players[idx].eliminated && G.players[idx].chips > 0) return idx;
+  }
+  return fromIdx;
+}
+
+function isMyTurn() {
+  if (G.actionIndex < 0) return false;
+  const p = G.players[G.actionIndex];
+  return p && p.id === me.id && !p.folded;
+}
+
+// ── RENDER ───────────────────────────────────────────────────────────────────
+function renderGame() {
+  const blinds = getBlinds(getCurrentBlindLevel());
+  document.getElementById('blind-info').innerHTML =
+    `<span class="pos-badge sb" style="font-size:0.5rem;width:16px;height:16px">SB</span> ${blinds.small} &nbsp;` +
+    `<span class="pos-badge bb" style="font-size:0.5rem;width:16px;height:16px">BB</span> ${blinds.big}`;
+  document.getElementById('hand-num').textContent = `Hand #${G.handNumber}`;
+  // Pot display — show side pots if any player is all-in
+  const allInPlayers = G.players.filter(p => p.allIn && !p.eliminated);
+  if (allInPlayers.length > 0 && G.stage !== 'showdown') {
+    const previewPots = buildSidePots(G.players.filter(p => !p.eliminated));
+    const potText = previewPots.length > 1
+      ? previewPots.map((p, i) => `${i===0?'Main':'Side'}: ${p.amount}`).join(' · ')
+      : `POT: ${G.pot}`;
+    document.getElementById('pot-display').textContent = potText;
+  } else {
+    document.getElementById('pot-display').textContent = `POT: ${G.pot}`;
+  }
+
+  const stages = { preflop:'PRE-FLOP', flop:'FLOP', turn:'TURN', river:'RIVER', showdown:'SHOWDOWN' };
+  document.getElementById('stage-label').textContent = stages[G.stage]||G.stage.toUpperCase();
+
+  // My hand
+  const myPlayer = G.players.find(p => p.id === me.id);
+  const myCards = document.getElementById('my-cards');
+  myCards.innerHTML = '';
+  if (myPlayer && myPlayer.hand.length) {
+    myPlayer.hand.forEach((c,i) => {
+      const el = makeCardEl(c, false, true, cardKey(c, 'hole'));
+      myCards.appendChild(el);
+    });
+  }
+  if (myPlayer) {
+    document.getElementById('my-chips').textContent = myPlayer.chips.toLocaleString();
+  }
+
+  // Community cards
+  const commEl = document.getElementById('community-cards');
+  commEl.innerHTML = '';
+  G.community.forEach((c,i) => {
+    const el = makeCardEl(c, false, false, cardKey(c, 'comm'));
+    commEl.appendChild(el);
+  });
+
+  // Opponents ring
+  const ring = document.getElementById('opponents-ring');
+  ring.innerHTML = '';
+  G.players.filter(p => p.id !== me.id).forEach(p => {
+    const pIdx = G.players.indexOf(p);
+    const isActive = G.actionIndex >= 0 && G.players[G.actionIndex]?.id === p.id;
+    const div = document.createElement('div');
+    div.className = 'player-seat' + (p.folded||p.eliminated?' folded':'') + (isActive?' active-turn':'');
+
+    const cardsHtml = p.hand.length ? p.hand.map(c => {
+      const reveal = G.stage === 'showdown' && !p.folded;
+      const red = isRed(c);
+      if (reveal) {
+        return `<div class="card sm ${red?'red':'black'}">
+          <div style="font-size:0.55rem;font-weight:700;line-height:1;padding:1px 2px;color:${red?'var(--red)':'#111'}">${c.rank}${c.suit}</div>
+        </div>`;
+      } else {
+        return `<div class="card sm back"></div>`;
+      }
+    }).join('') : '';
+
+    const badges = positionBadges(pIdx);
+
+    div.innerHTML = `
+      <div class="hole-cards">${cardsHtml}</div>
+      <div style="position:relative;display:inline-block">
+        <div class="avatar sm">${p.emoji||p.name[0]}</div>
+        ${badges ? `<div style="position:absolute;bottom:-6px;right:-6px;display:flex;gap:2px">${badges}</div>` : ''}
+      </div>
+      <div class="name">${p.name}</div>
+      <div class="chips-count">${p.chips.toLocaleString()}</div>
+      ${p.disconnected ? `<div class="action-bubble" style="color:var(--text-dim);font-size:0.6rem">📡 Away</div>`
+        : p.allIn ? `<div class="action-bubble bet" style="background:rgba(231,76,60,0.25);color:#e74c3c;border:1px solid rgba(231,76,60,0.3)">All-In</div>`
+        : p.lastAction ? `<div class="action-bubble ${p.lastAction.type}">${p.lastAction.label}</div>` : ''}
+    `;
+    ring.appendChild(div);
+  });
+
+  // My position badges
+  const myIdx = G.players.findIndex(p => p.id === me.id);
+  const myBadgeEl = document.getElementById('my-pos-badges');
+  if (myBadgeEl) myBadgeEl.innerHTML = positionBadges(myIdx);
+
+  // Action bar
+  renderActionBar();
+}
+
+// ── POSITION BADGES ───────────────────────────────────────────────────────────
+function positionBadges(playerIdx) {
+  if (!G || G.dealerPos === undefined) return '';
+  let badges = '';
+  if (playerIdx === G.dealerPos) badges += `<span class="pos-badge dealer">D</span>`;
+  if (playerIdx === G.sbIdx)     badges += `<span class="pos-badge sb">SB</span>`;
+  if (playerIdx === G.bbIdx)     badges += `<span class="pos-badge bb">BB</span>`;
+  return badges;
+}
+
+// Track which card keys have already been animated so we don't re-animate on every render
+const _animatedCards = new Set();
+
+function cardKey(card, context) { return `${context}:${card.rank}${card.suit}`; }
+
+function makeCardEl(card, hidden, lg, animKey) {
+  const el = document.createElement('div');
+  const red = isRed(card);
+  const shouldAnim = animKey && !_animatedCards.has(animKey);
+  if (shouldAnim) _animatedCards.add(animKey);
+  el.className = `card ${shouldAnim ? 'deal-anim' : ''} ${hidden ? 'back' : (red ? 'red' : 'black')} ${lg ? 'lg' : ''}`;
+  if (!hidden) {
+    el.innerHTML = `
+      <div class="card-top"><div class="card-rank">${card.rank}</div><div class="card-suit">${card.suit}</div></div>
+      <div class="card-center">${card.suit}</div>
+      <div class="card-bot"><div class="card-rank">${card.rank}</div><div class="card-suit">${card.suit}</div></div>`;
+  }
+  return el;
+}
+
+function renderActionBar() {
+  const bar = document.getElementById('action-bar');
+  const slider = document.getElementById('bet-slider-row');
+
+  if (!isMyTurn()) {
+    bar.innerHTML = `<div class="waiting-msg" style="width:100%;padding:8px 0">Waiting…</div>`;
+    slider.style.display = 'none';
+    stopTurnTimer();
+    const autoBar = document.getElementById('auto-action-bar');
+    if (autoBar) autoBar.innerHTML = '';
+    return;
+  }
+
+  const myPlayer = G.players.find(p => p.id === me.id);
+  const callAmt = Math.min(G.currentBet - myPlayer.bet, myPlayer.chips);
+  const canCheck = G.currentBet === myPlayer.bet;
+
+  const blinds = getBlinds(getCurrentBlindLevel());
+  const minRaiseTotal = Math.max(G.currentBet + blinds.big, blinds.big * 2);
+  const minRaise = Math.min(snapTo5(minRaiseTotal), myPlayer.chips);
+  const maxBet = myPlayer.chips;
+  const canRaise = maxBet >= minRaise;
+
+  // Pot bet = call first, then pot size on top (standard formula)
+  const potBet   = Math.min(snapTo5(G.pot + callAmt), maxBet);
+  const twoPotBet = Math.min(snapTo5((G.pot + callAmt) * 2), maxBet);
+  const potOk  = canRaise && potBet >= minRaise;
+  const tpOk   = canRaise && twoPotBet >= minRaise;
+
+  const defaultRaise = Math.min(snapTo5(Math.max(G.currentBet * 3, minRaise)), maxBet);
+
+  if (canRaise) {
+    slider.style.display = 'flex';
+    const sl = document.getElementById('bet-slider');
+    sl.min = minRaise; sl.max = maxBet; sl.step = 5; sl.value = defaultRaise;
+    updateBetLabel();
+  } else {
+    slider.style.display = 'none';
+  }
+
+  const activePlayers = G.players.filter(p => !p.folded && !p.eliminated && p.chips > 0);
+  const isHeadsUp = activePlayers.length === 2;
+
+  bar.innerHTML = `
+    <button class="btn btn-danger" onclick="playerAction('fold')">Fold</button>
+    ${canCheck
+      ? `<button class="btn btn-surface" onclick="playerAction('check')">Check</button>`
+      : `<button class="btn btn-surface" onclick="playerAction('call')">Call<br><span style="font-size:0.72rem;opacity:0.8">${callAmt}</span></button>`}
+    <button class="btn btn-surface" onclick="playerAction('pot')" ${potOk?'':'disabled'}
+      style="color:var(--gold)">Pot<br><span style="font-size:0.72rem;opacity:0.8">${potBet}</span></button>
+    <button class="btn btn-surface" onclick="playerAction('twopot')" ${tpOk?'':'disabled'}
+      style="color:var(--gold)">2× Pot<br><span style="font-size:0.72rem;opacity:0.8">${twoPotBet}</span></button>
+    <button class="btn btn-primary" onclick="playerAction('raise')" ${!canRaise?'disabled':''}>
+      Raise<br><span style="font-size:0.72rem;opacity:0.8">${canRaise ? document.getElementById('bet-slider')?.value||defaultRaise : '—'}</span>
+    </button>
+    ${isHeadsUp ? `<button class="btn btn-surface btn-full" onclick="offerChopShortcut()"
+      style="color:var(--gold-pale);margin-top:4px;font-size:0.8rem">🤝 Offer Chop</button>` : ''}
+  `;
+
+  startTurnTimer(30);
+  renderAutoActionBar();
+}
+
+function setQuickBet(amount) {
+  const sl = document.getElementById('bet-slider');
+  if (!sl) return;
+  sl.value = Math.max(parseInt(sl.min), Math.min(parseInt(sl.max), amount));
+  updateBetLabel();
+}
+
+function snapTo5(n) { return Math.round(n / 5) * 5 || 5; }
+
+function updateBetLabel() {
+  const sl = document.getElementById('bet-slider');
+  const lbl = document.getElementById('bet-amount-label');
+  if (sl && lbl) lbl.textContent = sl.value;
+  // Also update the Raise button label live
+  const raiseBtn = document.querySelector('#action-bar .btn-primary');
+  if (raiseBtn) {
+    const span = raiseBtn.querySelector('span');
+    if (span) span.textContent = sl?.value || '';
+  }
+}
+
+// ── TURN TIMER ────────────────────────────────────────────────────────────────
+const TURN_SECONDS = 30;
+const CIRCUMFERENCE = 2 * Math.PI * 15;
+let _timerInterval = null;
+let _timerLeft = TURN_SECONDS;
+let _autoAction = null; // pre-selected action: 'check_fold' | 'check' | 'call' | 'fold'
+
+function startTurnTimer(seconds) {
+  stopTurnTimer();
+  _timerLeft = seconds;
+  const timerEl = document.getElementById('turn-timer');
+  const numEl   = document.getElementById('timer-num');
+  const arcEl   = document.getElementById('timer-arc');
+  if (!timerEl) return;
+
+  timerEl.style.display = 'flex';
+  updateTimerDisplay(_timerLeft, seconds, numEl, arcEl);
+
+  _timerInterval = setInterval(() => {
+    _timerLeft--;
+    updateTimerDisplay(_timerLeft, seconds, numEl, arcEl);
+    if (_timerLeft <= 0) {
+      stopTurnTimer();
+      fireAutoAction();
+    }
+  }, 1000);
+}
+
+function fireAutoAction() {
+  const myPlayer = G.players.find(p => p.id === me.id);
+  if (!myPlayer) return;
+  const canCheck = G.currentBet === myPlayer.bet;
+
+  // If player pre-selected an action, honour it
+  if (_autoAction === 'fold') { playerAction('fold'); return; }
+  if (_autoAction === 'check' && canCheck) { playerAction('check'); return; }
+  if (_autoAction === 'call') { playerAction(canCheck ? 'check' : 'call'); return; }
+  if (_autoAction === 'check_fold') { playerAction(canCheck ? 'check' : 'fold'); return; }
+
+  // Default: check if possible, otherwise fold
+  playerAction(canCheck ? 'check' : 'fold');
+}
+
+function setAutoAction(action) {
+  _autoAction = _autoAction === action ? null : action; // toggle off if tapped again
+  // Re-render just the auto-action buttons to show selection state
+  renderAutoActionBar();
+}
+
+function renderAutoActionBar() {
+  const el = document.getElementById('auto-action-bar');
+  if (!el) return;
+  const myPlayer = G.players.find(p => p.id === me.id);
+  const canCheck = myPlayer && G.currentBet === myPlayer.bet;
+  const opts = canCheck
+    ? [['check','Check'],['fold','Fold']]
+    : [['check_fold','Chk/Fold'],['call','Call'],['fold','Fold']];
+
+  el.innerHTML = `<span style="font-size:0.65rem;color:var(--text-dim);letter-spacing:0.08em;text-transform:uppercase;margin-right:4px">Away:</span>` +
+    opts.map(([a, label]) =>
+      `<button class="btn btn-sm" onclick="setAutoAction('${a}')"
+        style="padding:5px 10px;font-size:0.72rem;
+          background:${_autoAction===a?'rgba(212,168,67,0.2)':'var(--surface2)'};
+          border:1px solid ${_autoAction===a?'var(--gold)':'var(--border)'};
+          color:${_autoAction===a?'var(--gold)':'var(--text-dim)'}">${label}</button>`
+    ).join('');
+}
+
+function stopTurnTimer() {
+  clearInterval(_timerInterval);
+  _timerInterval = null;
+  const timerEl = document.getElementById('turn-timer');
+  if (timerEl) timerEl.style.display = 'none';
+}
+
+function updateTimerDisplay(left, total, numEl, arcEl) {
+  if (!numEl || !arcEl) return;
+  numEl.textContent = left;
+  const pct = left / total;
+  const offset = CIRCUMFERENCE * (1 - pct);
+  arcEl.style.strokeDashoffset = offset;
+  arcEl.style.stroke = left > 15 ? 'var(--gold)' : left > 8 ? '#e67e22' : 'var(--red-light)';
+}
+
+// ── PLAYER ACTIONS ───────────────────────────────────────────────────────────
+function execRaise(raiseTotal, myPlayer) {
+  // If there's an existing bet to match first, call it then raise on top
+  const add = raiseTotal - myPlayer.bet;
+  if (add > 0) {
+    myPlayer.chips -= add; myPlayer.bet = raiseTotal; myPlayer.totalBet += add; G.pot += add;
+  }
+  if (myPlayer.chips === 0) myPlayer.allIn = true;
+  G.currentBet = raiseTotal;
+  myPlayer.lastAction = { type:'bet', label:`Raise ${raiseTotal}` };
+  G.players.forEach(p => {
+    if (p.id !== myPlayer.id && !p.folded && !p.eliminated && !p.allIn) p.lastAction = null;
+  });
+}
+
+function playerAction(action) {
+  stopTurnTimer();
+
+  // GUEST: submit to DB, host will process and broadcast new state
+  if (!amHost && me.id !== 'demo' && sb) {
+    const myPlayer = G.players.find(p => p.id === me.id);
+    const callAmt = Math.min(G.currentBet - myPlayer.bet, myPlayer.chips);
+    const blinds = getBlinds(getCurrentBlindLevel());
+    const minRaiseTotal = Math.max(G.currentBet + blinds.big, blinds.big * 2);
+
+    let amount = null;
+    if (action === 'raise') {
+      amount = parseInt(document.getElementById('bet-slider').value);
+    } else if (action === 'pot') {
+      amount = Math.min(snapTo5(G.pot + callAmt), myPlayer.chips + myPlayer.bet);
+      amount = Math.max(amount, minRaiseTotal);
+    } else if (action === 'twopot') {
+      amount = Math.min(snapTo5((G.pot + callAmt) * 2), myPlayer.chips + myPlayer.bet);
+      amount = Math.max(amount, minRaiseTotal);
+    }
+    document.getElementById('bet-slider-row').style.display = 'none';
+    submitAction(action, amount);
+    // Optimistically show "waiting" immediately
+    renderActionBar();
+    return;
+  }
+
+  // HOST / DEMO: run locally
+  const myPlayer = G.players.find(p => p.id === me.id);
+  const callAmt = Math.min(G.currentBet - myPlayer.bet, myPlayer.chips);
+  const blinds = getBlinds(getCurrentBlindLevel());
+  const minRaiseTotal = Math.max(G.currentBet + blinds.big, blinds.big * 2);
+
+  if (action === 'fold') {
+    myPlayer.folded = true;
+    myPlayer.lastAction = { type:'fold', label:'Fold' };
+
+  } else if (action === 'check') {
+    myPlayer.lastAction = { type:'check', label:'Check' };
+
+  } else if (action === 'call') {
+    const amt = Math.min(G.currentBet - myPlayer.bet, myPlayer.chips);
+    myPlayer.chips -= amt; myPlayer.bet += amt; myPlayer.totalBet += amt; G.pot += amt;
+    if (myPlayer.chips === 0) myPlayer.allIn = true;
+    myPlayer.lastAction = { type:'bet', label:`Call ${amt}` };
+
+  } else if (action === 'raise') {
+    const raiseTotal = parseInt(document.getElementById('bet-slider').value);
+    execRaise(Math.min(raiseTotal, myPlayer.chips + myPlayer.bet), myPlayer);
+
+  } else if (action === 'pot') {
+    // Call any existing bet first, then bet the pot
+    const potTotal = Math.min(snapTo5(G.pot + callAmt), myPlayer.chips + myPlayer.bet);
+    execRaise(Math.max(potTotal, minRaiseTotal), myPlayer);
+
+  } else if (action === 'twopot') {
+    const tpTotal = Math.min(snapTo5((G.pot + callAmt) * 2), myPlayer.chips + myPlayer.bet);
+    execRaise(Math.max(tpTotal, minRaiseTotal), myPlayer);
+  }
+
+  document.getElementById('bet-slider-row').style.display = 'none';
+  advanceAction();
+}
+
+// ── CPU AI ───────────────────────────────────────────────────────────────────
+// ── PLAYER ONLINE TRACKING ────────────────────────────────────────────────────
+// Host tracks which players have sent a heartbeat recently.
+// Guests ping a presence channel; host listens and marks players online/offline.
+let _presenceChannel = null;
+const PLAYER_TIMEOUT_MS = 25000; // 25s without ping = disconnected
+
+function startPresence(gameId) {
+  if (!sb || me.id === 'demo') return;
+  _presenceChannel = sb.channel(`presence:${gameId}`, {
+    config: { presence: { key: me.id } }
+  });
+
+  _presenceChannel
+    .on('presence', { event: 'sync' }, () => {
+      if (!amHost || !G) return;
+      const state = _presenceChannel.presenceState();
+      // Mark each game player as connected or disconnected
+      G.players.forEach(p => {
+        if (p.eliminated) return;
+        // Host is always online
+        if (p.id === me.id) { p.disconnected = false; return; }
+        p.disconnected = !state[p.id] || state[p.id].length === 0;
+      });
+    })
+    .subscribe(async (status) => {
+      if (status === 'SUBSCRIBED') {
+        await _presenceChannel.track({ online_at: new Date().toISOString() });
+      }
+    });
+
+  // Re-ping every 10s to stay alive
+  setInterval(() => {
+    if (_presenceChannel) _presenceChannel.track({ online_at: new Date().toISOString() });
+  }, 10000);
+}
+
+function stopPresence() {
+  if (_presenceChannel) { _presenceChannel.unsubscribe(); _presenceChannel = null; }
+}
+
+function runCpuTurn() {
+  const p = G.players[G.actionIndex];
+  if (!p || p.folded || p.eliminated) { advanceAction(); return; }
+
+  // If it's the human player's turn but they're disconnected, auto check/fold
+  if (p.id === me.id) {
+    if (!amHost) return; // guest handles their own turn
+    // Host running for a disconnected human player
+  }
+
+  const blinds = getBlinds(getCurrentBlindLevel());
+
+  // Disconnected real player — auto check/fold on their behalf
+  // Only if explicitly marked disconnected (true), not undefined/null
+  if (p.disconnected === true && p.id !== me.id) {
+    const callAmt = Math.min(G.currentBet - p.bet, p.chips);
+    if (callAmt > 0) {
+      p.folded = true;
+      p.lastAction = { type:'fold', label:'Away' };
+    } else {
+      p.lastAction = { type:'check', label:'Away' };
+    }
+    renderGame();
+    syncGameState();
+    setTimeout(advanceAction, 800);
+    return;
+  }
+  // Not disconnected and it's the human's turn — let them act via the UI
+  if (p.id === me.id && !p.disconnected) return;
+
+  const hand = evalBest(p.hand, G.community);
+  const strength = hand ? hand.rank : 0;
+  const callAmt = Math.min(G.currentBet - p.bet, p.chips);
+  const r = Math.random();
+
+  if (p.chips <= 0 || p.allIn) { G.actionIndex = nextActive(G.actionIndex); renderGame(); if(!isMyTurn()) setTimeout(runCpuTurn,600); return; }
+
+  if (strength >= 5 || (strength >= 3 && r < 0.6)) {
+    const raiseAmt = Math.min(snapTo5(G.currentBet + (blinds.big + strength * 10)), p.chips);
+    const add = raiseAmt - p.bet;
+    if (add > 0 && r < 0.4 && raiseAmt > G.currentBet) {
+      p.chips -= add; G.pot += add; p.bet = raiseAmt; p.totalBet += add;
+      G.currentBet = raiseAmt;
+      p.lastAction = { type:'bet', label:`Raise ${raiseAmt}` };
+      // Re-open everyone else
+      G.players.forEach(op => {
+        if (op.id !== p.id && !op.folded && !op.eliminated && !op.allIn) op.lastAction = null;
+      });
+    } else {
+      p.chips -= callAmt; G.pot += callAmt; p.bet += callAmt; p.totalBet += callAmt;
+      if (p.chips === 0) p.allIn = true;
+      p.lastAction = callAmt > 0 ? { type:'bet', label:`Call ${callAmt}` } : { type:'check', label:'Check' };
+    }
+  } else if (strength >= 1 || r < 0.45) {
+    // call/check
+    p.chips -= callAmt; G.pot += callAmt; p.bet += callAmt; p.totalBet += callAmt;
+    if (p.chips === 0) p.allIn = true;
+    p.lastAction = callAmt > 0 ? { type:'bet', label:`Call ${callAmt}` } : { type:'check', label:'Check' };
+  } else {
+    // fold (only if there's a bet to call)
+    if (callAmt > 0) {
+      p.folded = true;
+      p.lastAction = { type:'fold', label:'Fold' };
+    } else {
+      p.lastAction = { type:'check', label:'Check' };
+    }
+  }
+
+  renderGame();
+  setTimeout(advanceAction, 600);
+}
+
+// ── ADVANCE ACTION ────────────────────────────────────────────────────────────
+// G.lastRaiserIndex — index of the player who last raised/bet this street.
+// The round ends when action gets back to that player with everyone else having called/folded.
+// If no one has raised, round ends when everyone has acted once.
+
+function advanceAction() {
+  const active = G.players.filter(p => !p.folded && !p.eliminated);
+
+  // Only one player left → immediate win
+  if (active.length === 1) { doShowdown(); return; }
+
+  const canAct = active.filter(p => !p.allIn);
+
+  // Round is done when every active non-all-in player has:
+  //   (a) matched the current bet, AND
+  //   (b) acted at least once this street
+  // AND the last raiser is NOT still owed another action
+  // (i.e. no one raised AFTER they last acted)
+  const roundDone = canAct.every(p => p.bet >= G.currentBet && p.lastAction !== null);
+
+  if (roundDone) {
+    advanceStage();
+    return;
+  }
+
+  // Find next player who needs to act:
+  // needs to act = hasn't matched currentBet OR hasn't acted yet this street
+  let searchIdx = G.actionIndex;
+  for (let i = 0; i < G.players.length; i++) {
+    searchIdx = nextActive(searchIdx);
+    const candidate = G.players[searchIdx];
+    if (!candidate || candidate.folded || candidate.eliminated || candidate.allIn) continue;
+    if (candidate.bet < G.currentBet || candidate.lastAction === null) {
+      G.actionIndex = searchIdx;
+      renderGame();
+      if (!isMyTurn()) setTimeout(runCpuTurn, 700);
+      return;
+    }
+  }
+
+  // No one found — advance
+  advanceStage();
+}
+
+// ── ADVANCE STAGE ────────────────────────────────────────────────────────────
+function advanceStage() {
+  // Reset bets AND lastAction for the new street
+  G.players.forEach(p => { p.bet = 0; if (!p.folded && !p.eliminated) p.lastAction = null; });
+  G.currentBet = 0;
+
+  if (G.stage === 'preflop') {
+    G.community = [G.deck.pop(), G.deck.pop(), G.deck.pop()];
+    G.stage = 'flop';
+  } else if (G.stage === 'flop') {
+    G.community.push(G.deck.pop()); G.stage = 'turn';
+  } else if (G.stage === 'turn') {
+    G.community.push(G.deck.pop()); G.stage = 'river';
+  } else if (G.stage === 'river') {
+    G.stage = 'showdown';
+    renderGame();
+    setTimeout(doShowdown, 600);
+    return;
+  }
+
+  // Action starts left of dealer
+  const dealerIdx = G.players.findIndex(p => p.isDealer);
+  G.actionIndex = nextActive(dealerIdx);
+
+  renderGame();
+  if (!isMyTurn()) setTimeout(runCpuTurn, 800);
+}
+
+function offerChopShortcut() {
+  const activePlayers = G.players.filter(p => !p.eliminated && p.chips > 0);
+  offerChop(activePlayers);
+}
+
+// ── CHOP ─────────────────────────────────────────────────────────────────────
+function offerChop(activePlayers) {
+  const totalChips = activePlayers.reduce((s, p) => s + p.chips, 0);
+  const overlay = document.getElementById('showdown-overlay');
+  overlay.style.display = 'flex';
+  overlay.innerHTML = `
+    <div class="showdown-bar" style="gap:10px">
+      <div style="font-size:2rem">🤝</div>
+      <div class="showdown-result" style="font-size:1.4rem;color:var(--gold-pale)">Heads Up!</div>
+      <div style="font-size:0.85rem;color:var(--text-dim);text-align:center;line-height:1.5">
+        Two players remain.<br>Would you like to chop and end the game?
+      </div>
+      <div style="width:90%;max-width:300px">
+        ${activePlayers.map(p => `
+          <div style="display:flex;justify-content:space-between;align-items:center;
+            padding:8px 12px;background:rgba(255,255,255,0.05);border-radius:8px;margin-bottom:6px">
+            <div style="display:flex;align-items:center;gap:8px">
+              <div class="avatar sm">${p.emoji||p.name[0]}</div>
+              <div style="font-weight:500">${p.name}</div>
+            </div>
+            <div style="font-family:'Bebas Neue',sans-serif;color:var(--gold);font-size:1rem;letter-spacing:0.05em">
+              ${p.chips.toLocaleString()} chips
+            </div>
+          </div>`).join('')}
+      </div>
+      <div style="display:flex;gap:10px;margin-top:4px">
+        <button class="btn btn-ghost" onclick="declineChop()">Play On</button>
+        <button class="btn btn-primary" onclick="acceptChop()">Chop It</button>
+      </div>
+    </div>`;
+}
+
+function acceptChop() {
+  const overlay = document.getElementById('showdown-overlay');
+  const activePlayers = G.players.filter(p => !p.eliminated && p.chips > 0);
+  const totalChips = activePlayers.reduce((s, p) => s + p.chips, 0);
+
+  // Final placements — chip leader gets 1st
+  const sorted = [...activePlayers].sort((a, b) => b.chips - a.chips);
+  G.finalPlacements = sorted.map(p => ({ name: p.name, emoji: p.emoji, chips: p.chips }));
+
+  overlay.style.display = 'flex';
+  overlay.innerHTML = `
+    <div class="showdown-bar" style="gap:10px">
+      <div style="font-size:2.5rem">🤝</div>
+      <div class="showdown-result win" style="font-size:1.6rem">Chop!</div>
+      <div style="font-size:0.85rem;color:var(--text-dim);margin-bottom:6px">Game ended by agreement</div>
+      <div style="width:90%;max-width:300px">
+        ${sorted.map((p, i) => `
+          <div style="display:flex;justify-content:space-between;align-items:center;
+            padding:8px 12px;background:rgba(255,255,255,0.05);border-radius:8px;margin-bottom:6px;
+            border:1px solid ${i===0?'var(--gold-dim)':'transparent'}">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span>${['🥇','🥈'][i]||''}</span>
+              <div class="avatar sm">${p.emoji||p.name[0]}</div>
+              <div style="font-weight:500">${p.name}</div>
+            </div>
+            <div style="font-family:'Bebas Neue',sans-serif;color:var(--gold);font-size:1rem">
+              ${p.chips.toLocaleString()}
+            </div>
+          </div>`).join('')}
+      </div>
+      <button class="btn btn-primary" onclick="goHome()" style="margin-top:6px">Done</button>
+    </div>`;
+}
+
+function declineChop() {
+  document.getElementById('showdown-overlay').style.display = 'none';
+  // Reset flag so chop isn't offered again until player count changes
+  G.chopOffered = true; // keep true so it's not re-offered every hand
+  G.chopDeclined = true;
+  proceedToDeal();
+}
+
+// ── SIDE POT BUILDER ─────────────────────────────────────────────────────────
+// Returns array of { amount, eligible[] } sorted smallest → largest cap
+function buildSidePots(players) {
+  // Only non-folded players can win a pot; folded players' money stays in but
+  // they have no eligibility.
+  const contributors = players.filter(p => !p.eliminated);
+  // Sort by totalBet ascending so we process all-ins smallest first
+  const sorted = [...contributors].sort((a, b) => a.totalBet - b.totalBet);
+
+  const pots = [];
+  let coveredSoFar = 0;
+
+  for (let i = 0; i < sorted.length; i++) {
+    const cap = sorted[i].totalBet;
+    if (cap <= coveredSoFar) continue; // already fully covered by a previous pot
+
+    // Amount each player contributes to this level
+    const level = cap - coveredSoFar;
+    let amount = 0;
+    for (const p of contributors) {
+      amount += Math.min(p.totalBet - coveredSoFar, level);
+      if (amount < 0) amount = 0;
+    }
+    // Clamp negative edge cases
+    amount = Math.max(0, amount);
+
+    // Eligible = non-folded players who put in at least this level
+    const eligible = sorted.slice(i).filter(p => !p.folded);
+
+    if (amount > 0) pots.push({ amount, eligible });
+    coveredSoFar = cap;
+  }
+
+  // Consolidate: if multiple pots have the same eligible set, merge them
+  const merged = [];
+  for (const pot of pots) {
+    const last = merged[merged.length - 1];
+    const sameEligible = last &&
+      last.eligible.length === pot.eligible.length &&
+      last.eligible.every((p, i) => p.id === pot.eligible[i].id);
+    if (sameEligible) { last.amount += pot.amount; }
+    else { merged.push({ amount: pot.amount, eligible: [...pot.eligible] }); }
+  }
+
+  return merged;
+}
+
+// ── SHOWDOWN ─────────────────────────────────────────────────────────────────
+function doShowdown() {
+  G.stage = 'showdown';
+  G.actionIndex = -1;
+  stopTurnTimer();
+
+  const active = G.players.filter(p => !p.folded && !p.eliminated);
+  const myPlayer = G.players.find(p => p.id === me.id);
+
+  // ── FOLD WIN: everyone else folded ──
+  if (active.length === 1) {
+    const winner = active[0];
+    const winAmt = G.pot;
+    winner.chips += winAmt;
+    G.pot = 0;
+
+    let newElim = false;
+    G.players.forEach(p => {
+      if (!p.eliminated && p.chips <= 0) {
+        p.eliminated = true;
+        G.finalPlacements.unshift({ name: p.name, emoji: p.emoji });
+        newElim = true;
+      }
+    });
+    if (newElim) G.chopOffered = false;
+
+    renderGame();
+    const iWon = winner.id === me.id;
+    if (iWon && myPlayer?.hand?.length) {
+      showMuckOrShow(winner, winAmt);
+    } else {
+      const overlay = document.getElementById('showdown-overlay');
+      overlay.style.display = 'flex';
+      overlay.innerHTML = `
+        <div class="showdown-bar">
+          <div class="avatar" style="font-size:1.4rem">${winner.emoji}</div>
+          <div class="showdown-result ${iWon?'win':'lose'}">${winner.name} Wins</div>
+          <div class="showdown-hand" style="color:var(--text-dim)">Everyone else folded</div>
+          <div class="winner-pot">+${winAmt} chips</div>
+          <button class="btn btn-primary" onclick="nextHand()" style="margin-top:8px">Next Hand</button>
+        </div>`;
+    }
+    syncGameState();
+    return;
+  }
+
+  // ── TRUE SHOWDOWN with side pots ──
+  // Build side pots from totalBet contributions
+  const sidePots = buildSidePots(G.players.filter(p => !p.eliminated));
+
+  // Evaluate each active player's best hand
+  const handMap = {};
+  active.forEach(p => {
+    if (p.hand.length) handMap[p.id] = evalBest(p.hand, G.community);
+  });
+
+  // Results accumulator: how much each player wins
+  const winnings = {};
+  G.players.forEach(p => winnings[p.id] = 0);
+
+  const potResults = []; // for display
+
+  for (const pot of sidePots) {
+    if (pot.amount <= 0) continue;
+    const contenders = pot.eligible.filter(p => handMap[p.id]);
+    if (!contenders.length) {
+      // All eligible folded — give to the last remaining active player
+      const fallback = active[0];
+      if (fallback) { winnings[fallback.id] += pot.amount; }
+      continue;
+    }
+
+    contenders.sort((a, b) => cmpScore(handMap[b.id], handMap[a.id]));
+    const bestHand = handMap[contenders[0].id];
+    const winners = contenders.filter(c => cmpScore(handMap[c.id], bestHand) === 0);
+
+    const share = Math.floor(pot.amount / winners.length);
+    const remainder = pot.amount - share * winners.length;
+    winners.forEach((w, i) => { winnings[w.id] += share + (i === 0 ? remainder : 0); });
+
+    potResults.push({
+      amount: pot.amount,
+      winners,
+      bestHandName: bestHand.name,
+      isSide: sidePots.indexOf(pot) > 0,
+    });
+  }
+
+  // Apply winnings
+  G.players.forEach(p => { p.chips += winnings[p.id]; });
+  G.pot = 0;
+
+  // Eliminate busted players
+  let newElimSD = false;
+  G.players.forEach(p => {
+    if (!p.eliminated && p.chips <= 0) {
+      p.eliminated = true;
+      G.finalPlacements.unshift({ name: p.name, emoji: p.emoji });
+      newElimSD = true;
+    }
+  });
+  if (newElimSD) G.chopOffered = false;
+
+  renderGame();
+
+  // ── Build showdown display ──
+  // All players who went to showdown, sorted best hand first
+  const showPlayers = active.filter(p => handMap[p.id])
+    .sort((a, b) => cmpScore(handMap[b.id], handMap[a.id]));
+
+  const totalWon = (id) => winnings[id] || 0;
+  const isWinner = (p) => winnings[p.id] > 0;
+
+  const overlay = document.getElementById('showdown-overlay');
+  overlay.style.display = 'flex';
+
+  const potSummary = sidePots.length > 1
+    ? `<div style="font-size:0.7rem;color:var(--text-dim);margin-bottom:8px;text-align:center">
+        ${sidePots.map((p, i) => `${i === 0 ? 'Main' : `Side ${i}`}: ${p.amount}`).join(' · ')}
+       </div>`
+    : '';
+
+  overlay.innerHTML = `
+    <div class="showdown-bar">
+      <div style="font-size:0.7rem;letter-spacing:0.15em;text-transform:uppercase;color:var(--text-dim);margin-bottom:4px">Showdown</div>
+      ${potSummary}
+      ${showPlayers.map(p => {
+        const won = totalWon(p.id);
+        const hand = handMap[p.id];
+        const cardPips = p.hand.map(c =>
+          `<span style="font-size:0.9rem;font-weight:700;color:${isRed(c)?'var(--red)':'#eee'}">${c.rank}${c.suit}</span>`
+        ).join(' ');
+        return `
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 14px;
+          background:${won>0?'rgba(212,168,67,0.12)':'rgba(255,255,255,0.04)'};
+          border:1px solid ${won>0?'var(--gold-dim)':'transparent'};
+          border-radius:8px;width:90%;max-width:320px;margin-bottom:4px">
+          <div class="avatar sm">${p.emoji||p.name[0]}</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:600;font-size:0.85rem">${p.name}</div>
+            <div style="font-size:0.72rem;color:var(--text-dim);margin:1px 0">${cardPips}</div>
+            <div style="font-size:0.72rem;color:${won>0?'var(--gold)':'var(--text-dim)'};font-style:italic">${hand.name}</div>
+          </div>
+          ${won > 0 ? `<span class="badge badge-gold">+${won}</span>` : ''}
+        </div>`;
+      }).join('')}
+      <button class="btn btn-primary" onclick="nextHand()" style="margin-top:10px">Next Hand</button>
+    </div>`;
+
+  syncGameState();
+}
+
+// ── MUCK OR SHOW ─────────────────────────────────────────────────────────────
+function showMuckOrShow(winner, winAmt) {
+  const myPlayer = G.players.find(p => p.id === me.id);
+  const [c1, c2] = myPlayer.hand;
+
+  const overlay = document.getElementById('showdown-overlay');
+  overlay.style.display = 'flex';
+  overlay.innerHTML = `
+    <div class="showdown-bar">
+      <div class="showdown-result win">You Win!</div>
+      <div class="winner-pot" style="margin-bottom:4px">+${winAmt} chips — everyone folded</div>
+      <div style="font-size:0.8rem;color:var(--text-dim);margin-bottom:12px">Show your cards?</div>
+      <div style="display:flex;gap:10px;margin-bottom:14px">
+        ${[c1, c2].map((c, i) => `
+          <div onclick="toggleShowCard(${i})" id="show-card-${i}"
+            style="cursor:pointer;border-radius:8px;padding:4px 8px;border:2px solid var(--border);
+              background:var(--cream);color:${isRed(c)?'var(--red)':'#111'};font-weight:700;font-size:1rem;
+              transition:all 0.15s;user-select:none">
+            ${c.rank}${c.suit}
+          </div>`).join('')}
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-ghost btn-sm" onclick="nextHand()">Muck &amp; Continue</button>
+        <button class="btn btn-primary btn-sm" onclick="showSelectedCards()">Show Selected</button>
+      </div>
+    </div>`;
+
+  // Track which cards are selected to show
+  window._showCardSelection = [false, false];
+}
+
+function toggleShowCard(idx) {
+  window._showCardSelection[idx] = !window._showCardSelection[idx];
+  const el = document.getElementById(`show-card-${idx}`);
+  if (el) {
+    el.style.borderColor = window._showCardSelection[idx] ? 'var(--gold)' : 'var(--border)';
+    el.style.boxShadow = window._showCardSelection[idx] ? '0 0 0 2px rgba(212,168,67,0.3)' : 'none';
+    el.style.transform = window._showCardSelection[idx] ? 'translateY(-3px)' : 'none';
+  }
+}
+
+function showSelectedCards() {
+  const myPlayer = G.players.find(p => p.id === me.id);
+  const sel = window._showCardSelection || [false, false];
+  const shown = myPlayer.hand.filter((_, i) => sel[i]);
+
+  if (!shown.length) { nextHand(); return; }
+
+  const overlay = document.getElementById('showdown-overlay');
+  const bar = overlay.querySelector('.showdown-bar');
+  if (bar) {
+    const cardPips = shown.map(c =>
+      `<span style="font-size:1.2rem;font-weight:700;color:${isRed(c)?'var(--red)':'#eee'}">${c.rank}${c.suit}</span>`
+    ).join('  ');
+    bar.innerHTML = `
+      <div class="showdown-result win">You Win!</div>
+      <div style="font-size:1.3rem;margin:8px 0">${cardPips}</div>
+      <div style="font-size:0.78rem;color:var(--text-dim);font-style:italic;margin-bottom:14px">
+        ${shown.length === 2 ? 'Showing both cards' : 'Showing one card'}
+      </div>
+      <button class="btn btn-primary" onclick="nextHand()">Next Hand</button>`;
+  }
+}
+
+function syncGameState() {
+  if (sb && currentGameId && me.id !== 'demo') {
+    sb.from('games').update({ state: G, hand_number: G.handNumber }).eq('id', currentGameId).then(() => {});
+  }
+}
+
+function nextHand() {
+  document.getElementById('showdown-overlay').style.display = 'none';
+  document.getElementById('elim-overlay').style.display = 'none';
+
+  const remaining = G.players.filter(p => !p.eliminated && p.chips > 0);
+  if (remaining.length <= 1) { endTournament(); return; }
+
+  // Check if I'm eliminated
+  const myPlayer = G.players.find(p => p.id === me.id);
+  if (myPlayer?.eliminated) {
+    showEliminated();
+    return;
+  }
+
+  setTimeout(dealNewHand, 400);
+}
+
+function showEliminated() {
+  const remaining = G.players.filter(p => !p.eliminated).length;
+  const myPlace = remaining + 1;
+  const overlay = document.getElementById('elim-overlay');
+  overlay.style.display = 'flex';
+  overlay.innerHTML = `
+    <div class="elim-banner">
+      <div class="elim-title">ELIMINATED</div>
+      <div class="elim-place">You finished ${ordinal(myPlace)} of ${G.players.length}</div>
+      <button class="btn btn-surface" onclick="goHome()" style="margin-top:8px">Back to Lobby</button>
+    </div>`;
+}
+
+function endTournament() {
+  const winner = G.players.find(p => !p.eliminated && p.chips > 0) || G.players[0];
+  if (winner) G.finalPlacements.unshift({ name: winner.name, emoji: winner.emoji });
+
+  const overlay = document.getElementById('tourney-overlay');
+  overlay.style.display = 'flex';
+  const iWon = winner?.id === me.id;
+  overlay.innerHTML = `
+    <div class="tourney-result">
+      <div class="trophy">${iWon ? '🏆' : '🃏'}</div>
+      <div class="tourney-title">${iWon ? 'You Won!' : winner?.name + ' Wins!'}</div>
+      <div class="tourney-sub" style="margin-bottom:20px">Tournament Complete</div>
+      <div class="final-places">
+        ${G.finalPlacements.map((p,i) => `
+          <div class="place-row">
+            <div class="place-medal">${['🥇','🥈','🥉'][i]||`${i+1}.`}</div>
+            <div class="place-name">${p.emoji} ${p.name}</div>
+          </div>`).join('')}
+      </div>
+      <button class="btn btn-primary" onclick="goHome()" style="margin-top:20px">Back to Home</button>
+    </div>`;
+}
+
+function goHome() {
+  G = null; currentGameId = null; currentLobbyId = null; amHost = false;
+  _gamePaused = false;
+  stopBlindTimer();
+  stopTurnTimer();
+  stopHostHeartbeat();
+  stopDisconnectWatcher();
+  stopPresence();
+  clearInterval(_migrationCountdown); _migrationCountdown = null;
+  clearInterval(_invitePollInterval); _invitePollInterval = null;
+  if (inviteSubscription) { /* keep listening for invites on home screen */ }
+  if (gameSubscription)   { gameSubscription.unsubscribe();   gameSubscription = null; }
+  if (lobbySubscription)  { lobbySubscription.unsubscribe();  lobbySubscription = null; }
+  if (actionSubscription) { actionSubscription.unsubscribe(); actionSubscription = null; }
+  navTo('home');
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// PROFILE
+// ════════════════════════════════════════════════════════════════════════════
+const AVATAR_EMOJIS = [
+  '🃏','♠','♥','♦','♣','🎰','🎲','🦁','🐯','🦊','🐺','🦝',
+  '🐻','🐼','🐸','🦋','🔥','⚡','🌊','🌙','⭐','💎','👑','🎯',
+  '🎱','🧠','👻','🤖','👽','🦄','🍀','🌶','🦅','🐉','🌈','🏆',
+];
+
+function loadProfileScreen() {
+  document.getElementById('profile-name').value = me.display_name || '';
+  if (document.getElementById('profile-email'))
+    document.getElementById('profile-email').value = me.email || '';
+  document.getElementById('profile-phone').value = me.phone
+    ? me.phone.replace(/(\d{3})(\d{3})(\d{4})/, '($1) $2-$3')
+    : '';
+  const current = me.avatar_emoji || '🃏';
+  document.getElementById('profile-avatar-display').textContent = current;
+
+  const grid = document.getElementById('emoji-grid');
+  if (grid) {
+    grid.innerHTML = '';
+    AVATAR_EMOJIS.forEach(e => {
+      const btn = document.createElement('button');
+      btn.textContent = e;
+      btn.style.cssText = `
+        background:${e === current ? 'rgba(212,168,67,0.2)' : 'none'};
+        border:${e === current ? '1.5px solid var(--gold)' : '1.5px solid transparent'};
+        border-radius:8px;font-size:1.5rem;padding:6px;cursor:pointer;
+        display:flex;align-items:center;justify-content:center;`;
+      btn.onclick = () => selectEmoji(e);
+      grid.appendChild(btn);
+    });
+  }
+}
+
+function updateAvatarEverywhere(emoji) {
+  const e = emoji || me?.avatar_emoji || '🃏';
+  ['home-avatar','my-avatar','nav-profile-icon','profile-avatar-display'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = e;
+  });
+}
+
+function toggleEmojiPicker() {
+  const picker = document.getElementById('emoji-picker');
+  picker.style.display = picker.style.display === 'none' ? 'block' : 'none';
+}
+
+function selectEmoji(emoji) {
+  me.avatar_emoji = emoji;
+  updateAvatarEverywhere(emoji);
+  loadProfileScreen();
+  document.getElementById('emoji-picker').style.display = 'none';
+}
+
+async function saveProfile() {
+  const name  = document.getElementById('profile-name').value.trim();
+  const phone = document.getElementById('profile-phone').value.replace(/\D/g,'');
+  const emoji = me.avatar_emoji || '🃏';
+  if (!name) { toast("Name can't be empty"); return; }
+
+  if (me.id === 'demo') {
+    me.display_name = name; me.phone = phone;
+    document.getElementById('home-greeting').textContent = `Hey, ${name.split(' ')[0]}`;
+    toast('Profile updated!'); return;
+  }
+
+  try {
+    const { error } = await sb.from('users')
+      .update({ display_name: name, avatar_emoji: emoji, phone })
+      .eq('id', me.id);
+    if (error) throw error;
+    me.display_name = name; me.phone = phone;
+    document.getElementById('home-greeting').textContent = `Hey, ${name.split(' ')[0]}`;
+    document.getElementById('my-name').textContent = name;
+    updateAvatarEverywhere(emoji);
+    toast('Profile saved ✓');
+  } catch(e) { toast('Save failed: ' + e.message); }
+}
+
+async function signOut() {
+  if (me.id !== 'demo' && sb) {
+    await sb.auth.signOut();
+  }
+  me = null; myFriends = []; myGames = []; G = null;
+  stopBlindTimer(); stopTurnTimer(); stopHostHeartbeat();
+  stopDisconnectWatcher(); stopPresence();
+  document.getElementById('nav').classList.remove('visible');
+  showScreen('splash');
+}
+// ════════════════════════════════════════════════════════════════════════════
+// ADMIN / CLEANUP
+// ════════════════════════════════════════════════════════════════════════════
+function toggleAdminBar() {
+  const bar = document.getElementById('admin-bar');
+  bar.style.display = bar.style.display === 'none' || bar.style.display === '' ? 'flex' : 'none';
+}
+
+async function archiveMyGames() {
+  if (me.id === 'demo') { toast('Not available in demo'); return; }
+  try {
+    const cutoff = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const { data: stale } = await sb.from('games')
+      .select('id').eq('host_id', me.id).eq('status', 'lobby').lt('created_at', cutoff);
+    if (!stale?.length) { toast('No old lobbies to archive'); return; }
+    for (const g of stale) await sb.from('games').update({ status: 'finished' }).eq('id', g.id);
+    toast(`Archived ${stale.length} old ${stale.length === 1 ? 'lobby' : 'lobbies'}`);
+    await loadGames();
+  } catch(e) { toast('Archive failed: ' + e.message); }
+}
+
+async function killStuckGames() {
+  if (me.id === 'demo') { toast('Not available in demo'); return; }
+  if (me.display_name !== 'Fallz') { toast('Admin only'); return; }
+  if (!confirm('⚠️ Delete ALL games and history for every user?')) return;
+  try {
+    // Wipe everything in dependency order
+    await sb.from('player_actions').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    await sb.from('game_players').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    await sb.from('games').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    myGames = [];
+    renderGamesList();
+    toast('All games cleared ✓');
+  } catch(e) { toast('Kill failed: ' + e.message); }
+}
+
+function timeAgo(dateStr) {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  const hrs  = Math.floor(mins / 60);
+  const days = Math.floor(hrs / 24);
+  if (days > 0)  return `${days}d ago`;
+  if (hrs > 0)   return `${hrs}h ago`;
+  if (mins > 0)  return `${mins}m ago`;
+  return 'just now';
+}
+
+function ordinal(n) {
+  const s = ['th','st','nd','rd'];
+  const v = n%100;
+  return n + (s[(v-20)%10]||s[v]||s[0]);
+}
+
+function formatPhone(input) {
+  let v = input.value.replace(/\D/g,'').slice(0,10);
+  if (v.length >= 6) v = `(${v.slice(0,3)}) ${v.slice(3,6)}-${v.slice(6)}`;
+  else if (v.length >= 3) v = `(${v.slice(0,3)}) ${v.slice(3)}`;
+  input.value = v;
+}
+
+let toastTimer = null;
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2800);
+}
+
+function openModal(id) { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+// ════════════════════════════════════════════════════════════════════════════
+// BOOT
+// ════════════════════════════════════════════════════════════════════════════
+window.addEventListener('load', () => {
+  // Check for join link
+  const params = new URLSearchParams(location.search);
+  if (params.has('join')) {
+    toast(`Joining game ${params.get('join')}…`);
+  }
+  init();
+});
+</script>
+</body>
+</html>
