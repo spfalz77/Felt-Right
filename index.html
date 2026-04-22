@@ -485,7 +485,7 @@ h3 { font-size: 1rem; font-weight: 600; }
           <div class="input-group">
             <div class="input-label">Password</div>
             <input class="input" id="login-pass" type="password" placeholder="••••••••"
-              autocomplete="current-password" name="password">
+              autocomplete="off" name="password">
           </div>
           <button type="submit" class="btn btn-primary btn-full" style="margin-top:8px">Sign In</button>
         </form>
@@ -943,24 +943,19 @@ let G = null; // full game state object
 async function init() {
   try {
     sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-
-    // Prefill saved email
-    const savedEmail = localStorage.getItem('fr_email');
-    if (savedEmail) {
-      const el = document.getElementById('login-email');
-      if (el) el.value = savedEmail;
-    }
-
-    const { data: { session } } = await sb.auth.getSession();
-    if (session) {
-      me = await getProfile(session.user.id);
-      if (me) { me.email = session.user.email; enterApp(); return; }
-    }
   } catch(e) {
     console.warn('Supabase not configured, running in demo mode');
     enterDemoMode();
     return;
   }
+
+  // Always show the login screen — prefill saved email only
+  const savedEmail = localStorage.getItem('fr_email');
+  if (savedEmail) {
+    const el = document.getElementById('login-email');
+    if (el) el.value = savedEmail;
+  }
+  // Stay on splash — user must tap Sign In
 }
 
 function enterDemoMode() {
@@ -1111,25 +1106,27 @@ async function goBack() {
   if (currentLobbyId && me.id !== 'demo' && sb) {
     const lobbyId = currentLobbyId;
     try {
-      // Fetch fresh so we don't rely on stale myGames cache
       const { data: gameRow } = await sb.from('games')
         .select('host_id, status').eq('id', lobbyId).single();
 
       const isHost = gameRow?.host_id === me.id;
 
       if (isHost && gameRow?.status === 'lobby') {
-        if (!confirm('Cancel this lobby? Everyone will be removed.')) return;
+        const confirmed = confirm('Cancel this lobby? Everyone will be removed.');
+        if (!confirmed) return; // stay in lobby
         await sb.from('game_players').delete().eq('game_id', lobbyId);
         await sb.from('games').delete().eq('id', lobbyId);
         toast('Lobby cancelled');
       } else if (!isHost) {
-        // Non-host: revert to invited
         await sb.from('game_players')
           .update({ status: 'invited', seat_index: null })
           .eq('game_id', lobbyId)
           .eq('user_id', me.id);
       }
-    } catch(e) { console.warn('goBack lobby error:', e); }
+    } catch(e) {
+      console.warn('goBack lobby error:', e);
+      // Don't block navigation even if DB call fails
+    }
   }
 
   currentLobbyId = null;
