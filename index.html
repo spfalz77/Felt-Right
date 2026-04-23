@@ -3361,6 +3361,7 @@ function resumeGame() {
   G.turnStartAt = null;
 
   // Reset all non-eliminated players for a fresh hand
+  // CRITICAL: clear disconnected flags — trust presence will re-mark truly absent players
   G.players.forEach(p => {
     if (p.eliminated) return;
     p.hand = [];
@@ -3369,7 +3370,7 @@ function resumeGame() {
     p.folded = false;
     p.allIn = false;
     p.lastAction = null;
-    p.disconnected = false; // trust rejoins — presence will re-mark if needed
+    p.disconnected = false;
   });
 
   _blindLevelStartTime = Date.now();
@@ -3378,22 +3379,45 @@ function resumeGame() {
   renderGame();
   toast('Game resumed — new hand');
 
-  // Deal the new hand (host-authoritative) after brief delay so all guests sync
-  setTimeout(() => { dealNewHand(); }, 600);
+  // Give presence a moment to catch up BEFORE dealing the new hand
+  // This ensures guests who hit "I'm Back" are marked online before first action
+  setTimeout(() => {
+    // Force a presence re-sync: read current state and update local flags
+    if (_presenceChannel) {
+      const state = _presenceChannel.presenceState();
+      G.players.forEach(p => {
+        if (p.eliminated) return;
+        const isOnline = (p.id === me.id) || (state[p.id] && state[p.id].length > 0);
+        p.disconnected = !isOnline;
+      });
+    }
+    dealNewHand();
+  }, 1500); // 1.5s gives presence channel time to re-sync
 }
 
 async function guestSignalBack() {
-  // Guest tells host "I'm back" by updating their game_players row timestamp
+  // Guest tells host "I'm back" - force presence re-track to push a fresh join event
   if (!sb || !currentGameId || me.id === 'demo' || amHost) return;
+
+  // Force presence channel to re-track NOW — this guarantees host gets a join/sync event
+  if (_presenceChannel) {
+    try {
+      // Untrack then re-track — causes a fresh join event on the host side
+      await _presenceChannel.untrack();
+      await _presenceChannel.track({ online_at: new Date().toISOString(), back: true });
+    } catch(e) { console.warn('signalBack track:', e); }
+  } else {
+    // Presence channel was closed — restart it
+    startPresence(currentGameId);
+  }
+
+  // Also update our game_players row timestamp as belt & suspenders
   try {
     await sb.from('game_players')
       .update({ last_seen_at: new Date().toISOString() })
       .eq('game_id', currentGameId).eq('user_id', me.id);
   } catch(e) { /* column may not exist, fine */ }
-  // The presence channel will also tell host we're alive
-  if (_presenceChannel) {
-    await _presenceChannel.track({ online_at: new Date().toISOString(), back: true });
-  }
+
   toast("You're marked back — waiting for host to resume");
 }
 
@@ -3416,10 +3440,10 @@ function showPauseOverlay() {
   renderPauseOverlayContent();
   el.style.display = 'flex';
 
-  // Auto-refresh overlay every 3s so host sees online status changes
+  // Auto-refresh overlay every 1s so host sees online status changes quickly
   if (amHost) {
     clearInterval(_pauseOverlayRefresher);
-    _pauseOverlayRefresher = setInterval(renderPauseOverlayContent, 3000);
+    _pauseOverlayRefresher = setInterval(renderPauseOverlayContent, 1000);
   }
 }
 
@@ -3591,9 +3615,10 @@ function runCpuTurn() {
 // If no one has raised, round ends when everyone has acted once.
 
 let _hostTurnEnforcer = null;
+const TURN_ENFORCE_LIMIT_MS = 45000; // 45s from turn start before auto-fold
 
 function stopHostTurnEnforcer() {
-  clearTimeout(_hostTurnEnforcer);
+  clearInterval(_hostTurnEnforcer);
   _hostTurnEnforcer = null;
 }
 
@@ -3606,13 +3631,20 @@ function startHostTurnEnforcer() {
   if (p.folded || p.eliminated) return;
   if (!p.id || p.id.length < 10) return; // CPU/demo
 
-  _hostTurnEnforcer = setTimeout(() => {
-    // 30s elapsed with no action — auto check/fold
-    if (!G || G.actionIndex < 0) return;
-    const stillP = G.players[G.actionIndex];
-    if (!stillP || stillP.id !== p.id) return; // player changed, skip
-    if (stillP.folded || stillP.eliminated) return;
+  const startedAt = G.turnStartAt ? new Date(G.turnStartAt).getTime() : Date.now();
 
+  // Check every 2 seconds using wall-clock time — works even when tab was backgrounded
+  _hostTurnEnforcer = setInterval(() => {
+    if (!G || G.actionIndex < 0 || G.paused) { stopHostTurnEnforcer(); return; }
+    const stillP = G.players[G.actionIndex];
+    if (!stillP || stillP.id !== p.id) { stopHostTurnEnforcer(); return; }
+    if (stillP.folded || stillP.eliminated) { stopHostTurnEnforcer(); return; }
+
+    const elapsed = Date.now() - startedAt;
+    if (elapsed < TURN_ENFORCE_LIMIT_MS) return;
+
+    // Time's up — auto check/fold
+    stopHostTurnEnforcer();
     const callAmt = Math.min(G.currentBet - stillP.bet, stillP.chips);
     if (callAmt > 0) {
       stillP.folded = true;
@@ -3620,11 +3652,10 @@ function startHostTurnEnforcer() {
     } else {
       stillP.lastAction = { type:'check', label:'Away' };
     }
-    stillP.disconnected = true; // mark them away now that they missed their turn
+    stillP.disconnected = true;
     renderGame();
-    syncGameState();
-    setTimeout(advanceAction, 800);
-  }, 32000); // 32s — 2s grace after guest's 30s UI timer
+    setTimeout(advanceAction, 500);
+  }, 2000);
 }
 
 function advanceAction() {
@@ -4291,6 +4322,49 @@ window.addEventListener('load', () => {
     toast(`Joining game ${params.get('join')}…`);
   }
   init();
+});
+
+// When the tab becomes visible again (screen unlock / refocus), re-sync state
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState !== 'visible') return;
+  if (!sb || !currentGameId || !G) return;
+
+  try {
+    // Pull latest state fresh from the DB — subscription may have missed events while hidden
+    const { data } = await sb.from('games').select('state, host_id, status').eq('id', currentGameId).maybeSingle();
+    if (!data?.state) return;
+
+    // If host changed while we were away, update role
+    if (data.host_id === me.id && !amHost) {
+      amHost = true;
+      startHostHeartbeat(currentGameId);
+      hostListenForActions(currentGameId);
+    } else if (data.host_id !== me.id && amHost) {
+      amHost = false;
+      stopHostHeartbeat();
+    }
+
+    G = data.state;
+    applyMyPrivateHand();
+    renderGame();
+
+    // Host re-checks turn enforcer
+    if (amHost && G.actionIndex >= 0 && !G.paused) {
+      startHostTurnEnforcer();
+    }
+
+    // Re-track presence to tell everyone we're back
+    if (_presenceChannel) {
+      try {
+        await _presenceChannel.track({ online_at: new Date().toISOString() });
+      } catch(e) { /* silent */ }
+    }
+
+    // If it's my turn, restart turn timer with correct remaining time
+    if (isMyTurn() && !G.paused) {
+      startTurnTimer(30);
+    }
+  } catch(e) { console.warn('visibility resume:', e); }
 });
 </script>
 </body>
