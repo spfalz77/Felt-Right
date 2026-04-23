@@ -1131,27 +1131,11 @@ function leaveLobby() {
         if (!gameRow) return;
 
         if (gameRow.host_id === me.id) {
-          // I'm the host — check if anyone else is joined
-          const { data: others } = await sb.from('game_players')
-            .select('user_id, joined_at')
-            .eq('game_id', lobbyId)
-            .neq('user_id', me.id)
-            .eq('status', 'joined')
-            .order('joined_at', { ascending: true });
-
-          if (others && others.length > 0) {
-            // Migrate host to the longest-waiting joined guest, remove me
-            const newHost = others[0];
-            await sb.from('games').update({ host_id: newHost.user_id }).eq('id', lobbyId);
-            await sb.from('game_players').delete()
-              .eq('game_id', lobbyId).eq('user_id', me.id);
-          } else {
-            // No one else — delete the whole lobby
-            await sb.from('game_players').delete().eq('game_id', lobbyId);
-            await sb.from('games').delete().eq('id', lobbyId);
-          }
+          // Host leaving = kill the lobby for everyone
+          await sb.from('game_players').delete().eq('game_id', lobbyId);
+          await sb.from('games').delete().eq('id', lobbyId);
         } else {
-          // Guest leaving — revert to invited
+          // Guest leaving — revert to invited so they can rejoin
           sb.from('game_players').update({ status: 'invited', seat_index: null })
             .eq('game_id', lobbyId).eq('user_id', me.id).then(() => {});
         }
@@ -1390,15 +1374,20 @@ async function loadGames() {
         .eq('status', 'joined');
 
       (friendGames || []).forEach(fg => {
-        if (!fg.game || fg.game.status !== 'active') return;
-        if (myGameIds.has(fg.game.id)) return; // already in my list
+        if (!fg.game) return;
+        if (myGameIds.has(fg.game.id)) return;
+        // Include both active and lobby statuses — friend has open game/lobby I could join
+        if (fg.game.status !== 'active' && fg.game.status !== 'lobby') return;
         const friend = myFriends.find(f => f.id === fg.user_id);
+        // Only show the host's game, not every friend in it (dedup by game_id already done)
+        const isHostedByFriend = fg.game.host_id === fg.user_id;
         myGames.push({
           ...fg.game,
           player_count: fg.game?.game_players?.[0]?.count || 0,
           i_am_host: false,
-          my_status: 'friend_playing',
+          my_status: fg.game.status === 'lobby' ? 'friend_lobby' : 'friend_playing',
           friend_name: friend?.display_name || 'A friend',
+          friend_is_host: isHostedByFriend,
         });
         myGameIds.add(fg.game.id);
       });
@@ -1416,11 +1405,12 @@ function renderGamesList() {
     return;
   }
 
-  const invites      = myGames.filter(g => g.my_status === 'invited' && g.status === 'lobby');
-  const myLobbies    = myGames.filter(g => g.status === 'lobby' && g.i_am_host);
-  const active       = myGames.filter(g => g.status === 'active' && g.my_status !== 'friend_playing');
-  const friendActive = myGames.filter(g => g.my_status === 'friend_playing');
-  const finished     = myGames.filter(g => g.status === 'finished');
+  const invites       = myGames.filter(g => g.my_status === 'invited' && g.status === 'lobby');
+  const myLobbies     = myGames.filter(g => g.status === 'lobby' && g.i_am_host);
+  const friendLobbies = myGames.filter(g => g.my_status === 'friend_lobby');
+  const active        = myGames.filter(g => g.status === 'active' && g.my_status !== 'friend_playing');
+  const friendActive  = myGames.filter(g => g.my_status === 'friend_playing');
+  const finished      = myGames.filter(g => g.status === 'finished');
 
   let html = '';
 
@@ -1439,6 +1429,11 @@ function renderGamesList() {
     html += myLobbies.map(g => gameCard(g, 'lobby')).join('');
   }
 
+  if (friendLobbies.length) {
+    html += `<div class="section-head">Friends' Open Lobbies</div>`;
+    html += friendLobbies.map(g => gameCard(g, 'friend_lobby')).join('');
+  }
+
   if (friendActive.length) {
     html += `<div class="section-head">Friends Playing</div>`;
     html += friendActive.map(g => gameCard(g, 'friend')).join('');
@@ -1453,11 +1448,11 @@ function renderGamesList() {
 }
 
 function gameCard(g, type) {
-  const badgeClass = type==='active' ? 'badge-green' : type==='invite' ? 'badge-gold' : type==='lobby' ? 'badge-gold' : type==='friend' ? 'badge-green' : 'badge-dim';
-  const badgeText  = type==='active' ? 'ACTIVE' : type==='invite' ? 'INVITED' : type==='lobby' ? 'LOBBY' : type==='friend' ? 'ACTIVE' : 'DONE';
-  const btnClass   = type==='active' ? 'btn-primary' : type==='invite' ? 'btn-primary' : type==='friend' ? 'btn-ghost' : 'btn-ghost';
-  const btnText    = type==='active' ? 'Rejoin' : type==='invite' ? 'Join' : type==='friend' ? 'Spectate' : type==='lobby' ? 'Open' : 'View';
-  const subLine    = type==='friend' ? `<div style="font-size:0.7rem;color:var(--text-dim)">${g.friend_name} is playing</div>` : '';
+  const badgeClass = type==='active' ? 'badge-green' : type==='invite' ? 'badge-gold' : type==='lobby' ? 'badge-gold' : type==='friend' ? 'badge-green' : type==='friend_lobby' ? 'badge-gold' : 'badge-dim';
+  const badgeText  = type==='active' ? 'ACTIVE' : type==='invite' ? 'INVITED' : type==='lobby' ? 'LOBBY' : type==='friend' ? 'ACTIVE' : type==='friend_lobby' ? 'OPEN' : 'DONE';
+  const btnClass   = type==='active' ? 'btn-primary' : type==='invite' ? 'btn-primary' : type==='friend_lobby' ? 'btn-primary' : type==='friend' ? 'btn-ghost' : 'btn-ghost';
+  const btnText    = type==='active' ? 'Rejoin' : type==='invite' ? 'Join' : type==='friend' ? 'Spectate' : type==='friend_lobby' ? 'Join' : type==='lobby' ? 'Open' : 'View';
+  const subLine    = (type==='friend' || type==='friend_lobby') ? `<div style="font-size:0.7rem;color:var(--text-dim)">${g.friend_name}'s game</div>` : '';
 
   // Find my chips in this game from the state if available
   let myChipsHtml = '';
@@ -1542,36 +1537,23 @@ async function createGame() {
 let _lobbyHostCheckInterval = null;
 
 function startLobbyHostWatch(gameId) {
-  // Non-host players watch for the host to disappear
+  // Non-host players watch for the host leaving (game deleted entirely)
   clearInterval(_lobbyHostCheckInterval);
   _lobbyHostCheckInterval = setInterval(async () => {
     if (!currentLobbyId) { clearInterval(_lobbyHostCheckInterval); return; }
     try {
-      const { data: game } = await sb.from('games').select('host_id, status').eq('id', gameId).single();
-      if (!game || game.status !== 'lobby') { clearInterval(_lobbyHostCheckInterval); return; }
+      const { data: game } = await sb.from('games')
+        .select('id, status').eq('id', gameId).maybeSingle();
 
-      // Check if host is still in game_players
-      const { data: hostRow } = await sb.from('game_players')
-        .select('id').eq('game_id', gameId).eq('user_id', game.host_id).eq('status', 'joined').single();
-
-      if (!hostRow) {
-        // Host left — longest-waiting joined player takes over
-        const { data: players } = await sb.from('game_players')
-          .select('user_id, joined_at').eq('game_id', gameId).eq('status', 'joined')
-          .order('joined_at', { ascending: true });
-
-        if (!players?.length) return;
-        const newHost = players[0];
-        if (newHost.user_id !== me.id) return; // not my turn to promote
-
-        await sb.from('games').update({ host_id: me.id }).eq('id', gameId).eq('host_id', game.host_id);
-        toast('You are now the lobby host');
+      // Host killed the lobby — kick guest back to home
+      if (!game || game.status === 'finished') {
         clearInterval(_lobbyHostCheckInterval);
-        // Reload lobby with host privileges
-        openLobby(gameId);
+        toast('Host closed the lobby');
+        sessionStorage.setItem('fr_auto_restore', '1');
+        setTimeout(() => { window.location.href = window.location.pathname; }, 800);
       }
     } catch(e) { /* silent */ }
-  }, 10000); // check every 10s
+  }, 5000); // check every 5s
 }
 
 function stopLobbyWatchdog() {
@@ -1886,7 +1868,6 @@ let _invitePollInterval = null;
 function subscribeToInvites() {
   if (inviteSubscription) inviteSubscription.unsubscribe();
 
-  // Watch for new game_players rows where user_id = me (host inviting us)
   inviteSubscription = sb.channel(`my-invites:${me.id}`)
     .on('postgres_changes', {
       event: 'INSERT',
@@ -1897,11 +1878,19 @@ function subscribeToInvites() {
       if (payload.new.status !== 'invited') return;
       await handleNewInvite(payload.new.game_id);
     })
-    .subscribe();
+    .subscribe(status => {
+      // Subscription just went live — immediately check for any invites we missed during handshake
+      if (status === 'SUBSCRIBED') {
+        setTimeout(checkForNewInvites, 500);
+      }
+    });
 
-  // Poll every 20s as fallback
+  // Poll every 10s as fallback (down from 20s)
   clearInterval(_invitePollInterval);
-  _invitePollInterval = setInterval(checkForNewInvites, 20000);
+  _invitePollInterval = setInterval(checkForNewInvites, 10000);
+
+  // Also run one catch-up check 2s after subscribing
+  setTimeout(checkForNewInvites, 2000);
 }
 
 async function checkForNewInvites() {
