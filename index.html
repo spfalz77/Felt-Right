@@ -1828,13 +1828,18 @@ async function openLobby(gameId) {
       .subscribe();
 
     // Also watch for game status change (host started)
-    sb.channel(`gamestart:${gameId}`)
+    // Only fires once on lobby -> active transition, then unsubscribes
+    const gameStartChannel = sb.channel(`gamestart:${gameId}`);
+    let alreadyEntered = false;
+    gameStartChannel
       .on('postgres_changes',{event:'UPDATE',schema:'public',table:'games',filter:`id=eq.${gameId}`},
         (payload) => {
-          if (payload.new.status === 'active') {
-            toast('Game starting!');
-            setTimeout(() => enterGame(gameId, payload.new.state), 800);
-          }
+          if (alreadyEntered) return;
+          if (payload.new.status !== 'active') return;
+          alreadyEntered = true;
+          gameStartChannel.unsubscribe(); // unsubscribe so future updates don't re-trigger
+          toast('Game starting!');
+          setTimeout(() => enterGame(gameId, payload.new.state), 800);
         })
       .subscribe();
   } catch(e) { console.warn(e); lobbyPlayers = [{user:me,seat_index:0}]; renderLobbySeats(); }
