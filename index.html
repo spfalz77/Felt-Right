@@ -1494,7 +1494,14 @@ async function createGame() {
     const { data, error } = await sb.from('games')
       .insert({ name, host_id: me.id, status:'lobby' }).select().single();
     if (error) throw error;
-    await sb.from('game_players').insert({ game_id: data.id, user_id: me.id, seat_index:0 });
+    // Host joins their own game immediately with a seat
+    const { error: pErr } = await sb.from('game_players').insert({
+      game_id: data.id,
+      user_id: me.id,
+      seat_index: 0,
+      status: 'joined',
+    });
+    if (pErr) throw pErr;
     await loadGames();
     openLobby(data.id);
   } catch(e) { toast('Error creating game: ' + e.message); }
@@ -1999,21 +2006,19 @@ function startDemoLobby() {
 // START GAME
 // ════════════════════════════════════════════════════════════════════════════
 function startGame() {
-  if (me.id !== 'demo' && lobbyPlayers.length < 2) {
-    toast('Need at least 2 players');
-    return;
-  }
+  // lobbyPlayers already contains only joined/playing/waiting (invited filtered out)
+  let playerSource = lobbyPlayers;
 
-  // Only include players who explicitly joined (not just invited)
-  let playerSource = lobbyPlayers.filter(lp =>
-    lp.status === 'joined' || lp.status === 'playing' || lp.status === 'waiting' || me.id === 'demo'
-  );
   if (me.id === 'demo' && lobbyPlayers.length < 2) {
-    // In case user tapped Start before friends "arrived", fill with demo players
     playerSource = [
       { user: me, seat_index: 0 },
       ...DEMO_FRIENDS.slice(0, 3).map((f, i) => ({ user: f, seat_index: i+1 })),
     ];
+  }
+
+  if (me.id !== 'demo' && playerSource.length < 2) {
+    toast(`Need at least 2 players — only ${playerSource.length} joined`);
+    return;
   }
 
   // Build player array
