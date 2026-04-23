@@ -991,10 +991,16 @@ async function init() {
     const activeGame = (activeGames || []).find(g => g.game?.status === 'active');
 
     if (activeGame) {
-      // Auto-rejoin active game bypassing login
-      enterApp();
-      setTimeout(() => rejoinActiveGame(activeGame.game.id, activeGame.game), 300);
-      return;
+      // Check if user has explicitly left this game — don't auto-rejoin
+      let sitOutList = [];
+      try { sitOutList = JSON.parse(localStorage.getItem('fr_sitout') || '[]'); } catch(e) {}
+
+      if (!sitOutList.includes(activeGame.game.id)) {
+        // Auto-rejoin active game bypassing login
+        enterApp();
+        setTimeout(() => rejoinActiveGame(activeGame.game.id, activeGame.game), 300);
+        return;
+      }
     }
 
     // Check the auto-restore flag for in-app reloads
@@ -1659,6 +1665,13 @@ async function inviteAllFriends() {
 // ════════════════════════════════════════════════════════════════════════════
 async function rejoinActiveGame(gameId, gameRef) {
   try {
+    // Explicit rejoin clears sit-out flag for this game
+    try {
+      let sitOutList = JSON.parse(localStorage.getItem('fr_sitout') || '[]');
+      sitOutList = sitOutList.filter(id => id !== gameId);
+      localStorage.setItem('fr_sitout', JSON.stringify(sitOutList));
+    } catch(e) { /* ignore */ }
+
     const { data, error } = await sb.from('games').select('state,host_id,blind_config').eq('id', gameId).single();
     if (error || !data?.state) { toast('Could not load game'); return; }
 
@@ -3008,40 +3021,71 @@ function renderActionBar() {
   const bar = document.getElementById('action-bar');
   const slider = document.getElementById('bet-slider-row');
 
-  if (!isMyTurn()) {
-    bar.innerHTML = `<div class="waiting-msg" style="width:100%;padding:8px 0">Waiting…</div>`;
+  const myPlayer = G.players.find(p => p.id === me.id);
+  if (!myPlayer || myPlayer.eliminated) {
+    bar.innerHTML = `<div class="waiting-msg" style="width:100%;padding:8px 0">Eliminated</div>`;
     slider.style.display = 'none';
-    stopTurnTimer();
-    const autoBar = document.getElementById('auto-action-bar');
-    if (autoBar) autoBar.innerHTML = '';
     return;
   }
 
-  const myPlayer = G.players.find(p => p.id === me.id);
   const callAmt = Math.min(G.currentBet - myPlayer.bet, myPlayer.chips);
   const canCheck = G.currentBet === myPlayer.bet;
-
   const blinds = getBlinds(getCurrentBlindLevel());
   const minRaiseTotal = Math.max(G.currentBet + blinds.big, blinds.big * 2);
   const minRaise = Math.min(snapTo5(minRaiseTotal), myPlayer.chips);
   const maxBet = myPlayer.chips;
   const canRaise = maxBet >= minRaise;
 
-  // Pot bet = call first, then pot size on top (standard formula)
-  const potBet   = Math.min(snapTo5(G.pot + callAmt), maxBet);
+  const potBet    = Math.min(snapTo5(G.pot + callAmt), maxBet);
   const twoPotBet = Math.min(snapTo5((G.pot + callAmt) * 2), maxBet);
+  const threePotBet = Math.min(snapTo5((G.pot + callAmt) * 3), maxBet);
   const potOk  = canRaise && potBet >= minRaise;
   const tpOk   = canRaise && twoPotBet >= minRaise;
+  const xpOk   = canRaise && threePotBet >= minRaise;
 
+  const myTurn = isMyTurn();
+
+  // Remember the previous slider value so we don't reset it on every render
+  const prevSlider = document.getElementById('bet-slider');
+  const prevValue = prevSlider ? parseInt(prevSlider.value) : null;
+  const prevMin = prevSlider ? parseInt(prevSlider.min) : null;
+
+  // Preserve user's prepared bet unless min has gone up past their value
+  // (someone raised in front of them) — then reset to default
+  let nextValue;
   const defaultRaise = Math.min(snapTo5(Math.max(G.currentBet * 3, minRaise)), maxBet);
+  if (prevValue !== null && prevMin !== null && prevValue >= minRaise && prevValue <= maxBet) {
+    // User's prepared bet still valid — keep it
+    nextValue = prevValue;
+  } else {
+    nextValue = defaultRaise;
+  }
 
+  // Show/update slider (always visible if we can raise — even when not our turn)
   if (canRaise) {
     slider.style.display = 'flex';
     const sl = document.getElementById('bet-slider');
-    sl.min = minRaise; sl.max = maxBet; sl.step = 5; sl.value = defaultRaise;
+    sl.min = minRaise; sl.max = maxBet; sl.step = 5; sl.value = nextValue;
+    sl.disabled = !myTurn; // can see/adjust only when it's your turn
     updateBetLabel();
   } else {
     slider.style.display = 'none';
+  }
+
+  if (!myTurn) {
+    // Show a compact waiting bar with LEAVE option — don't tear down the slider
+    bar.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;width:100%;gap:8px">
+        <div class="waiting-msg" style="flex:1">Waiting…</div>
+        <button onclick="leaveGameSitOut()" style="background:none;border:1px solid rgba(192,57,43,0.4);
+          color:var(--red-light);font-size:0.72rem;padding:5px 10px;border-radius:var(--r-sm);cursor:pointer">
+          Leave Game
+        </button>
+      </div>`;
+    stopTurnTimer();
+    const autoBar = document.getElementById('auto-action-bar');
+    if (autoBar) autoBar.innerHTML = '';
+    return;
   }
 
   const activePlayers = G.players.filter(p => !p.folded && !p.eliminated && p.chips > 0);
@@ -3056,8 +3100,10 @@ function renderActionBar() {
       style="color:var(--gold)">Pot<br><span style="font-size:0.72rem;opacity:0.8">${potBet}</span></button>
     <button class="btn btn-surface" onclick="playerAction('twopot')" ${tpOk?'':'disabled'}
       style="color:var(--gold)">2× Pot<br><span style="font-size:0.72rem;opacity:0.8">${twoPotBet}</span></button>
+    <button class="btn btn-surface" onclick="playerAction('threepot')" ${xpOk?'':'disabled'}
+      style="color:var(--gold)">3× Pot<br><span style="font-size:0.72rem;opacity:0.8">${threePotBet}</span></button>
     <button class="btn btn-primary" onclick="playerAction('raise')" ${!canRaise?'disabled':''}>
-      Raise<br><span style="font-size:0.72rem;opacity:0.8">${canRaise ? document.getElementById('bet-slider')?.value||defaultRaise : '—'}</span>
+      Raise<br><span style="font-size:0.72rem;opacity:0.8">${canRaise ? (prevValue ?? defaultRaise) : '—'}</span>
     </button>
     ${isHeadsUp ? `<button class="btn btn-surface btn-full" onclick="offerChopShortcut()"
       style="color:var(--gold-pale);margin-top:4px;font-size:0.8rem">🤝 Offer Chop</button>` : ''}
@@ -3192,6 +3238,39 @@ function execRaise(raiseTotal, myPlayer) {
   });
 }
 
+async function leaveGameSitOut() {
+  if (!G || !currentGameId) return;
+  if (!confirm('Leave the game? You will auto check/fold until you return. You can rejoin from the home screen while the game is still active.')) return;
+
+  const myPlayer = G.players.find(p => p.id === me.id);
+  if (myPlayer) {
+    myPlayer.disconnected = true;
+    myPlayer.sittingOut = true;
+  }
+
+  // Flag so auto-rejoin on refresh is skipped for this game
+  try {
+    const sitOutList = JSON.parse(localStorage.getItem('fr_sitout') || '[]');
+    if (!sitOutList.includes(currentGameId)) {
+      sitOutList.push(currentGameId);
+      localStorage.setItem('fr_sitout', JSON.stringify(sitOutList));
+    }
+  } catch(e) { /* ignore */ }
+
+  // If we're the host, sync our sit-out state so other players see it
+  if (amHost) {
+    syncGameState();
+  } else {
+    // Guest: submit a fold if mid-turn, then reload
+    if (isMyTurn()) {
+      await submitAction('fold', null);
+    }
+  }
+
+  sessionStorage.setItem('fr_auto_restore', '1');
+  setTimeout(() => { window.location.href = window.location.pathname; }, 400);
+}
+
 function playerAction(action) {
   stopTurnTimer();
 
@@ -3210,6 +3289,9 @@ function playerAction(action) {
       amount = Math.max(amount, minRaiseTotal);
     } else if (action === 'twopot') {
       amount = Math.min(snapTo5((G.pot + callAmt) * 2), myPlayer.chips + myPlayer.bet);
+      amount = Math.max(amount, minRaiseTotal);
+    } else if (action === 'threepot') {
+      amount = Math.min(snapTo5((G.pot + callAmt) * 3), myPlayer.chips + myPlayer.bet);
       amount = Math.max(amount, minRaiseTotal);
     }
     document.getElementById('bet-slider-row').style.display = 'none';
@@ -3250,6 +3332,10 @@ function playerAction(action) {
   } else if (action === 'twopot') {
     const tpTotal = Math.min(snapTo5((G.pot + callAmt) * 2), myPlayer.chips + myPlayer.bet);
     execRaise(Math.max(tpTotal, minRaiseTotal), myPlayer);
+
+  } else if (action === 'threepot') {
+    const xpTotal = Math.min(snapTo5((G.pot + callAmt) * 3), myPlayer.chips + myPlayer.bet);
+    execRaise(Math.max(xpTotal, minRaiseTotal), myPlayer);
   }
 
   document.getElementById('bet-slider-row').style.display = 'none';
@@ -3666,6 +3752,13 @@ function advanceAction() {
   if (active.length === 1) { doShowdown(); return; }
 
   const canAct = active.filter(p => !p.allIn);
+
+  // If nobody can act (everyone's all-in or one can't call more), run out to showdown
+  if (canAct.length === 0 || (canAct.length === 1 && canAct[0].bet >= G.currentBet)) {
+    runOutToShowdown();
+    return;
+  }
+
   const roundDone = canAct.every(p => p.bet >= G.currentBet && p.lastAction !== null);
 
   if (roundDone) {
@@ -3692,6 +3785,22 @@ function advanceAction() {
 }
 
 // ── ADVANCE STAGE ────────────────────────────────────────────────────────────
+function runOutToShowdown() {
+  // All remaining active players are all-in (or can't bet more) — deal remaining community cards
+  if (G.stage === 'preflop') {
+    G.community = [G.deck.pop(), G.deck.pop(), G.deck.pop(), G.deck.pop(), G.deck.pop()];
+  } else if (G.stage === 'flop') {
+    G.community.push(G.deck.pop(), G.deck.pop());
+  } else if (G.stage === 'turn') {
+    G.community.push(G.deck.pop());
+  }
+  G.stage = 'showdown';
+  G.actionIndex = -1;
+  renderGame();
+  syncGameState();
+  setTimeout(doShowdown, 1200);
+}
+
 function advanceStage() {
   // Reset bets AND lastAction for the new street
   G.players.forEach(p => { p.bet = 0; if (!p.folded && !p.eliminated) p.lastAction = null; });
