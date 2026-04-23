@@ -2783,7 +2783,8 @@ function proceedToDeal() {
     if (!p.folded) { p.hand = [G.deck.pop(), G.deck.pop()]; }
   }
 
-  // Write each player's hole cards to private_hands (async, fire & forget)
+  // Write each player's hole cards to private_hands BEFORE syncing state
+  // So guests always find their cards waiting when they react to the hand number change
   if (sb && currentGameId && me.id !== 'demo') {
     const handNum = G.handNumber;
     const rows = G.players
@@ -2795,12 +2796,13 @@ function proceedToDeal() {
         cards: p.hand,
       }));
     if (rows.length) {
-      // Delete any stale rows for this hand first, then insert fresh
-      sb.from('private_hands').delete().eq('game_id', currentGameId).eq('hand_number', handNum).then(() => {
-        sb.from('private_hands').insert(rows).then(({error}) => {
-          if (error) console.warn('private_hands write:', error);
-        });
-      });
+      // Fire-and-forget: delete stale, insert fresh
+      (async () => {
+        try {
+          await sb.from('private_hands').delete().eq('game_id', currentGameId).eq('hand_number', handNum);
+          await sb.from('private_hands').insert(rows);
+        } catch(e) { console.warn('private_hands write:', e); }
+      })();
     }
   }
 
@@ -2828,6 +2830,7 @@ function proceedToDeal() {
   G.actionIndex = eligible.length === 2 ? sbIdx : nextActive(bbIdx);
 
   renderGame();
+  syncGameState(); // push new hand state to guests
   if (!isMyTurn()) setTimeout(runCpuTurn, 1000);
 }
 
