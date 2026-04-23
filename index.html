@@ -642,13 +642,6 @@ h3 { font-size: 1rem; font-weight: 600; }
             oninput="blindDurationSeconds = Math.max(1, parseInt(this.value)||10) * 60"
             style="width:52px">
         </div>
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-          <div style="font-size:0.78rem;color:var(--text-dim)">Break every</div>
-          <input class="blind-input" id="break-interval-input" type="number" min="0" max="20" value="4"
-            oninput="breakEveryNLevels = Math.max(0, parseInt(this.value)||0)"
-            style="width:52px">
-          <div style="font-size:0.78rem;color:var(--text-dim)">levels · 0 to disable</div>
-        </div>
         <div style="overflow-x:auto">
           <table class="blind-table">
             <thead>
@@ -686,6 +679,11 @@ h3 { font-size: 1rem; font-weight: 600; }
             </svg>
             <div class="turn-timer-num" id="timer-num">30</div>
           </div>
+          <button id="host-pause-btn" onclick="pauseGame()" style="display:none;
+            background:none;border:1px solid var(--gold-dim);color:var(--gold);
+            font-size:0.7rem;padding:3px 8px;border-radius:4px;cursor:pointer">
+            ⏸ Pause
+          </button>
         </div>
       </div>
 
@@ -867,7 +865,6 @@ let BLIND_LEVELS = [
   {level:10, small:500, big:1000},
 ];
 let blindDurationSeconds = DEFAULT_BLIND_DURATION;
-let breakEveryNLevels = 4;  // break every 4 levels by default, 0 to disable
 
 function getBlinds(levelIndex) {
   if (levelIndex < BLIND_LEVELS.length) {
@@ -1669,7 +1666,6 @@ async function rejoinActiveGame(gameId, gameRef) {
     if (data.blind_config) {
       BLIND_LEVELS = data.blind_config.levels || BLIND_LEVELS;
       blindDurationSeconds = data.blind_config.duration || blindDurationSeconds;
-      if (typeof data.blind_config.breakEvery === 'number') breakEveryNLevels = data.blind_config.breakEvery;
     }
     currentGameId = gameId;
     G = data.state;
@@ -2155,7 +2151,7 @@ function startGame() {
       state: initialState,
       started_at: new Date().toISOString(),
       // Store blind config so guests can read it
-      blind_config: { levels: BLIND_LEVELS, duration: blindDurationSeconds, breakEvery: breakEveryNLevels },
+      blind_config: { levels: BLIND_LEVELS, duration: blindDurationSeconds },
     }).eq('id', currentLobbyId).then(({ error }) => {
       if (error) console.warn('startGame sync error:', error);
     });
@@ -2241,7 +2237,7 @@ function stopBlindTimer() {
 
 function tickBlindTimer() {
   if (!G) { stopBlindTimer(); return; }
-  if (G.onBreak) return; // paused during break
+  if (G.paused) return; // paused by host
 
   const elapsed = Math.floor((Date.now() - _blindLevelStartTime) / 1000);
   const remaining = blindDurationSeconds - elapsed;
@@ -2255,12 +2251,6 @@ function tickBlindTimer() {
     if (bi) bi.innerHTML =
       `<span class="pos-badge sb" style="font-size:0.5rem;width:16px;height:16px">SB</span> ${b.small} &nbsp;` +
       `<span class="pos-badge bb" style="font-size:0.5rem;width:16px;height:16px">BB</span> ${b.big}`;
-
-    // Scheduled break every N levels (host-only triggers, syncs to all)
-    if (amHost && G && breakEveryNLevels > 0 && _currentBlindLevel > 0 &&
-        _currentBlindLevel % breakEveryNLevels === 0) {
-      startBreak('Scheduled break');
-    }
   }
 
   updateBlindTimerDisplay();
@@ -2521,7 +2511,7 @@ function syncGameState() {
 }
 
 let _myPrivateHand = null; // { handNumber, cards }
-let _prevOnBreak = false;
+let _prevPaused = false;
 
 async function fetchMyPrivateHand(gameId, handNumber) {
   if (!sb || !me?.id || me.id === 'demo') return;
@@ -2648,40 +2638,33 @@ function guestSubscribeToGame(gameId) {
       if (row.blind_config) {
         BLIND_LEVELS = row.blind_config.levels || BLIND_LEVELS;
         blindDurationSeconds = row.blind_config.duration || blindDurationSeconds;
-        if (typeof row.blind_config.breakEvery === 'number') breakEveryNLevels = row.blind_config.breakEvery;
       }
 
-      // Detect break-end transition: was paused, now not
-      const breakJustEnded = _prevOnBreak === true && !G.onBreak;
-      _prevOnBreak = G.onBreak === true;
+      const pauseJustEnded = _prevPaused === true && !G.paused;
+      _prevPaused = G.paused === true;
 
       if (G.handNumber !== prevHandNumber) {
         _autoAction = null;
         const autoBar = document.getElementById('auto-action-bar');
         if (autoBar) autoBar.innerHTML = '';
-        // New hand — fetch my own hole cards from private table
         fetchMyPrivateHand(gameId, G.handNumber);
       }
 
-      // Merge my private cards into G.players if we have them cached
       applyMyPrivateHand();
-
       renderGame();
 
-      // Handle break overlay
-      if (G.onBreak) {
-        showBreakOverlay();
+      if (G.paused) {
+        showPauseOverlay();
       } else {
-        hideBreakOverlay();
-        if (breakJustEnded) {
-          toast('Break over — resuming');
-          // Ensure we have our cards for the current hand
+        hidePauseOverlay();
+        if (pauseJustEnded) {
+          toast('Game resumed');
           if (G.handNumber > 0) fetchMyPrivateHand(gameId, G.handNumber);
         }
       }
 
-      if (isMyTurn() && !G.onBreak) {
-        if (G.actionIndex !== prevActionIndex || breakJustEnded) {
+      if (isMyTurn() && !G.paused) {
+        if (G.actionIndex !== prevActionIndex || pauseJustEnded) {
           startTurnTimer(30);
           pushTurnNotification();
         }
@@ -2839,9 +2822,13 @@ function isMyTurn() {
 
 // ── RENDER ───────────────────────────────────────────────────────────────────
 function renderGame() {
-  // Handle break state first
-  if (G?.onBreak) showBreakOverlay();
-  else hideBreakOverlay();
+  // Handle pause state
+  if (G?.paused) showPauseOverlay();
+  else hidePauseOverlay();
+
+  // Show/hide host pause button
+  const pauseBtn = document.getElementById('host-pause-btn');
+  if (pauseBtn) pauseBtn.style.display = amHost && !G?.paused ? 'inline-block' : 'none';
 
   const blinds = getBlinds(getCurrentBlindLevel());
   document.getElementById('blind-info').innerHTML =
@@ -3228,9 +3215,6 @@ function startPresence(gameId) {
   if (!sb || me.id === 'demo') return;
   stopPresence(); // clean up any existing
 
-  _gameStartedAt = Date.now();
-  _playersSeenOnline = new Set();
-
   _presenceChannel = sb.channel(`presence:${gameId}`, {
     config: { presence: { key: me.id } }
   });
@@ -3238,9 +3222,6 @@ function startPresence(gameId) {
   const updateOnlineStatus = () => {
     if (!_presenceChannel) return;
     const state = _presenceChannel.presenceState();
-
-    // Track who has ever been online this session
-    Object.keys(state).forEach(id => _playersSeenOnline.add(id));
 
     // Update G if we're host
     if (amHost && G) {
@@ -3256,7 +3237,6 @@ function startPresence(gameId) {
       if (anyChanged) {
         renderGame();
         syncGameState();
-        checkAllIdleBreak();
       }
     }
 
@@ -3281,41 +3261,30 @@ function startPresence(gameId) {
   }, 5000);
 }
 
-// ── BREAK / PAUSE SYSTEM ──────────────────────────────────────────────────────
-// G.onBreak = true when game is paused (scheduled or ad-hoc idle)
-// G.breakReason = 'Scheduled break' | 'Everyone went away' | 'Manual'
-// G.breakStartedAt = ISO timestamp
-function startBreak(reason) {
-  if (!G || G.onBreak) return;
-  if (!amHost) return; // only host can start
-  G.onBreak = true;
-  G.breakReason = reason || 'Break';
-  G.breakStartedAt = new Date().toISOString();
+
+// ── PAUSE SYSTEM (manual host toggle) ─────────────────────────────────────────
+// G.paused = true when host has paused the game
+function pauseGame() {
+  if (!G || G.paused || !amHost) return;
+  G.paused = true;
   syncGameState();
-  showBreakOverlay();
+  showPauseOverlay();
   stopTurnTimer();
-  toast(`${reason || 'Break'} — game paused`);
+  stopHostTurnEnforcer();
+  toast('Game paused');
 }
 
-function endBreak() {
-  if (!G || !G.onBreak) return;
-  if (!amHost) return;
-  G.onBreak = false;
-  G.breakReason = null;
-  G.breakStartedAt = null;
-  // Reset blind level timer so we don't immediately trigger again
+function resumeGame() {
+  if (!G || !G.paused || !amHost) return;
+  G.paused = false;
   _blindLevelStartTime = Date.now();
-  // Reset "seen online" tracker so next checkAllIdleBreak waits for fresh evidence
-  _playersSeenOnline = new Set();
-  _gameStartedAt = Date.now();
-  // If it's someone's turn, restamp turnStartAt so timer is fresh for everyone
   if (G.actionIndex >= 0) {
     G.turnStartAt = new Date().toISOString();
   }
   syncGameState();
-  hideBreakOverlay();
+  hidePauseOverlay();
   renderGame();
-  toast('Break over — game resumed');
+  toast('Game resumed');
   if (G.actionIndex >= 0) {
     startHostTurnEnforcer();
     if (isMyTurn()) startTurnTimer(30);
@@ -3323,11 +3292,26 @@ function endBreak() {
   }
 }
 
-function showBreakOverlay() {
-  let el = document.getElementById('break-overlay');
+async function guestSignalBack() {
+  // Guest tells host "I'm back" by updating their game_players row timestamp
+  if (!sb || !currentGameId || me.id === 'demo' || amHost) return;
+  try {
+    await sb.from('game_players')
+      .update({ last_seen_at: new Date().toISOString() })
+      .eq('game_id', currentGameId).eq('user_id', me.id);
+  } catch(e) { /* column may not exist, fine */ }
+  // The presence channel will also tell host we're alive
+  if (_presenceChannel) {
+    await _presenceChannel.track({ online_at: new Date().toISOString(), back: true });
+  }
+  toast("You're marked back — waiting for host to resume");
+}
+
+function showPauseOverlay() {
+  let el = document.getElementById('pause-overlay');
   if (!el) {
     el = document.createElement('div');
-    el.id = 'break-overlay';
+    el.id = 'pause-overlay';
     el.style.cssText = `
       position: fixed; top:0; left:0; right:0; bottom:0; z-index:500;
       background: rgba(8,20,14,0.92); backdrop-filter: blur(8px);
@@ -3337,60 +3321,26 @@ function showBreakOverlay() {
     document.body.appendChild(el);
   }
 
-  const reason  = G?.breakReason || 'Break';
-  const started = G?.breakStartedAt ? new Date(G.breakStartedAt) : new Date();
-  const mins = Math.floor((Date.now() - started.getTime()) / 60000);
-
   el.innerHTML = `
-    <div style="font-size:3rem;margin-bottom:12px">☕</div>
+    <div style="font-size:3rem;margin-bottom:12px">⏸️</div>
     <div style="font-family:'Bebas Neue',sans-serif;font-size:2rem;color:var(--gold-pale);letter-spacing:0.1em;margin-bottom:8px">
-      ${reason.toUpperCase()}
+      GAME PAUSED
     </div>
-    <div style="color:var(--text-dim);font-size:0.9rem;margin-bottom:24px">
-      Game paused for ${mins} minute${mins !== 1 ? 's' : ''}
+    <div style="color:var(--text-dim);font-size:0.9rem;margin-bottom:24px;max-width:280px;line-height:1.5">
+      ${amHost
+        ? 'You paused the game. Resume when ready.'
+        : `Host has paused the game. Tap "I'm back" so they know you're ready.`}
     </div>
-    ${amHost ? `
-      <button class="btn btn-primary" onclick="endBreak()" style="min-width:200px">
-        Resume Game
-      </button>
-      <div style="color:var(--text-dim);font-size:0.78rem;margin-top:12px">
-        You're the host — tap to resume
-      </div>
-    ` : `
-      <div style="color:var(--text-dim);font-size:0.85rem;max-width:280px;line-height:1.5">
-        Waiting for host to resume…<br>
-        <span style="color:var(--gold);font-size:0.78rem">Your phone can sleep safely</span>
-      </div>
-    `}`;
+    ${amHost
+      ? `<button class="btn btn-primary" onclick="resumeGame()" style="min-width:200px">Resume Game</button>`
+      : `<button class="btn btn-primary" onclick="guestSignalBack()" style="min-width:200px">I'm Back</button>`
+    }`;
   el.style.display = 'flex';
 }
 
-function hideBreakOverlay() {
-  const el = document.getElementById('break-overlay');
+function hidePauseOverlay() {
+  const el = document.getElementById('pause-overlay');
   if (el) el.style.display = 'none';
-}
-
-// Called from presence sync — host checks if all non-eliminated players are idle
-// Only triggers AFTER grace period and only if players had been online before going idle
-let _gameStartedAt = 0;
-let _playersSeenOnline = new Set(); // tracks who has ever been online this game
-
-function checkAllIdleBreak() {
-  if (!amHost || !G || G.onBreak) return;
-  // Grace period — don't pause within 30s of game start (gives everyone time to connect)
-  if (Date.now() - _gameStartedAt < 30000) return;
-
-  const nonHostActive = G.players.filter(p => !p.eliminated && p.id !== me.id);
-  if (nonHostActive.length < 1) return;
-
-  // "All idle" = every non-host active player is marked disconnected
-  // AND at least one of them had previously been seen online (not just never showed up)
-  const allIdle = nonHostActive.every(p => p.disconnected === true);
-  const anyWasOnline = nonHostActive.some(p => _playersSeenOnline.has(p.id));
-
-  if (allIdle && anyWasOnline) {
-    startBreak('Everyone stepped away');
-  }
 }
 
 function stopPresence() {
@@ -3488,7 +3438,7 @@ function stopHostTurnEnforcer() {
 
 function startHostTurnEnforcer() {
   stopHostTurnEnforcer();
-  if (!amHost || !G || G.onBreak) return;
+  if (!amHost || !G || G.paused) return;
   if (G.actionIndex < 0) return;
   const p = G.players[G.actionIndex];
   if (!p || p.id === me.id) return; // host's own turn uses UI timer
