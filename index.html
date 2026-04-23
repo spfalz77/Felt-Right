@@ -1119,37 +1119,41 @@ function pushScreen(id) {
   showScreen(id);
 }
 
-function leaveLobby() {
+async function leaveLobby() {
   const lobbyId = currentLobbyId;
+  const btn = document.getElementById('lobby-leave-btn');
+  if (btn) { btn.style.pointerEvents = 'none'; btn.textContent = 'Leaving…'; }
 
   // Set flag so reload returns to home (not login screen)
   sessionStorage.setItem('fr_auto_restore', '1');
 
   if (lobbyId && me && me.id !== 'demo' && sb) {
     try {
-      sb.from('games').select('host_id').eq('id', lobbyId).maybeSingle().then(async ({data: gameRow}) => {
-        if (!gameRow) return;
+      const { data: gameRow } = await sb.from('games')
+        .select('host_id').eq('id', lobbyId).maybeSingle();
 
+      if (gameRow) {
         if (gameRow.host_id === me.id) {
-          // Host leaving = kill the lobby for everyone
+          // HOST LEAVING: kill the lobby for everyone — MUST await so it completes before reload
           await sb.from('game_players').delete().eq('game_id', lobbyId);
           await sb.from('games').delete().eq('id', lobbyId);
         } else {
-          // Guest leaving — revert to invited so they can rejoin
-          sb.from('game_players').update({ status: 'invited', seat_index: null })
-            .eq('game_id', lobbyId).eq('user_id', me.id).then(() => {});
+          // GUEST LEAVING: revert to invited so they can rejoin
+          await sb.from('game_players').update({ status: 'invited', seat_index: null })
+            .eq('game_id', lobbyId).eq('user_id', me.id);
         }
-      });
+      }
     } catch(e) { console.warn('leaveLobby error:', e); }
   }
 
-  // Immediate hard reload — session will restore and drop us at home
+  // Now safe to reload — DB ops completed
   window.location.href = window.location.pathname;
   return false;
 }
 
 function goBack() {
   leaveLobby();
+  return false;
 }
 
 function switchTab(tab) {
@@ -1534,6 +1538,7 @@ async function createGame() {
 
 // ── LOBBY HOST MIGRATION ──────────────────────────────────────────────────────
 // If host leaves the lobby before starting, promote the next joined player
+let _lobbyWatchdog = null;
 let _lobbyHostCheckInterval = null;
 
 function startLobbyHostWatch(gameId) {
