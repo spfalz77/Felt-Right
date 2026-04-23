@@ -2150,7 +2150,7 @@ function startGame() {
       status: 'active',
       state: initialState,
       started_at: new Date().toISOString(),
-      // Store blind config so guests can read it
+      last_host_seen: new Date().toISOString(), // stamp immediately so guests don't trigger false disconnect
       blind_config: { levels: BLIND_LEVELS, duration: blindDurationSeconds },
     }).eq('id', currentLobbyId).then(({ error }) => {
       if (error) console.warn('startGame sync error:', error);
@@ -2291,8 +2291,9 @@ function updateBlindTimerDisplay() {
 
 // ── HOST HEARTBEAT ────────────────────────────────────────────────────────────
 const HEARTBEAT_INTERVAL  = 5000;  // host pings every 5s
-const DISCONNECT_TIMEOUT  = 10000; // 10s without host ping = migrate
-const MIGRATION_COUNTDOWN = 3;     // brief 3s warning before migration
+const DISCONNECT_TIMEOUT  = 20000; // 20s without host ping = migrate (more generous)
+const MIGRATION_COUNTDOWN = 5;     // brief 5s warning before migration
+const DISCONNECT_GRACE_MS = 15000; // 15s grace after joining before checking
 
 let _heartbeatInterval    = null;
 let _disconnectWatchTimer = null;
@@ -2319,8 +2320,11 @@ async function pingHostSeen(gameId) {
 }
 
 // ── GUEST DISCONNECT WATCHER ──────────────────────────────────────────────────
+let _disconnectWatcherStartedAt = 0;
+
 function startDisconnectWatcher(gameId) {
   stopDisconnectWatcher();
+  _disconnectWatcherStartedAt = Date.now();
   _disconnectWatchTimer = setInterval(() => checkHostAlive(gameId), 5000);
 }
 
@@ -2330,17 +2334,40 @@ function stopDisconnectWatcher() {
 }
 
 async function checkHostAlive(gameId) {
-  if (!sb || !gameId || amHost) return;
+  // Stop if I somehow became host
+  if (amHost) { stopDisconnectWatcher(); clearDisconnectBanner(); return; }
+  if (!sb || !gameId) return;
+  // Grace period after joining — don't migrate during initial sync
+  if (Date.now() - _disconnectWatcherStartedAt < DISCONNECT_GRACE_MS) return;
+
   try {
     const { data } = await sb.from('games')
-      .select('last_host_seen, host_id')
+      .select('last_host_seen, host_id, status')
       .eq('id', gameId)
-      .single();
-    if (!data?.last_host_seen) return;
+      .maybeSingle();
+
+    if (!data) return;
+    // Game finished — stop watching
+    if (data.status === 'finished') { stopDisconnectWatcher(); return; }
+    // If host changed (migration elsewhere), update local and stop
+    if (data.host_id === me.id) {
+      amHost = true;
+      stopDisconnectWatcher();
+      clearDisconnectBanner();
+      return;
+    }
+    // No heartbeat ever written yet — be patient, don't migrate
+    if (!data.last_host_seen) return;
 
     const age = Date.now() - new Date(data.last_host_seen).getTime();
     if (age > DISCONNECT_TIMEOUT && !_gamePaused) {
       showDisconnectPause(gameId, data.host_id);
+    } else if (age < DISCONNECT_TIMEOUT && _gamePaused) {
+      // Host came back — clear the banner
+      _gamePaused = false;
+      clearInterval(_migrationCountdown);
+      _migrationCountdown = null;
+      clearDisconnectBanner();
     }
   } catch(e) { /* silent */ }
 }
@@ -2435,6 +2462,7 @@ async function attemptHostMigration(gameId, oldHostId) {
     amHost = true;
     _gamePaused = false;
     stopDisconnectWatcher();
+    clearDisconnectBanner();
     document.getElementById('showdown-overlay').style.display = 'none';
     toast('You are now the host');
     startHostHeartbeat(gameId);
