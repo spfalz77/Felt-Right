@@ -960,13 +960,25 @@ async function init() {
     return;
   }
 
-  // Always show the login screen — prefill saved email only
+  // Prefill saved email on login screen
   const savedEmail = localStorage.getItem('fr_email');
   if (savedEmail) {
     const el = document.getElementById('login-email');
     if (el) el.value = savedEmail;
   }
-  // Stay on splash — user must tap Sign In
+
+  // If we just reloaded from an in-app action (Leave lobby), restore session
+  if (sessionStorage.getItem('fr_auto_restore') === '1') {
+    sessionStorage.removeItem('fr_auto_restore');
+    try {
+      const { data: { session } } = await sb.auth.getSession();
+      if (session) {
+        me = await getProfile(session.user.id);
+        if (me) { me.email = session.user.email; enterApp(); return; }
+      }
+    } catch(e) { console.warn('auto-restore failed:', e); }
+  }
+  // Otherwise: stay on splash, user must sign in
 }
 
 function enterDemoMode() {
@@ -1110,15 +1122,36 @@ function pushScreen(id) {
 function leaveLobby() {
   const lobbyId = currentLobbyId;
 
-  // Fire-and-forget DB cleanup — don't await anything
+  // Set flag so reload returns to home (not login screen)
+  sessionStorage.setItem('fr_auto_restore', '1');
+
   if (lobbyId && me && me.id !== 'demo' && sb) {
     try {
-      sb.from('games').select('host_id').eq('id', lobbyId).maybeSingle().then(({data: gameRow}) => {
+      sb.from('games').select('host_id').eq('id', lobbyId).maybeSingle().then(async ({data: gameRow}) => {
         if (!gameRow) return;
+
         if (gameRow.host_id === me.id) {
-          sb.from('game_players').delete().eq('game_id', lobbyId).then(() => {});
-          sb.from('games').delete().eq('id', lobbyId).then(() => {});
+          // I'm the host — check if anyone else is joined
+          const { data: others } = await sb.from('game_players')
+            .select('user_id, joined_at')
+            .eq('game_id', lobbyId)
+            .neq('user_id', me.id)
+            .eq('status', 'joined')
+            .order('joined_at', { ascending: true });
+
+          if (others && others.length > 0) {
+            // Migrate host to the longest-waiting joined guest, remove me
+            const newHost = others[0];
+            await sb.from('games').update({ host_id: newHost.user_id }).eq('id', lobbyId);
+            await sb.from('game_players').delete()
+              .eq('game_id', lobbyId).eq('user_id', me.id);
+          } else {
+            // No one else — delete the whole lobby
+            await sb.from('game_players').delete().eq('game_id', lobbyId);
+            await sb.from('games').delete().eq('id', lobbyId);
+          }
         } else {
+          // Guest leaving — revert to invited
           sb.from('game_players').update({ status: 'invited', seat_index: null })
             .eq('game_id', lobbyId).eq('user_id', me.id).then(() => {});
         }
@@ -1126,7 +1159,7 @@ function leaveLobby() {
     } catch(e) { console.warn('leaveLobby error:', e); }
   }
 
-  // Immediate hard reload — happens regardless of DB state
+  // Immediate hard reload — session will restore and drop us at home
   window.location.href = window.location.pathname;
   return false;
 }
