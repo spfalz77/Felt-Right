@@ -2627,7 +2627,6 @@ function applyRemoteAction(playerId, action, amount) {
     });
   }
   renderGame();
-  syncGameState();
   setTimeout(advanceAction, 400);
 }
 
@@ -3255,8 +3254,7 @@ function playerAction(action) {
 
   document.getElementById('bet-slider-row').style.display = 'none';
   renderGame();
-  syncGameState(); // push host's action to guests
-  advanceAction();
+  advanceAction(); // advanceAction will sync the final state
 }
 
 // ── CPU AI ───────────────────────────────────────────────────────────────────
