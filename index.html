@@ -1750,27 +1750,6 @@ async function openLobby(gameId) {
     renderLobbySeats();
     renderInvitedList(invitedPlayers);
 
-function renderInvitedList(invited) {
-  // Show pending invites below the seat grid
-  let el = document.getElementById('lobby-invited-list');
-  if (!el) {
-    el = document.createElement('div');
-    el.id = 'lobby-invited-list';
-    el.style.cssText = 'padding:0 16px 8px';
-    const seatsEl = document.getElementById('lobby-seats');
-    seatsEl.parentNode.insertBefore(el, seatsEl.nextSibling);
-  }
-  if (!invited.length) { el.innerHTML = ''; return; }
-  el.innerHTML = `
-    <div style="font-size:0.72rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px">Invited — Pending</div>
-    ${invited.map(p => `
-      <div style="display:flex;align-items:center;gap:10px;padding:6px 0">
-        <div class="avatar sm">${p.user?.avatar_emoji||p.user?.display_name?.[0]||'?'}</div>
-        <div style="font-size:0.85rem;color:var(--text-dim);flex:1">${p.user?.display_name||'...'}</div>
-        <span class="badge badge-dim">Invited</span>
-      </div>`).join('')}`;
-}
-
     // Subscribe — watch both new joins and status updates
     if (lobbySubscription) lobbySubscription.unsubscribe();
     lobbySubscription = sb.channel(`lobby:${gameId}`)
@@ -1811,6 +1790,26 @@ function renderInvitedList(invited) {
         })
       .subscribe();
   } catch(e) { console.warn(e); lobbyPlayers = [{user:me,seat_index:0}]; renderLobbySeats(); }
+}
+
+function renderInvitedList(invited) {
+  let el = document.getElementById('lobby-invited-list');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'lobby-invited-list';
+    el.style.cssText = 'padding:0 16px 8px';
+    const seatsEl = document.getElementById('lobby-seats');
+    if (seatsEl) seatsEl.parentNode.insertBefore(el, seatsEl.nextSibling);
+  }
+  if (!invited.length) { el.innerHTML = ''; return; }
+  el.innerHTML = `
+    <div style="font-size:0.72rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px">Invited — Pending</div>
+    ${invited.map(p => `
+      <div style="display:flex;align-items:center;gap:10px;padding:6px 0">
+        <div class="avatar sm">${p.user?.avatar_emoji||p.user?.display_name?.[0]||'?'}</div>
+        <div style="font-size:0.85rem;color:var(--text-dim);flex:1">${p.user?.display_name||'...'}</div>
+        <span class="badge badge-dim">Invited</span>
+      </div>`).join('')}`;
 }
 
 function renderLobbySeats() {
