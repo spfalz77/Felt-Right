@@ -1104,26 +1104,23 @@ function pushScreen(id) {
 
 async function leaveLobby() {
   const lobbyId = currentLobbyId;
-  if (!lobbyId) { navTo('home'); return; }
 
-  // Disable button immediately to prevent double-tap
   const btn = document.getElementById('lobby-leave-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Leaving…'; }
 
   stopLobbyWatchdog();
+  currentLobbyId = null;
 
-  if (me.id !== 'demo' && sb) {
+  if (lobbyId && me.id !== 'demo' && sb) {
     try {
       const { data: gameRow } = await sb.from('games')
         .select('host_id, status').eq('id', lobbyId).single();
 
       if (gameRow?.host_id === me.id) {
-        // Host: delete the whole lobby
         await sb.from('game_players').delete().eq('game_id', lobbyId);
         await sb.from('games').delete().eq('id', lobbyId);
         toast('Lobby cancelled');
       } else {
-        // Guest: revert to invited
         await sb.from('game_players')
           .update({ status: 'invited', seat_index: null })
           .eq('game_id', lobbyId)
@@ -1132,9 +1129,11 @@ async function leaveLobby() {
     } catch(e) { console.warn('leaveLobby error:', e); }
   }
 
-  currentLobbyId = null;
-  await loadGames();
-  navTo('home');
+  // Always go home regardless of what happened above
+  screenStack = ['home'];
+  showScreen('home');
+  document.getElementById('nav').classList.add('visible');
+  loadGames(); // async, don't await — let home render immediately
 }
 
 async function goBack() {
@@ -1352,7 +1351,6 @@ async function loadGames() {
       }))
       .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
-    // Also fetch active games that friends are in (so I can see what they're playing)
     if (myFriends.length) {
       const friendIds = myFriends.map(f => f.id);
       const myGameIds = new Set(myGames.map(g => g.id));
@@ -1820,66 +1818,65 @@ function renderLobbySeats() {
 }
 
 // ── GLOBAL INVITE LISTENER ────────────────────────────────────────────────────
+
 let inviteSubscription = null;
 let _invitePollInterval = null;
-let _lastKnownGameIds = new Set();
 
 function subscribeToInvites() {
   if (inviteSubscription) inviteSubscription.unsubscribe();
 
-  // Track games we already know about so we can detect new ones
-  myGames.forEach(g => _lastKnownGameIds.add(g.id));
-
-  // Supabase column filters on INSERT aren't reliable without REPLICA IDENTITY FULL.
-  // Use a broader subscription (no filter) and check client-side.
-  inviteSubscription = sb.channel(`invites-broad:${me.id}`)
+  // Watch for new game_players rows where user_id = me (host inviting us)
+  inviteSubscription = sb.channel(`my-invites:${me.id}`)
     .on('postgres_changes', {
       event: 'INSERT',
       schema: 'public',
       table: 'game_players',
     }, async payload => {
-      // Client-side filter — only care about rows for me
       if (payload.new.user_id !== me.id) return;
+      if (payload.new.status !== 'invited') return;
       await handleNewInvite(payload.new.game_id);
     })
     .subscribe();
 
-  // Polling fallback — check every 15s for new games in case Realtime misses it
+  // Poll every 20s as fallback
   clearInterval(_invitePollInterval);
-  _invitePollInterval = setInterval(async () => {
-    const prevIds = new Set(_lastKnownGameIds);
-    await loadGames();
-    const newGames = myGames.filter(g => !prevIds.has(g.id) && g.status === 'lobby' && !g.i_am_host);
-    for (const g of newGames) {
-      await handleNewInvite(g.id);
+  _invitePollInterval = setInterval(checkForNewInvites, 20000);
+}
+
+async function checkForNewInvites() {
+  if (!sb || !me?.id) return;
+  try {
+    const { data } = await sb.from('game_players')
+      .select('game_id')
+      .eq('user_id', me.id)
+      .eq('status', 'invited');
+
+    for (const row of (data || [])) {
+      if (!myGames.find(g => g.id === row.game_id)) {
+        await handleNewInvite(row.game_id);
+      }
     }
-  }, 15000);
+    if (data?.length) await loadGames();
+  } catch(e) { console.warn('checkForNewInvites:', e); }
 }
 
 async function handleNewInvite(gameId) {
-  if (_lastKnownGameIds.has(gameId)) return; // already know about this one
-  _lastKnownGameIds.add(gameId);
-
   try {
-    const { data: game } = await sb
-      .from('games')
+    const { data: game } = await sb.from('games')
       .select('id, name, host_id, status, users!host_id(display_name)')
-      .eq('id', gameId)
-      .single();
+      .eq('id', gameId).single();
 
-    if (!game || game.host_id === me.id) return;
+    if (!game || game.status !== 'lobby' || game.host_id === me.id) return;
 
     const hostName = game.users?.display_name || 'Someone';
-
     showInviteBanner(game, hostName);
 
     if ('Notification' in window && Notification.permission === 'granted' && document.visibilityState !== 'visible') {
-      new Notification(`Felt Right — Game Invite`, {
+      new Notification('Felt Right — Game Invite', {
         body: `${hostName} invited you to "${game.name}"`,
         tag: `invite-${game.id}`,
       });
     }
-
     await loadGames();
   } catch(e) { console.warn('handleNewInvite error:', e); }
 }
@@ -1922,7 +1919,7 @@ async function inviteFriend(friendId, name) {
     return;
   }
 
-  // Check if already invited or joined
+  // Check if already in the lobby
   const { data: existing } = await sb.from('game_players')
     .select('id, status').eq('game_id', currentLobbyId).eq('user_id', friendId).maybeSingle();
 
@@ -1939,12 +1936,7 @@ async function inviteFriend(friendId, name) {
   });
 
   if (error) {
-    if (error.code === '42501') {
-      // RLS policy blocking host insert — run the SQL fix
-      toast('Run invite SQL policy in Supabase — see setup');
-    } else {
-      toast(`Could not invite ${name}: ${error.message}`);
-    }
+    toast(`Could not invite ${name}: ${error.message}`);
   } else {
     toast(`${name} invited ✓`);
     renderLobbyFriendList();
