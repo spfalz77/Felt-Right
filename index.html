@@ -975,18 +975,40 @@ async function init() {
     if (el) el.value = savedEmail;
   }
 
-  // If we just reloaded from an in-app action (Leave lobby), restore session
-  if (sessionStorage.getItem('fr_auto_restore') === '1') {
-    sessionStorage.removeItem('fr_auto_restore');
-    try {
-      const { data: { session } } = await sb.auth.getSession();
-      if (session) {
-        me = await getProfile(session.user.id);
-        if (me) { me.email = session.user.email; enterApp(); return; }
-      }
-    } catch(e) { console.warn('auto-restore failed:', e); }
-  }
-  // Otherwise: stay on splash, user must sign in
+  // Check for existing session
+  try {
+    const { data: { session } } = await sb.auth.getSession();
+    if (!session) return; // stay on splash screen
+
+    // User has a valid session — check if they're in an active game
+    me = await getProfile(session.user.id);
+    if (!me) return;
+    me.email = session.user.email;
+
+    // Look for active games this user is playing
+    const { data: activeGames } = await sb.from('game_players')
+      .select('game:games(id, status)')
+      .eq('user_id', me.id)
+      .limit(5);
+
+    const activeGame = (activeGames || []).find(g => g.game?.status === 'active');
+
+    if (activeGame) {
+      // Auto-rejoin active game bypassing login
+      enterApp();
+      setTimeout(() => rejoinActiveGame(activeGame.game.id, activeGame.game), 300);
+      return;
+    }
+
+    // Check the auto-restore flag for in-app reloads
+    if (sessionStorage.getItem('fr_auto_restore') === '1') {
+      sessionStorage.removeItem('fr_auto_restore');
+      enterApp();
+      return;
+    }
+  } catch(e) { console.warn('init auto-restore:', e); }
+
+  // Default: show splash / login
 }
 
 function enterDemoMode() {
@@ -1665,8 +1687,9 @@ async function rejoinActiveGame(gameId, gameRef) {
       _autoAction = null;
       guestSubscribeToGame(gameId);
       startDisconnectWatcher(gameId);
+      // Fetch our private hole cards before first render
+      if (G.handNumber > 0) await fetchMyPrivateHand(gameId, G.handNumber);
       renderGame();
-      // If it's already our turn, show buttons immediately — don't wait for next state update
       if (isMyTurn()) {
         startTurnTimer(30);
         pushTurnNotification();
@@ -2498,6 +2521,7 @@ function syncGameState() {
 }
 
 let _myPrivateHand = null; // { handNumber, cards }
+let _prevOnBreak = false;
 
 async function fetchMyPrivateHand(gameId, handNumber) {
   if (!sb || !me?.id || me.id === 'demo') return;
@@ -2555,6 +2579,9 @@ function applyRemoteAction(playerId, action, amount) {
   const p = G.players.find(pl => pl.id === playerId);
   if (!p || p.folded || p.eliminated) return;
   stopTurnTimer();
+  stopHostTurnEnforcer();
+  // Player responded — they're not away, clear the flag
+  if (p.disconnected) { p.disconnected = false; }
 
   if (action === 'fold') {
     p.folded = true; p.lastAction = { type:'fold', label:'Fold' };
@@ -2624,6 +2651,10 @@ function guestSubscribeToGame(gameId) {
         if (typeof row.blind_config.breakEvery === 'number') breakEveryNLevels = row.blind_config.breakEvery;
       }
 
+      // Detect break-end transition: was paused, now not
+      const breakJustEnded = _prevOnBreak === true && !G.onBreak;
+      _prevOnBreak = G.onBreak === true;
+
       if (G.handNumber !== prevHandNumber) {
         _autoAction = null;
         const autoBar = document.getElementById('auto-action-bar');
@@ -2632,20 +2663,25 @@ function guestSubscribeToGame(gameId) {
         fetchMyPrivateHand(gameId, G.handNumber);
       }
 
-      // If we just reconnected and we're the player whose turn it is, we're NOT away anymore
-      // (host will pick this up via presence on next sync)
-
       // Merge my private cards into G.players if we have them cached
       applyMyPrivateHand();
 
       renderGame();
 
       // Handle break overlay
-      if (G.onBreak) showBreakOverlay();
-      else hideBreakOverlay();
+      if (G.onBreak) {
+        showBreakOverlay();
+      } else {
+        hideBreakOverlay();
+        if (breakJustEnded) {
+          toast('Break over — resuming');
+          // Ensure we have our cards for the current hand
+          if (G.handNumber > 0) fetchMyPrivateHand(gameId, G.handNumber);
+        }
+      }
 
       if (isMyTurn() && !G.onBreak) {
-        if (G.actionIndex !== prevActionIndex) {
+        if (G.actionIndex !== prevActionIndex || breakJustEnded) {
           startTurnTimer(30);
           pushTurnNotification();
         }
@@ -2913,11 +2949,14 @@ function cardKey(card, context) { return `${context}:${card.rank}${card.suit}`; 
 
 function makeCardEl(card, hidden, lg, animKey) {
   const el = document.createElement('div');
-  const red = isRed(card);
+  // Card may be a redacted placeholder {hidden:true} with no rank/suit
+  const isRedacted = !card || card.hidden || !card.rank;
+  const red = isRedacted ? false : isRed(card);
   const shouldAnim = animKey && !_animatedCards.has(animKey);
   if (shouldAnim) _animatedCards.add(animKey);
-  el.className = `card ${shouldAnim ? 'deal-anim' : ''} ${hidden ? 'back' : (red ? 'red' : 'black')} ${lg ? 'lg' : ''}`;
-  if (!hidden) {
+  const showBack = hidden || isRedacted;
+  el.className = `card ${shouldAnim ? 'deal-anim' : ''} ${showBack ? 'back' : (red ? 'red' : 'black')} ${lg ? 'lg' : ''}`;
+  if (!showBack) {
     el.innerHTML = `
       <div class="card-top"><div class="card-rank">${card.rank}</div><div class="card-suit">${card.suit}</div></div>
       <div class="card-center">${card.suit}</div>
@@ -3189,6 +3228,9 @@ function startPresence(gameId) {
   if (!sb || me.id === 'demo') return;
   stopPresence(); // clean up any existing
 
+  _gameStartedAt = Date.now();
+  _playersSeenOnline = new Set();
+
   _presenceChannel = sb.channel(`presence:${gameId}`, {
     config: { presence: { key: me.id } }
   });
@@ -3196,6 +3238,9 @@ function startPresence(gameId) {
   const updateOnlineStatus = () => {
     if (!_presenceChannel) return;
     const state = _presenceChannel.presenceState();
+
+    // Track who has ever been online this session
+    Object.keys(state).forEach(id => _playersSeenOnline.add(id));
 
     // Update G if we're host
     if (amHost && G) {
@@ -3260,13 +3305,19 @@ function endBreak() {
   G.breakStartedAt = null;
   // Reset blind level timer so we don't immediately trigger again
   _blindLevelStartTime = Date.now();
-  syncGameState();
-  hideBreakOverlay();
-  toast('Break over — game resumed');
-  // If it's someone's turn, restart their turn timer
+  // Reset "seen online" tracker so next checkAllIdleBreak waits for fresh evidence
+  _playersSeenOnline = new Set();
+  _gameStartedAt = Date.now();
+  // If it's someone's turn, restamp turnStartAt so timer is fresh for everyone
   if (G.actionIndex >= 0) {
     G.turnStartAt = new Date().toISOString();
-    syncGameState();
+  }
+  syncGameState();
+  hideBreakOverlay();
+  renderGame();
+  toast('Break over — game resumed');
+  if (G.actionIndex >= 0) {
+    startHostTurnEnforcer();
     if (isMyTurn()) startTurnTimer(30);
     if (!isMyTurn()) setTimeout(runCpuTurn, 600);
   }
@@ -3320,14 +3371,24 @@ function hideBreakOverlay() {
 }
 
 // Called from presence sync — host checks if all non-eliminated players are idle
+// Only triggers AFTER grace period and only if players had been online before going idle
+let _gameStartedAt = 0;
+let _playersSeenOnline = new Set(); // tracks who has ever been online this game
+
 function checkAllIdleBreak() {
   if (!amHost || !G || G.onBreak) return;
-  const active = G.players.filter(p => !p.eliminated);
-  if (active.length === 0) return;
-  // "All idle" = every non-host active player is disconnected
-  const allIdle = active.every(p => p.id === me.id || p.disconnected === true);
-  // Don't pause when I'm the only one — I can always start the game single-handed
-  if (allIdle && active.length > 1) {
+  // Grace period — don't pause within 30s of game start (gives everyone time to connect)
+  if (Date.now() - _gameStartedAt < 30000) return;
+
+  const nonHostActive = G.players.filter(p => !p.eliminated && p.id !== me.id);
+  if (nonHostActive.length < 1) return;
+
+  // "All idle" = every non-host active player is marked disconnected
+  // AND at least one of them had previously been seen online (not just never showed up)
+  const allIdle = nonHostActive.every(p => p.disconnected === true);
+  const anyWasOnline = nonHostActive.some(p => _playersSeenOnline.has(p.id));
+
+  if (allIdle && anyWasOnline) {
     startBreak('Everyone stepped away');
   }
 }
@@ -3353,23 +3414,23 @@ function runCpuTurn() {
 
   const blinds = getBlinds(getCurrentBlindLevel());
 
-  // Disconnected real player — auto check/fold on their behalf
-  // Only if explicitly marked disconnected (true), not undefined/null
-  if (p.disconnected === true && p.id !== me.id) {
-    const callAmt = Math.min(G.currentBet - p.bet, p.chips);
-    if (callAmt > 0) {
-      p.folded = true;
-      p.lastAction = { type:'fold', label:'Away' };
-    } else {
-      p.lastAction = { type:'check', label:'Away' };
-    }
-    renderGame();
-    syncGameState();
-    setTimeout(advanceAction, 800);
+  // If it's a human player's turn (disconnected or not), do not auto-act from host.
+  // The turn timer will auto-fold them after 30s if they don't respond.
+  if (p.id !== me.id) {
+    // This is a CPU/demo player OR was a real player that's since been removed — continue below
+  } else if (!amHost) {
+    return; // guest's own turn handled via UI
+  } else {
+    // It's my (host) turn — let my UI handle it
     return;
   }
-  // Not disconnected and it's the human's turn — let them act via the UI
-  if (p.id === me.id && !p.disconnected) return;
+
+  // If this isn't a CPU/demo player and it's a human who's connected or away,
+  // skip CPU logic — they'll time out on their own turn timer if needed
+  if (p.id && p.id.length > 10) {
+    // Real user ID (UUID-ish length) — don't run CPU for them
+    return;
+  }
 
   const hand = evalBest(p.hand, G.community);
   const strength = hand ? hand.rank : 0;
@@ -3418,19 +3479,51 @@ function runCpuTurn() {
 // The round ends when action gets back to that player with everyone else having called/folded.
 // If no one has raised, round ends when everyone has acted once.
 
+let _hostTurnEnforcer = null;
+
+function stopHostTurnEnforcer() {
+  clearTimeout(_hostTurnEnforcer);
+  _hostTurnEnforcer = null;
+}
+
+function startHostTurnEnforcer() {
+  stopHostTurnEnforcer();
+  if (!amHost || !G || G.onBreak) return;
+  if (G.actionIndex < 0) return;
+  const p = G.players[G.actionIndex];
+  if (!p || p.id === me.id) return; // host's own turn uses UI timer
+  if (p.folded || p.eliminated) return;
+  if (!p.id || p.id.length < 10) return; // CPU/demo
+
+  _hostTurnEnforcer = setTimeout(() => {
+    // 30s elapsed with no action — auto check/fold
+    if (!G || G.actionIndex < 0) return;
+    const stillP = G.players[G.actionIndex];
+    if (!stillP || stillP.id !== p.id) return; // player changed, skip
+    if (stillP.folded || stillP.eliminated) return;
+
+    const callAmt = Math.min(G.currentBet - stillP.bet, stillP.chips);
+    if (callAmt > 0) {
+      stillP.folded = true;
+      stillP.lastAction = { type:'fold', label:'Away' };
+    } else {
+      stillP.lastAction = { type:'check', label:'Away' };
+    }
+    stillP.disconnected = true; // mark them away now that they missed their turn
+    renderGame();
+    syncGameState();
+    setTimeout(advanceAction, 800);
+  }, 32000); // 32s — 2s grace after guest's 30s UI timer
+}
+
 function advanceAction() {
+  stopHostTurnEnforcer();
   const active = G.players.filter(p => !p.folded && !p.eliminated);
 
   // Only one player left → immediate win
   if (active.length === 1) { doShowdown(); return; }
 
   const canAct = active.filter(p => !p.allIn);
-
-  // Round is done when every active non-all-in player has:
-  //   (a) matched the current bet, AND
-  //   (b) acted at least once this street
-  // AND the last raiser is NOT still owed another action
-  // (i.e. no one raised AFTER they last acted)
   const roundDone = canAct.every(p => p.bet >= G.currentBet && p.lastAction !== null);
 
   if (roundDone) {
@@ -3438,8 +3531,6 @@ function advanceAction() {
     return;
   }
 
-  // Find next player who needs to act:
-  // needs to act = hasn't matched currentBet OR hasn't acted yet this street
   let searchIdx = G.actionIndex;
   for (let i = 0; i < G.players.length; i++) {
     searchIdx = nextActive(searchIdx);
@@ -3448,12 +3539,12 @@ function advanceAction() {
     if (candidate.bet < G.currentBet || candidate.lastAction === null) {
       G.actionIndex = searchIdx;
       renderGame();
+      if (amHost) startHostTurnEnforcer();
       if (!isMyTurn()) setTimeout(runCpuTurn, 700);
       return;
     }
   }
 
-  // No one found — advance
   advanceStage();
 }
 
