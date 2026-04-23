@@ -3254,6 +3254,8 @@ function playerAction(action) {
   }
 
   document.getElementById('bet-slider-row').style.display = 'none';
+  renderGame();
+  syncGameState(); // push host's action to guests
   advanceAction();
 }
 
@@ -3650,6 +3652,7 @@ function advanceAction() {
     if (candidate.bet < G.currentBet || candidate.lastAction === null) {
       G.actionIndex = searchIdx;
       renderGame();
+      syncGameState(); // push new actionIndex to guests
       if (amHost) startHostTurnEnforcer();
       if (!isMyTurn()) setTimeout(runCpuTurn, 700);
       return;
@@ -3675,6 +3678,7 @@ function advanceStage() {
   } else if (G.stage === 'river') {
     G.stage = 'showdown';
     renderGame();
+    syncGameState();
     setTimeout(doShowdown, 600);
     return;
   }
@@ -3684,6 +3688,8 @@ function advanceStage() {
   G.actionIndex = nextActive(dealerIdx);
 
   renderGame();
+  syncGameState(); // push new stage + community cards to guests
+  if (amHost) startHostTurnEnforcer();
   if (!isMyTurn()) setTimeout(runCpuTurn, 800);
 }
 
