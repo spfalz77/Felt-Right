@@ -1107,39 +1107,31 @@ async function leaveLobby() {
   const btn = document.getElementById('lobby-leave-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Leaving…'; }
 
-  // NAVIGATE HOME IMMEDIATELY — don't wait for DB cleanup
   stopLobbyWatchdog();
   currentLobbyId = null;
-  screenStack = ['home'];
-  showScreen('home');
-  document.getElementById('nav').classList.add('visible');
 
-  // DB cleanup happens in background — don't block UI
+  // Fire DB cleanup but don't wait for it
   if (lobbyId && me.id !== 'demo' && sb) {
     (async () => {
       try {
         const { data: gameRow } = await sb.from('games')
-          .select('host_id, status').eq('id', lobbyId).maybeSingle();
-
-        if (!gameRow) return; // already deleted, nothing to do
-
+          .select('host_id').eq('id', lobbyId).maybeSingle();
+        if (!gameRow) return;
         if (gameRow.host_id === me.id) {
           await sb.from('game_players').delete().eq('game_id', lobbyId);
           await sb.from('games').delete().eq('id', lobbyId);
-          toast('Lobby cancelled');
         } else {
           await sb.from('game_players')
             .update({ status: 'invited', seat_index: null })
             .eq('game_id', lobbyId)
             .eq('user_id', me.id);
         }
-        await loadGames();
-      } catch(e) { console.warn('leaveLobby bg error:', e); }
+      } catch(e) { console.warn('leaveLobby bg:', e); }
     })();
   }
 
-  // Refresh games list
-  loadGames();
+  // Hard reload — bulletproof way to get out of the lobby screen
+  setTimeout(() => { location.reload(); }, 300);
 }
 
 async function goBack() {
