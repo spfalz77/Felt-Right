@@ -2828,7 +2828,24 @@ function renderGame() {
 
   // Show/hide host pause button
   const pauseBtn = document.getElementById('host-pause-btn');
-  if (pauseBtn) pauseBtn.style.display = amHost && !G?.paused ? 'inline-block' : 'none';
+  if (pauseBtn) {
+    if (amHost && !G?.paused) {
+      pauseBtn.style.display = 'inline-block';
+      if (G?.pauseQueued) {
+        pauseBtn.textContent = '⏸ Pausing…';
+        pauseBtn.onclick = cancelQueuedPause;
+        pauseBtn.style.color = 'var(--gold-pale)';
+        pauseBtn.style.borderColor = 'var(--gold)';
+      } else {
+        pauseBtn.textContent = '⏸ Pause';
+        pauseBtn.onclick = pauseGame;
+        pauseBtn.style.color = 'var(--gold)';
+        pauseBtn.style.borderColor = 'var(--gold-dim)';
+      }
+    } else {
+      pauseBtn.style.display = 'none';
+    }
+  }
 
   const blinds = getBlinds(getCurrentBlindLevel());
   document.getElementById('blind-info').innerHTML =
@@ -3264,9 +3281,28 @@ function startPresence(gameId) {
 
 // ── PAUSE SYSTEM (manual host toggle) ─────────────────────────────────────────
 // G.paused = true when host has paused the game
+// G.pauseQueued = true when host tapped pause but hand in progress — will pause after hand
 function pauseGame() {
   if (!G || G.paused || !amHost) return;
+
+  // If hand in progress, queue the pause for end-of-hand
+  const handInProgress = G.stage && G.stage !== 'deal' && G.stage !== 'showdown' && G.stage !== 'finished';
+  if (handInProgress) {
+    G.pauseQueued = true;
+    syncGameState();
+    renderGame(); // update pause button label
+    toast('Pausing after this hand…');
+    return;
+  }
+
+  // Otherwise pause immediately
+  applyPause();
+}
+
+function applyPause() {
+  if (!G || !amHost) return;
   G.paused = true;
+  G.pauseQueued = false;
   syncGameState();
   showPauseOverlay();
   stopTurnTimer();
@@ -3274,22 +3310,47 @@ function pauseGame() {
   toast('Game paused');
 }
 
+function cancelQueuedPause() {
+  if (!G || !amHost || !G.pauseQueued) return;
+  G.pauseQueued = false;
+  syncGameState();
+  renderGame();
+  toast('Pause cancelled');
+}
+
 function resumeGame() {
   if (!G || !G.paused || !amHost) return;
+
+  // Start a fresh hand from current chip counts / seat positions
+  // This avoids all mid-hand sync weirdness — cleanest to deal a new hand
   G.paused = false;
+  G.pot = 0;
+  G.community = [];
+  G.currentBet = 0;
+  G.actionIndex = -1;
+  G.stage = 'deal';
+  G.turnStartAt = null;
+
+  // Reset all non-eliminated players for a fresh hand
+  G.players.forEach(p => {
+    if (p.eliminated) return;
+    p.hand = [];
+    p.bet = 0;
+    p.totalBet = 0;
+    p.folded = false;
+    p.allIn = false;
+    p.lastAction = null;
+    p.disconnected = false; // trust rejoins — presence will re-mark if needed
+  });
+
   _blindLevelStartTime = Date.now();
-  if (G.actionIndex >= 0) {
-    G.turnStartAt = new Date().toISOString();
-  }
   syncGameState();
   hidePauseOverlay();
   renderGame();
-  toast('Game resumed');
-  if (G.actionIndex >= 0) {
-    startHostTurnEnforcer();
-    if (isMyTurn()) startTurnTimer(30);
-    if (!isMyTurn()) setTimeout(runCpuTurn, 600);
-  }
+  toast('Game resumed — new hand');
+
+  // Deal the new hand (host-authoritative) after brief delay so all guests sync
+  setTimeout(() => { dealNewHand(); }, 600);
 }
 
 async function guestSignalBack() {
@@ -3307,6 +3368,8 @@ async function guestSignalBack() {
   toast("You're marked back — waiting for host to resume");
 }
 
+let _pauseOverlayRefresher = null;
+
 function showPauseOverlay() {
   let el = document.getElementById('pause-overlay');
   if (!el) {
@@ -3316,31 +3379,100 @@ function showPauseOverlay() {
       position: fixed; top:0; left:0; right:0; bottom:0; z-index:500;
       background: rgba(8,20,14,0.92); backdrop-filter: blur(8px);
       display: flex; flex-direction: column; align-items: center; justify-content: center;
-      padding: 24px; text-align: center;
+      padding: 24px; text-align: center; overflow-y: auto;
     `;
     document.body.appendChild(el);
   }
+
+  renderPauseOverlayContent();
+  el.style.display = 'flex';
+
+  // Auto-refresh overlay every 3s so host sees online status changes
+  if (amHost) {
+    clearInterval(_pauseOverlayRefresher);
+    _pauseOverlayRefresher = setInterval(renderPauseOverlayContent, 3000);
+  }
+}
+
+function renderPauseOverlayContent() {
+  const el = document.getElementById('pause-overlay');
+  if (!el || el.style.display === 'none') return;
+  if (!G) return;
+
+  // Determine which players are online (from presence state)
+  const onlineIds = _onlineIds || new Set();
+  const activePlayers = G.players.filter(p => !p.eliminated);
+
+  const playerStatusHTML = activePlayers.map(p => {
+    const isOnline = p.id === me.id || onlineIds.has(p.id);
+    const isHostP = p.id === (G.hostPlayerId || G.players[0]?.id);
+    return `
+      <div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.06)">
+        <div class="avatar sm" style="${!isOnline ? 'opacity:0.4' : ''}">${p.emoji || '🃏'}</div>
+        <div style="flex:1;text-align:left">
+          <div style="font-size:0.88rem;${!isOnline ? 'color:var(--text-dim)' : ''}">${p.name}</div>
+          <div style="font-size:0.7rem;color:${isOnline ? 'var(--green)' : 'var(--text-dim)'}">
+            ${isOnline ? '● Online' : '○ Away'}
+          </div>
+        </div>
+      </div>`;
+  }).join('');
 
   el.innerHTML = `
     <div style="font-size:3rem;margin-bottom:12px">⏸️</div>
     <div style="font-family:'Bebas Neue',sans-serif;font-size:2rem;color:var(--gold-pale);letter-spacing:0.1em;margin-bottom:8px">
       GAME PAUSED
     </div>
-    <div style="color:var(--text-dim);font-size:0.9rem;margin-bottom:24px;max-width:280px;line-height:1.5">
+    <div style="color:var(--text-dim);font-size:0.85rem;margin-bottom:16px;max-width:320px;line-height:1.5">
       ${amHost
-        ? 'You paused the game. Resume when ready.'
-        : `Host has paused the game. Tap "I'm back" so they know you're ready.`}
+        ? 'Resume when everyone is ready.'
+        : `Host paused the game. Tap I'm Back so they know you're ready.`}
     </div>
+
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);
+         padding:10px 14px;margin-bottom:20px;min-width:280px;max-width:320px">
+      <div style="font-size:0.72rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px">
+        Players
+      </div>
+      ${playerStatusHTML}
+    </div>
+
     ${amHost
-      ? `<button class="btn btn-primary" onclick="resumeGame()" style="min-width:200px">Resume Game</button>`
-      : `<button class="btn btn-primary" onclick="guestSignalBack()" style="min-width:200px">I'm Back</button>`
+      ? `<button class="btn btn-primary" onclick="resumeGame()" style="min-width:240px;margin-bottom:12px">
+          Resume Game
+        </button>
+        <button onclick="endGameForAll()" style="min-width:240px;background:none;
+          border:1px solid rgba(192,57,43,0.5);color:var(--red-light);
+          font-family:'DM Sans',sans-serif;font-weight:600;font-size:0.85rem;
+          padding:10px 20px;border-radius:var(--r-sm);cursor:pointer">
+          End Game for All
+        </button>`
+      : `<button class="btn btn-primary" onclick="guestSignalBack()" style="min-width:240px">
+          I'm Back
+        </button>`
     }`;
-  el.style.display = 'flex';
 }
 
 function hidePauseOverlay() {
   const el = document.getElementById('pause-overlay');
   if (el) el.style.display = 'none';
+  clearInterval(_pauseOverlayRefresher);
+  _pauseOverlayRefresher = null;
+}
+
+async function endGameForAll() {
+  if (!amHost || !G || !currentGameId) return;
+  if (!confirm('End the game for everyone? This cannot be undone.')) return;
+  try {
+    // Mark game finished in DB
+    await sb.from('games').update({ status: 'finished' }).eq('id', currentGameId);
+    // Clean up private hands for this game
+    await sb.from('private_hands').delete().eq('game_id', currentGameId);
+    toast('Game ended');
+  } catch(e) { console.warn('endGameForAll:', e); }
+
+  sessionStorage.setItem('fr_auto_restore', '1');
+  setTimeout(() => { window.location.href = window.location.pathname; }, 300);
 }
 
 function stopPresence() {
@@ -3885,6 +4017,12 @@ function nextHand() {
   const myPlayer = G.players.find(p => p.id === me.id);
   if (myPlayer?.eliminated) {
     showEliminated();
+    return;
+  }
+
+  // If host queued a pause, apply it now instead of dealing next hand
+  if (amHost && G.pauseQueued) {
+    applyPause();
     return;
   }
 
