@@ -3267,26 +3267,19 @@ function startPresence(gameId) {
   const updateOnlineStatus = () => {
     if (!_presenceChannel) return;
     const state = _presenceChannel.presenceState();
+    _onlineIds = new Set(Object.keys(state));
 
-    // Update G if we're host
+    // Update G.players disconnected flag IN MEMORY ONLY — do NOT push to DB
+    // Presence updates should not trigger syncGameState (that restarts UI timers)
     if (amHost && G) {
-      let anyChanged = false;
       G.players.forEach(p => {
         if (p.eliminated) return;
-        const wasOnline = p.disconnected !== true;
-        // My own presence is always online
         const isOnline = (p.id === me.id) || (state[p.id] && state[p.id].length > 0);
-        if (wasOnline !== isOnline) anyChanged = true;
         p.disconnected = !isOnline;
       });
-      if (anyChanged) {
-        renderGame();
-        syncGameState();
-      }
+      // Re-render locally only — don't push state. Host turn enforcer handles away players.
+      renderGame();
     }
-
-    // Every client updates local online map for UI (even non-host)
-    _onlineIds = new Set(Object.keys(state));
   };
 
   _presenceChannel
@@ -4025,12 +4018,6 @@ function showSelectedCards() {
         ${shown.length === 2 ? 'Showing both cards' : 'Showing one card'}
       </div>
       <button class="btn btn-primary" onclick="nextHand()">Next Hand</button>`;
-  }
-}
-
-function syncGameState() {
-  if (sb && currentGameId && me.id !== 'demo') {
-    sb.from('games').update({ state: G, hand_number: G.handNumber }).eq('id', currentGameId).then(() => {});
   }
 }
 
