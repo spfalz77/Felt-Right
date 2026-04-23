@@ -602,11 +602,16 @@ h3 { font-size: 1rem; font-weight: 600; }
       </div>
     </div>
 
-    <!-- Leave button — always visible, full width, below header -->
+    <!-- Leave button — uses native link for bulletproof navigation -->
     <div style="padding:10px 16px 0">
-      <button id="lobby-leave-btn" class="btn btn-full"
-        style="background:none;border:1px solid rgba(192,57,43,0.5);color:var(--red-light);font-size:0.85rem;"
-        onclick="leaveLobby()">Leave</button>
+      <a id="lobby-leave-btn" href="#" onclick="leaveLobby();return false;"
+        style="display:block;width:100%;text-align:center;
+          background:none;border:1px solid rgba(192,57,43,0.5);color:var(--red-light);
+          font-family:'DM Sans',sans-serif;font-weight:600;font-size:0.9rem;
+          letter-spacing:0.04em;border-radius:var(--r-sm);padding:13px 20px;
+          text-decoration:none;cursor:pointer;user-select:none;-webkit-user-select:none;">
+        Leave
+      </a>
     </div>
 
     <div style="padding:16px 16px 8px; display:flex; align-items:center; justify-content:space-between;">
@@ -1102,40 +1107,32 @@ function pushScreen(id) {
   showScreen(id);
 }
 
-async function leaveLobby() {
+function leaveLobby() {
   const lobbyId = currentLobbyId;
-  const btn = document.getElementById('lobby-leave-btn');
-  if (btn) { btn.disabled = true; btn.textContent = 'Leaving…'; }
 
-  stopLobbyWatchdog();
-  currentLobbyId = null;
-
-  // Fire DB cleanup but don't wait for it
-  if (lobbyId && me.id !== 'demo' && sb) {
-    (async () => {
-      try {
-        const { data: gameRow } = await sb.from('games')
-          .select('host_id').eq('id', lobbyId).maybeSingle();
+  // Fire-and-forget DB cleanup — don't await anything
+  if (lobbyId && me && me.id !== 'demo' && sb) {
+    try {
+      sb.from('games').select('host_id').eq('id', lobbyId).maybeSingle().then(({data: gameRow}) => {
         if (!gameRow) return;
         if (gameRow.host_id === me.id) {
-          await sb.from('game_players').delete().eq('game_id', lobbyId);
-          await sb.from('games').delete().eq('id', lobbyId);
+          sb.from('game_players').delete().eq('game_id', lobbyId).then(() => {});
+          sb.from('games').delete().eq('id', lobbyId).then(() => {});
         } else {
-          await sb.from('game_players')
-            .update({ status: 'invited', seat_index: null })
-            .eq('game_id', lobbyId)
-            .eq('user_id', me.id);
+          sb.from('game_players').update({ status: 'invited', seat_index: null })
+            .eq('game_id', lobbyId).eq('user_id', me.id).then(() => {});
         }
-      } catch(e) { console.warn('leaveLobby bg:', e); }
-    })();
+      });
+    } catch(e) { console.warn('leaveLobby error:', e); }
   }
 
-  // Hard reload — bulletproof way to get out of the lobby screen
-  setTimeout(() => { location.reload(); }, 300);
+  // Immediate hard reload — happens regardless of DB state
+  window.location.href = window.location.pathname;
+  return false;
 }
 
-async function goBack() {
-  await leaveLobby();
+function goBack() {
+  leaveLobby();
 }
 
 function switchTab(tab) {
@@ -1737,10 +1734,18 @@ async function openLobby(gameId) {
   try {
     const { data } = await sb.from('game_players')
       .select('*,user:users(id,display_name,avatar_emoji)')
-      .eq('game_id', gameId).order('seat_index');
+      .eq('game_id', gameId).order('joined_at');
 
-    // Only seated/joined players count toward the game
-    lobbyPlayers = (data || []).filter(p => p.status === 'joined' || p.status === 'playing' || p.status === 'waiting');
+    lobbyPlayers = (data || [])
+      .filter(p => p.status === 'joined' || p.status === 'playing' || p.status === 'waiting')
+      .sort((a, b) => {
+        // Host first, then by joined_at
+        const aHost = a.user_id === (myGames.find(g => g.id === gameId)?.host_id);
+        const bHost = b.user_id === (myGames.find(g => g.id === gameId)?.host_id);
+        if (aHost && !bHost) return -1;
+        if (bHost && !aHost) return 1;
+        return new Date(a.joined_at||0) - new Date(b.joined_at||0);
+      });
     const invitedPlayers = (data || []).filter(p => p.status === 'invited');
     renderLobbySeats();
     renderInvitedList(invitedPlayers);
@@ -1771,20 +1776,27 @@ function renderInvitedList(invited) {
     lobbySubscription = sb.channel(`lobby:${gameId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'game_players', filter: `game_id=eq.${gameId}` },
         async () => {
-          // Re-fetch the full list on any change
           const { data: fresh } = await sb.from('game_players')
             .select('*,user:users(id,display_name,avatar_emoji)')
-            .eq('game_id', gameId).order('seat_index');
-          lobbyPlayers = (fresh||[]).filter(p => p.status !== 'invited');
+            .eq('game_id', gameId).order('joined_at');
+
+          const hostId = myGames.find(g => g.id === gameId)?.host_id;
+          const newLobby = (fresh||[])
+            .filter(p => p.status === 'joined' || p.status === 'playing' || p.status === 'waiting')
+            .sort((a, b) => {
+              if (a.user_id === hostId) return -1;
+              if (b.user_id === hostId) return 1;
+              return new Date(a.joined_at||0) - new Date(b.joined_at||0);
+            });
+
+          const previousIds = new Set(lobbyPlayers.map(p => p.user_id));
+          lobbyPlayers = newLobby;
           const invitedPlayers = (fresh||[]).filter(p => p.status === 'invited');
           renderLobbySeats();
           renderInvitedList(invitedPlayers);
-          const joiner = (fresh||[]).find(p => p.status !== 'invited' && !lobbyPlayers.find(lp => lp.id === p.id));
+
+          const joiner = newLobby.find(p => !previousIds.has(p.user_id) && p.user_id !== me.id);
           if (joiner) toast(`${joiner.user?.display_name||'Someone'} joined!`);
-          if (lobbyPlayers.length >= 2) {
-            document.getElementById('lobby-start-btn').style.display = 'block';
-            document.getElementById('lobby-waiting-msg').style.display = 'none';
-          }
         })
       .subscribe();
 
@@ -1804,11 +1816,14 @@ function renderInvitedList(invited) {
 function renderLobbySeats() {
   const el = document.getElementById('lobby-seats');
   const MAX_SEATS = 9;
+  const hostId = myGames.find(g => g.id === currentLobbyId)?.host_id;
   let html = '';
+
+  // Show joined players first (in order), then fill remaining seats with "Open"
   for (let i = 0; i < MAX_SEATS; i++) {
-    const p = lobbyPlayers.find(lp => lp.seat_index === i);
+    const p = lobbyPlayers[i];
     if (p) {
-      const isHost = p.user?.id === (myGames.find(g => g.id === currentLobbyId)?.host_id);
+      const isHost = p.user?.id === hostId;
       html += `<div class="seat filled">
         <div class="avatar sm">${p.user?.avatar_emoji||p.user?.display_name?.[0]||'?'}</div>
         <div class="seat-name">${p.user?.display_name||'Player'}</div>
@@ -1818,8 +1833,17 @@ function renderLobbySeats() {
       html += `<div class="seat"><div class="seat-empty">+</div><div class="seat-name" style="color:var(--text-dim);font-size:0.72rem">Open</div></div>`;
     }
   }
+
   el.innerHTML = html;
   document.getElementById('lobby-player-count').textContent = `${lobbyPlayers.length} / ${MAX_SEATS} joined`;
+
+  // Show Start Game if enough joined (host only)
+  if (lobbyPlayers.length >= 2) {
+    const startBtn = document.getElementById('lobby-start-btn');
+    const waitMsg  = document.getElementById('lobby-waiting-msg');
+    if (startBtn && hostId === me?.id) startBtn.style.display = 'block';
+    if (waitMsg) waitMsg.style.display = 'none';
+  }
 }
 
 // ── GLOBAL INVITE LISTENER ────────────────────────────────────────────────────
