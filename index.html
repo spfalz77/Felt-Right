@@ -1104,36 +1104,42 @@ function pushScreen(id) {
 
 async function leaveLobby() {
   const lobbyId = currentLobbyId;
-
   const btn = document.getElementById('lobby-leave-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Leaving…'; }
 
+  // NAVIGATE HOME IMMEDIATELY — don't wait for DB cleanup
   stopLobbyWatchdog();
   currentLobbyId = null;
-
-  if (lobbyId && me.id !== 'demo' && sb) {
-    try {
-      const { data: gameRow } = await sb.from('games')
-        .select('host_id, status').eq('id', lobbyId).single();
-
-      if (gameRow?.host_id === me.id) {
-        await sb.from('game_players').delete().eq('game_id', lobbyId);
-        await sb.from('games').delete().eq('id', lobbyId);
-        toast('Lobby cancelled');
-      } else {
-        await sb.from('game_players')
-          .update({ status: 'invited', seat_index: null })
-          .eq('game_id', lobbyId)
-          .eq('user_id', me.id);
-      }
-    } catch(e) { console.warn('leaveLobby error:', e); }
-  }
-
-  // Always go home regardless of what happened above
   screenStack = ['home'];
   showScreen('home');
   document.getElementById('nav').classList.add('visible');
-  loadGames(); // async, don't await — let home render immediately
+
+  // DB cleanup happens in background — don't block UI
+  if (lobbyId && me.id !== 'demo' && sb) {
+    (async () => {
+      try {
+        const { data: gameRow } = await sb.from('games')
+          .select('host_id, status').eq('id', lobbyId).maybeSingle();
+
+        if (!gameRow) return; // already deleted, nothing to do
+
+        if (gameRow.host_id === me.id) {
+          await sb.from('game_players').delete().eq('game_id', lobbyId);
+          await sb.from('games').delete().eq('id', lobbyId);
+          toast('Lobby cancelled');
+        } else {
+          await sb.from('game_players')
+            .update({ status: 'invited', seat_index: null })
+            .eq('game_id', lobbyId)
+            .eq('user_id', me.id);
+        }
+        await loadGames();
+      } catch(e) { console.warn('leaveLobby bg error:', e); }
+    })();
+  }
+
+  // Refresh games list
+  loadGames();
 }
 
 async function goBack() {
