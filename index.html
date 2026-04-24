@@ -2509,6 +2509,10 @@ function enterGame(gameId, state) {
   screenStack = ['home', 'game'];
   startBlindTimer();
   _gamePaused = false;
+  // Reset turn/timer tracking for fresh game
+  _lastTurnKey = null;
+  _timerForActionKey = null;
+  _myPrivateHand = null;
   startPresence(gameId);
 
   if (me.id === 'demo' || amHost) {
@@ -2525,7 +2529,8 @@ function enterGame(gameId, state) {
 }
 
 // ── HOST: push full state after every action ──────────────────────────────────
-let _lastSyncedActionIndex = null;
+// _lastTurnKey tracks hand:stage:actionIndex — unique per turn across hands
+let _lastTurnKey = null;
 
 function redactForSync(state) {
   // Copy state, strip hole cards from all players UNLESS showdown is public
@@ -2544,10 +2549,13 @@ function redactForSync(state) {
 
 function syncGameState() {
   if (!sb || !currentGameId || me.id === 'demo') return;
-  // Stamp turn start time when the active player changes
-  if (G && G.actionIndex !== _lastSyncedActionIndex && G.actionIndex >= 0) {
-    G.turnStartAt = new Date().toISOString();
-    _lastSyncedActionIndex = G.actionIndex;
+  // Stamp turn start time when the turn (hand:stage:actionIndex) changes
+  if (G && G.actionIndex >= 0) {
+    const turnKey = `${G.handNumber}:${G.stage}:${G.actionIndex}`;
+    if (turnKey !== _lastTurnKey) {
+      G.turnStartAt = new Date().toISOString();
+      _lastTurnKey = turnKey;
+    }
   }
   const safeState = redactForSync(G);
   sb.from('games')
