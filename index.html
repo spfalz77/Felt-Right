@@ -3072,44 +3072,47 @@ function renderActionBar() {
     slider.style.display = 'none';
   }
 
+  const activePlayers = G.players.filter(p => !p.folded && !p.eliminated && p.chips > 0);
+  const isHeadsUp = activePlayers.length === 2;
+
+  // Always render the full action bar — disable buttons when not my turn
+  const disabledAttr = myTurn ? '' : 'disabled';
+  bar.innerHTML = `
+    <button class="btn btn-danger" onclick="playerAction('fold')" ${disabledAttr}>Fold</button>
+    ${canCheck
+      ? `<button class="btn btn-surface" onclick="playerAction('check')" ${disabledAttr}>Check</button>`
+      : `<button class="btn btn-surface" onclick="playerAction('call')" ${disabledAttr}>Call<br><span style="font-size:0.72rem;opacity:0.8">${callAmt}</span></button>`}
+    <button class="btn btn-surface" onclick="playerAction('pot')" ${potOk && myTurn?'':'disabled'}
+      style="color:var(--gold)">Pot<br><span style="font-size:0.72rem;opacity:0.8">${potBet}</span></button>
+    <button class="btn btn-surface" onclick="playerAction('twopot')" ${tpOk && myTurn?'':'disabled'}
+      style="color:var(--gold)">2× Pot<br><span style="font-size:0.72rem;opacity:0.8">${twoPotBet}</span></button>
+    <button class="btn btn-surface" onclick="playerAction('threepot')" ${xpOk && myTurn?'':'disabled'}
+      style="color:var(--gold)">3× Pot<br><span style="font-size:0.72rem;opacity:0.8">${threePotBet}</span></button>
+    <button class="btn btn-primary" onclick="playerAction('raise')" ${!canRaise || !myTurn?'disabled':''}>
+      Raise<br><span style="font-size:0.72rem;opacity:0.8">${canRaise ? (prevValue ?? defaultRaise) : '—'}</span>
+    </button>
+    ${isHeadsUp && myTurn ? `<button class="btn btn-surface btn-full" onclick="offerChopShortcut()"
+      style="color:var(--gold-pale);margin-top:4px;font-size:0.8rem">🤝 Offer Chop</button>` : ''}
+    ${!myTurn ? `<button onclick="leaveGameSitOut()" style="grid-column:1/-1;background:none;
+      border:1px solid rgba(192,57,43,0.4);color:var(--red-light);font-size:0.72rem;
+      padding:5px 10px;border-radius:var(--r-sm);cursor:pointer;margin-top:4px">
+      Leave Game
+    </button>` : ''}
+  `;
+
   if (!myTurn) {
-    // Show a compact waiting bar with LEAVE option — don't tear down the slider
-    bar.innerHTML = `
-      <div style="display:flex;align-items:center;justify-content:space-between;width:100%;gap:8px">
-        <div class="waiting-msg" style="flex:1">Waiting…</div>
-        <button onclick="leaveGameSitOut()" style="background:none;border:1px solid rgba(192,57,43,0.4);
-          color:var(--red-light);font-size:0.72rem;padding:5px 10px;border-radius:var(--r-sm);cursor:pointer">
-          Leave Game
-        </button>
-      </div>`;
     stopTurnTimer();
     const autoBar = document.getElementById('auto-action-bar');
     if (autoBar) autoBar.innerHTML = '';
     return;
   }
 
-  const activePlayers = G.players.filter(p => !p.folded && !p.eliminated && p.chips > 0);
-  const isHeadsUp = activePlayers.length === 2;
-
-  bar.innerHTML = `
-    <button class="btn btn-danger" onclick="playerAction('fold')">Fold</button>
-    ${canCheck
-      ? `<button class="btn btn-surface" onclick="playerAction('check')">Check</button>`
-      : `<button class="btn btn-surface" onclick="playerAction('call')">Call<br><span style="font-size:0.72rem;opacity:0.8">${callAmt}</span></button>`}
-    <button class="btn btn-surface" onclick="playerAction('pot')" ${potOk?'':'disabled'}
-      style="color:var(--gold)">Pot<br><span style="font-size:0.72rem;opacity:0.8">${potBet}</span></button>
-    <button class="btn btn-surface" onclick="playerAction('twopot')" ${tpOk?'':'disabled'}
-      style="color:var(--gold)">2× Pot<br><span style="font-size:0.72rem;opacity:0.8">${twoPotBet}</span></button>
-    <button class="btn btn-surface" onclick="playerAction('threepot')" ${xpOk?'':'disabled'}
-      style="color:var(--gold)">3× Pot<br><span style="font-size:0.72rem;opacity:0.8">${threePotBet}</span></button>
-    <button class="btn btn-primary" onclick="playerAction('raise')" ${!canRaise?'disabled':''}>
-      Raise<br><span style="font-size:0.72rem;opacity:0.8">${canRaise ? (prevValue ?? defaultRaise) : '—'}</span>
-    </button>
-    ${isHeadsUp ? `<button class="btn btn-surface btn-full" onclick="offerChopShortcut()"
-      style="color:var(--gold-pale);margin-top:4px;font-size:0.8rem">🤝 Offer Chop</button>` : ''}
-  `;
-
-  startTurnTimer(30);
+  // Only start turn timer if it's NOT running for THIS action yet
+  const thisTurnKey = `${G.handNumber || 0}:${G.actionIndex}:${G.stage}`;
+  if (_timerForActionKey !== thisTurnKey) {
+    _timerForActionKey = thisTurnKey;
+    startTurnTimer(30);
+  }
   renderAutoActionBar();
 }
 
@@ -3139,6 +3142,7 @@ const TURN_SECONDS = 30;
 const CIRCUMFERENCE = 2 * Math.PI * 15;
 let _timerInterval = null;
 let _timerLeft = TURN_SECONDS;
+let _timerForActionKey = null; // tracks which specific turn the timer belongs to
 let _autoAction = null; // pre-selected action: 'check_fold' | 'check' | 'call' | 'fold'
 
 function startTurnTimer(seconds) {
@@ -3171,6 +3175,9 @@ function fireAutoAction() {
   const myPlayer = G.players.find(p => p.id === me.id);
   if (!myPlayer) return;
   const canCheck = G.currentBet === myPlayer.bet;
+
+  // Mark me as away so host sees it and future turns skip me
+  myPlayer.disconnected = true;
 
   // If player pre-selected an action, honour it
   if (_autoAction === 'fold') { playerAction('fold'); return; }
@@ -3210,6 +3217,7 @@ function renderAutoActionBar() {
 function stopTurnTimer() {
   clearInterval(_timerInterval);
   _timerInterval = null;
+  _timerForActionKey = null;
   const timerEl = document.getElementById('turn-timer');
   if (timerEl) timerEl.style.display = 'none';
 }
@@ -4469,8 +4477,8 @@ document.addEventListener('visibilitychange', async () => {
       } catch(e) { /* silent */ }
     }
 
-    // If it's my turn, restart turn timer with correct remaining time
-    if (isMyTurn() && !G.paused) {
+    // If it's my turn and timer isn't running, restart with correct remaining time from G.turnStartAt
+    if (isMyTurn() && !G.paused && !_timerInterval) {
       startTurnTimer(30);
     }
   } catch(e) { console.warn('visibility resume:', e); }
