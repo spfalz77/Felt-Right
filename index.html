@@ -96,21 +96,21 @@ h3 { font-size: 1rem; font-weight: 600; }
 
 /* ─── CARDS (playing cards) ───────────────────────────────────────────────── */
 .card {
-  width: 52px; height: 76px; border-radius: 6px;
+  width: 62px; height: 90px; border-radius: 7px;
   background: var(--cream); display: flex; flex-direction: column;
   align-items: center; justify-content: space-between;
-  padding: 4px 5px; box-shadow: 0 3px 10px rgba(0,0,0,0.5);
+  padding: 4px 6px; box-shadow: 0 3px 10px rgba(0,0,0,0.5);
   flex-shrink: 0; position: relative; user-select: none;
 }
-.card.lg { width: 64px; height: 94px; padding: 5px 7px; border-radius: 8px; }
+.card.lg { width: 78px; height: 114px; padding: 6px 8px; border-radius: 9px; }
 .card-top, .card-bot { display: flex; flex-direction: column; align-items: flex-start; line-height: 1; }
 .card-bot { align-items: flex-end; transform: rotate(180deg); }
-.card-rank { font-family: 'Bebas Neue', sans-serif; font-size: 0.95rem; }
-.card.lg .card-rank { font-size: 1.1rem; }
-.card-suit { font-size: 0.7rem; }
-.card.lg .card-suit { font-size: 0.85rem; }
-.card-center { font-size: 1.4rem; position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); }
-.card.lg .card-center { font-size: 1.7rem; }
+.card-rank { font-family: 'Bebas Neue', sans-serif; font-size: 1.15rem; }
+.card.lg .card-rank { font-size: 1.4rem; }
+.card-suit { font-size: 0.85rem; }
+.card.lg .card-suit { font-size: 1.05rem; }
+.card-center { font-size: 1.7rem; position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); }
+.card.lg .card-center { font-size: 2.1rem; }
 .card.red .card-rank, .card.red .card-suit, .card.red .card-center { color: var(--red); }
 .card.black .card-rank, .card.black .card-suit, .card.black .card-center { color: #111; }
 .card.back {
@@ -2527,16 +2527,53 @@ function enterGame(gameId, state) {
   startPresence(gameId);
 
   if (me.id === 'demo' || amHost) {
-    dealNewHand();
     if (amHost && sb) {
       hostListenForActions(gameId);
       startHostHeartbeat(gameId);
+      // Wait 5 seconds so guests can fully sync their subscriptions before first deal
+      showInitializingOverlay();
+      setTimeout(() => {
+        hideInitializingOverlay();
+        dealNewHand();
+      }, 5000);
+    } else {
+      // Demo mode: deal immediately, no sync concerns
+      dealNewHand();
     }
   } else {
     guestSubscribeToGame(gameId);
     startDisconnectWatcher(gameId);
     renderGame();
   }
+}
+
+function showInitializingOverlay() {
+  let el = document.getElementById('initializing-overlay');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'initializing-overlay';
+    el.style.cssText = `
+      position: fixed; top:0; left:0; right:0; bottom:0; z-index:450;
+      background: rgba(8,20,14,0.92); backdrop-filter: blur(6px);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      color: var(--gold-pale); text-align: center; padding: 24px;
+    `;
+    el.innerHTML = `
+      <div style="font-size:2.4rem;margin-bottom:16px">🃏</div>
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:1.6rem;letter-spacing:0.12em;color:var(--gold-pale);margin-bottom:8px">
+        INITIALIZING GAME
+      </div>
+      <div style="font-size:0.82rem;color:var(--text-dim);max-width:280px;line-height:1.5">
+        Waiting for everyone to connect…
+      </div>`;
+    document.body.appendChild(el);
+  }
+  el.style.display = 'flex';
+}
+
+function hideInitializingOverlay() {
+  const el = document.getElementById('initializing-overlay');
+  if (el) el.style.display = 'none';
 }
 
 // ── HOST: push full state after every action ──────────────────────────────────
@@ -3007,6 +3044,10 @@ function renderGame() {
     if (_timerForActionKey !== thisTurnKey) {
       startTurnTimer(30);
       _timerForActionKey = thisTurnKey;
+      // Haptic feedback: it's my turn
+      if (navigator.vibrate) {
+        navigator.vibrate([60, 40, 60]); // short-pause-short pattern
+      }
     }
   } else {
     if (_timerForActionKey !== null) {
@@ -4023,6 +4064,8 @@ function doShowdown() {
     if (iWon && myPlayer?.hand?.length) {
       showMuckOrShow(winner, winAmt);
     } else {
+      // Non-winner overlay: show winner info, offer show-your-cards if I folded but still have hand
+      const myFolded = myPlayer && myPlayer.folded && myPlayer.hand?.length;
       const overlay = document.getElementById('showdown-overlay');
       overlay.style.display = 'flex';
       overlay.innerHTML = `
@@ -4031,10 +4074,13 @@ function doShowdown() {
           <div class="showdown-result ${iWon?'win':'lose'}">${winner.name} Wins</div>
           <div class="showdown-hand" style="color:var(--text-dim)">Everyone else folded</div>
           <div class="winner-pot">+${winAmt} chips</div>
-          <button class="btn btn-primary" onclick="nextHand()" style="margin-top:8px">Next Hand</button>
+          <div style="font-size:0.75rem;color:var(--text-dim);margin-top:10px">Next hand in 4s…</div>
+          ${myFolded ? `<button class="btn btn-ghost btn-sm" onclick="showMyFoldedCards()" style="margin-top:8px">Show My Cards</button>` : ''}
         </div>`;
     }
     syncGameState();
+    // Auto-advance after 4 seconds (host schedules, guests follow via state)
+    if (amHost) scheduleAutoDeal(4000);
     return;
   }
 
@@ -4138,13 +4184,43 @@ function doShowdown() {
           ${won > 0 ? `<span class="badge badge-gold">+${won}</span>` : ''}
         </div>`;
       }).join('')}
-      <button class="btn btn-primary" onclick="nextHand()" style="margin-top:10px">Next Hand</button>
+      <div style="font-size:0.78rem;color:var(--text-dim);margin-top:12px">Next hand in 4s…</div>
     </div>`;
 
   syncGameState();
+  if (amHost) scheduleAutoDeal(4000);
 }
 
 // ── MUCK OR SHOW ─────────────────────────────────────────────────────────────
+function showMyFoldedCards() {
+  if (!G) return;
+  const myPlayer = G.players.find(p => p.id === me.id);
+  if (!myPlayer?.hand?.length) return;
+  if (!myPlayer.folded) return;
+
+  // Mark as shown so host's next sync reveals them to everyone
+  myPlayer.shownCards = myPlayer.hand;
+
+  // Toast + local view — host sees via state, guests see via sync
+  toast('Cards revealed');
+
+  if (amHost) {
+    syncGameState();
+  } else if (sb && currentGameId) {
+    // Guest: write to a reveal column or just submit a special action
+    sb.from('player_actions').insert({
+      game_id: currentGameId,
+      player_id: me.id,
+      action: 'reveal',
+      amount: null,
+      created_at: new Date().toISOString(),
+    }).then(() => {});
+  }
+  // Hide the button after use
+  const btn = event?.target;
+  if (btn) btn.style.display = 'none';
+}
+
 function showMuckOrShow(winner, winAmt) {
   const myPlayer = G.players.find(p => p.id === me.id);
   const [c1, c2] = myPlayer.hand;
@@ -4166,13 +4242,14 @@ function showMuckOrShow(winner, winAmt) {
           </div>`).join('')}
       </div>
       <div style="display:flex;gap:8px;">
-        <button class="btn btn-ghost btn-sm" onclick="nextHand()">Muck &amp; Continue</button>
         <button class="btn btn-primary btn-sm" onclick="showSelectedCards()">Show Selected</button>
       </div>
+      <div style="font-size:0.72rem;color:var(--text-dim);margin-top:10px">Auto-deal in 4s</div>
     </div>`;
 
   // Track which cards are selected to show
   window._showCardSelection = [false, false];
+  scheduleAutoDeal(4000);
 }
 
 function toggleShowCard(idx) {
@@ -4204,11 +4281,29 @@ function showSelectedCards() {
       <div style="font-size:0.78rem;color:var(--text-dim);font-style:italic;margin-bottom:14px">
         ${shown.length === 2 ? 'Showing both cards' : 'Showing one card'}
       </div>
-      <button class="btn btn-primary" onclick="nextHand()">Next Hand</button>`;
+      <div style="font-size:0.72rem;color:var(--text-dim)">Auto-deal in 4s…</div>`;
   }
+  // Reschedule auto-deal since user interacted with show selection
+  if (amHost) scheduleAutoDeal(4000);
+}
+
+let _autoDealTimer = null;
+
+function scheduleAutoDeal(delayMs = 4000) {
+  if (_autoDealTimer) return;
+  if (!amHost && me.id !== 'demo') return; // only host schedules
+  _autoDealTimer = setTimeout(() => {
+    _autoDealTimer = null;
+    nextHand();
+  }, delayMs);
+}
+
+function cancelAutoDeal() {
+  if (_autoDealTimer) { clearTimeout(_autoDealTimer); _autoDealTimer = null; }
 }
 
 function nextHand() {
+  cancelAutoDeal();
   document.getElementById('showdown-overlay').style.display = 'none';
   document.getElementById('elim-overlay').style.display = 'none';
 
@@ -4488,8 +4583,16 @@ document.addEventListener('visibilitychange', async () => {
       stopHostHeartbeat();
     }
 
-    G = data.state;
-    applyMyPrivateHand();
+    // CRITICAL: host's local G has real hole cards. DB state is redacted.
+    // Only overwrite G for guests. Host trusts their own in-memory state.
+    if (!amHost) {
+      G = data.state;
+      // Re-fetch my own private cards (may have been lost)
+      if (G.handNumber > 0) {
+        await fetchMyPrivateHand(currentGameId, G.handNumber);
+      }
+      applyMyPrivateHand();
+    }
     renderGame();
 
     // Host re-checks turn enforcer
