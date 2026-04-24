@@ -7,7 +7,13 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0d1f14">
 <title>Felt Right</title>
-<link rel="manifest" href="manifest.json">
+<link rel="manifest" href="manifest.json?v=3">
+<link rel="icon" type="image/svg+xml" href="icon-192.svg?v=3">
+<link rel="apple-touch-icon" href="icon-192.svg?v=3">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Felt Right">
+<meta name="theme-color" content="#0d1f14">
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 
 <style>
@@ -192,9 +198,22 @@ h3 { font-size: 1rem; font-weight: 600; }
   background: radial-gradient(ellipse at 50% 30%, #1c4a30 0%, #080f0b 70%);
   align-items: center; justify-content: center; gap: 0; padding-bottom: 0;
 }
-.splash-logo { font-family: 'Bebas Neue', sans-serif; font-size: 5rem; letter-spacing: 0.15em; color: var(--gold-pale); text-shadow: 0 0 60px rgba(212,168,67,0.3); line-height: 1; }
-.splash-sub { font-size: 0.8rem; letter-spacing: 0.4em; text-transform: uppercase; color: var(--gold-dim); margin-top: 4px; margin-bottom: 60px; }
-.splash-suits { font-size: 2rem; letter-spacing: 0.3em; opacity: 0.2; margin-bottom: 40px; }
+.splash-logo { font-family: 'Bebas Neue', sans-serif; font-size: 4.2rem; letter-spacing: 0.18em; color: var(--gold-pale); text-shadow: 0 0 60px rgba(212,168,67,0.35), 0 2px 20px rgba(0,0,0,0.5); line-height: 1; margin: 0 auto; }
+.splash-sub { font-size: 0.72rem; letter-spacing: 0.5em; text-transform: uppercase; color: var(--gold-dim); margin-top: 6px; margin-bottom: 0; }
+.splash-suits { font-size: 1.4rem; letter-spacing: 0.5em; opacity: 0.35; color: var(--gold); margin-bottom: 10px; display: flex; justify-content: center; gap: 4px; }
+.splash-rule { width: 80px; height: 1px; background: linear-gradient(to right, transparent, var(--gold-dim), transparent); margin: 18px auto 50px; }
+.splash-hero-cards { display: flex; justify-content: center; gap: 6px; margin-bottom: 24px; }
+.splash-hero-cards .splash-card {
+  width: 44px; height: 62px; border-radius: 6px; background: var(--cream);
+  display: flex; flex-direction: column; padding: 5px 6px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.5), 0 0 0 1px var(--gold-dim);
+  font-family: 'Bebas Neue', sans-serif; font-size: 1.1rem; line-height: 1;
+}
+.splash-hero-cards .splash-card.red { color: #c0392b; }
+.splash-hero-cards .splash-card.black { color: #111; }
+.splash-hero-cards .splash-card:nth-child(1) { transform: rotate(-8deg) translateY(3px); }
+.splash-hero-cards .splash-card:nth-child(2) { transform: rotate(8deg) translateY(-3px); }
+.splash-hero-cards .splash-card .c-suit { font-size: 1.1rem; margin-top: 2px; }
 .splash-form { width: 100%; max-width: 340px; padding: 0 24px; }
 .splash-tabs { display: flex; margin-bottom: 24px; border-bottom: 1px solid var(--border); }
 .splash-tab { flex: 1; padding: 10px; text-align: center; font-size: 0.85rem; font-weight: 600; letter-spacing: 0.06em; cursor: pointer; color: var(--text-dim); border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all 0.15s; }
@@ -465,9 +484,13 @@ h3 { font-size: 1rem; font-weight: 600; }
   <!-- ─── SPLASH / AUTH ─────────────────────────────────────────────────── -->
   <div class="screen active screen-full" id="screen-splash">
     <div style="text-align:center; margin-bottom: 0;">
-      <div class="splash-suits">♠ ♥ ♦ ♣</div>
+      <div class="splash-hero-cards">
+        <div class="splash-card red">A<span class="c-suit">♥</span></div>
+        <div class="splash-card black">K<span class="c-suit">♠</span></div>
+      </div>
       <div class="splash-logo">FELT RIGHT</div>
       <div class="splash-sub">Texas Hold'em</div>
+      <div class="splash-rule"></div>
     </div>
     <div class="splash-form">
       <div class="splash-tabs">
@@ -1687,6 +1710,8 @@ async function rejoinActiveGame(gameId, gameRef) {
     startBlindTimer();
 
     if (amHost) {
+      // Host's local G was wiped by rejoin — fetch own private cards so we see our hand
+      if (G.handNumber > 0) await fetchMyPrivateHand(gameId, G.handNumber);
       renderGame();
       hostListenForActions(gameId);
       startHostHeartbeat(gameId);
@@ -2525,6 +2550,7 @@ function enterGame(gameId, state) {
   _timerForActionKey = null;
   _myPrivateHand = null;
   startPresence(gameId);
+  subscribeToChatForGame(gameId);
 
   if (me.id === 'demo' || amHost) {
     if (amHost && sb) {
@@ -2668,6 +2694,28 @@ function hostListenForActions(gameId) {
 }
 
 function applyRemoteAction(playerId, action, amount) {
+  // Handle reveal specially — not a game action, just reveals folded cards
+  if (action === 'reveal') {
+    // Fetch the player's private hand and publish it
+    if (sb && currentGameId) {
+      sb.from('private_hands')
+        .select('cards')
+        .eq('game_id', currentGameId)
+        .eq('hand_number', G.handNumber)
+        .eq('player_id', playerId)
+        .maybeSingle()
+        .then(({ data }) => {
+          if (data?.cards && G) {
+            if (!G.revealedHands) G.revealedHands = {};
+            G.revealedHands[playerId] = data.cards;
+            renderGame();
+            syncGameState();
+          }
+        });
+    }
+    return;
+  }
+
   const p = G.players.find(pl => pl.id === playerId);
   if (!p || p.folded || p.eliminated) return;
   stopTurnTimer();
@@ -2739,6 +2787,13 @@ function guestSubscribeToGame(gameId) {
       if (row.blind_config) {
         BLIND_LEVELS = row.blind_config.levels || BLIND_LEVELS;
         blindDurationSeconds = row.blind_config.duration || blindDurationSeconds;
+      }
+
+      // Tournament over — show end screen for everyone
+      if (G.tournamentOver) {
+        const winner = G.players.find(p => !p.eliminated && p.chips > 0) || G.players[0];
+        showTournamentOverlay(winner);
+        return;
       }
 
       const pauseJustEnded = _prevPaused === true && !G.paused;
@@ -2816,6 +2871,7 @@ function proceedToDeal() {
   G.community = [];
   G.pot = 0;
   G.deck = makeDeck();
+  G.revealedHands = {};
   _animatedCards.clear();
   stopTurnTimer();
   _autoAction = null;
@@ -3001,10 +3057,13 @@ function renderGame() {
     const div = document.createElement('div');
     div.className = 'player-seat' + (p.folded||p.eliminated?' folded':'') + (isActive?' active-turn':'');
 
-    const cardsHtml = p.hand.length ? p.hand.map(c => {
-      const reveal = G.stage === 'showdown' && !p.folded;
-      const red = isRed(c);
-      if (reveal) {
+    const revealedCards = G.revealedHands?.[p.id];
+    const cardsHtml = (revealedCards || p.hand).length ? (revealedCards || p.hand).map(c => {
+      const revealAtShowdown = G.stage === 'showdown' && !p.folded;
+      const revealFromReveal = !!revealedCards; // folded player chose to show
+      const reveal = revealAtShowdown || revealFromReveal;
+      if (reveal && c && c.rank) {
+        const red = isRed(c);
         return `<div class="card sm ${red?'red':'black'}">
           <div style="font-size:0.55rem;font-weight:700;line-height:1;padding:1px 2px;color:${red?'var(--red)':'#111'}">${c.rank}${c.suit}</div>
         </div>`;
@@ -4198,16 +4257,17 @@ function showMyFoldedCards() {
   if (!myPlayer?.hand?.length) return;
   if (!myPlayer.folded) return;
 
-  // Mark as shown so host's next sync reveals them to everyone
-  myPlayer.shownCards = myPlayer.hand;
+  // Mark cards revealed in shared state for everyone to see
+  if (!G.revealedHands) G.revealedHands = {};
+  G.revealedHands[me.id] = myPlayer.hand;
 
-  // Toast + local view — host sees via state, guests see via sync
   toast('Cards revealed');
 
   if (amHost) {
+    renderGame();
     syncGameState();
   } else if (sb && currentGameId) {
-    // Guest: write to a reveal column or just submit a special action
+    // Guest: submit special reveal action so host picks it up
     sb.from('player_actions').insert({
       game_id: currentGameId,
       player_id: me.id,
@@ -4216,7 +4276,6 @@ function showMyFoldedCards() {
       created_at: new Date().toISOString(),
     }).then(() => {});
   }
-  // Hide the button after use
   const btn = event?.target;
   if (btn) btn.style.display = 'none';
 }
@@ -4341,8 +4400,22 @@ function showEliminated() {
 
 function endTournament() {
   const winner = G.players.find(p => !p.eliminated && p.chips > 0) || G.players[0];
-  if (winner) G.finalPlacements.unshift({ name: winner.name, emoji: winner.emoji });
+  if (winner && !G.finalPlacements.find(p => p.name === winner.name)) {
+    G.finalPlacements.unshift({ name: winner.name, emoji: winner.emoji });
+  }
+  G.stage = 'finished';
+  G.tournamentOver = true;
 
+  // Host: mark game finished in DB and push final state so guests see the same overlay
+  if (amHost && sb && currentGameId) {
+    syncGameState();
+    sb.from('games').update({ status: 'finished' }).eq('id', currentGameId).then(() => {});
+  }
+
+  showTournamentOverlay(winner);
+}
+
+function showTournamentOverlay(winner) {
   const overlay = document.getElementById('tourney-overlay');
   overlay.style.display = 'flex';
   const iWon = winner?.id === me.id;
@@ -4370,6 +4443,7 @@ function goHome() {
   stopHostHeartbeat();
   stopDisconnectWatcher();
   stopPresence();
+  unsubscribeFromChat();
   clearInterval(_migrationCountdown); _migrationCountdown = null;
   clearInterval(_invitePollInterval); _invitePollInterval = null;
   if (inviteSubscription) { /* keep listening for invites on home screen */ }
@@ -4564,6 +4638,93 @@ window.addEventListener('load', () => {
 });
 
 // When the tab becomes visible again (screen unlock / refocus), re-sync state
+// ════════════════════════════════════════════════════════════════════════════
+// CHAT (backend only - UI comes later)
+// ════════════════════════════════════════════════════════════════════════════
+let _chatSubscription = null;
+let _chatMessages = []; // array of {id, game_id, sender_id, sender_name, text, created_at}
+let _chatUnreadCount = 0;
+const _chatListeners = new Set(); // callbacks to notify on new message
+
+function subscribeToChatForGame(gameId) {
+  if (!sb || !gameId || me.id === 'demo') return;
+  if (_chatSubscription) _chatSubscription.unsubscribe();
+  _chatMessages = [];
+  _chatUnreadCount = 0;
+
+  // Load recent history
+  sb.from('game_messages')
+    .select('id, sender_id, sender_name, sender_emoji, text, created_at')
+    .eq('game_id', gameId)
+    .order('created_at', { ascending: true })
+    .limit(200)
+    .then(({ data }) => {
+      if (data) {
+        _chatMessages = data;
+        _chatListeners.forEach(cb => cb({ type: 'history', messages: data }));
+      }
+    });
+
+  // Subscribe to new messages
+  _chatSubscription = sb.channel(`chat:${gameId}`)
+    .on('postgres_changes', {
+      event: 'INSERT',
+      schema: 'public',
+      table: 'game_messages',
+      filter: `game_id=eq.${gameId}`,
+    }, payload => {
+      const msg = payload.new;
+      // Avoid dupes if we already have this one from the history load
+      if (_chatMessages.find(m => m.id === msg.id)) return;
+      _chatMessages.push(msg);
+      if (msg.sender_id !== me.id) _chatUnreadCount++;
+      _chatListeners.forEach(cb => cb({ type: 'new', message: msg, unread: _chatUnreadCount }));
+    })
+    .subscribe();
+}
+
+function unsubscribeFromChat() {
+  if (_chatSubscription) { _chatSubscription.unsubscribe(); _chatSubscription = null; }
+  _chatMessages = [];
+  _chatUnreadCount = 0;
+}
+
+async function sendChatMessage(text) {
+  if (!sb || !currentGameId || me.id === 'demo') return { error: 'not available' };
+  const trimmed = (text || '').trim();
+  if (!trimmed) return { error: 'empty' };
+  if (trimmed.length > 500) return { error: 'too long' };
+
+  const { error } = await sb.from('game_messages').insert({
+    game_id: currentGameId,
+    sender_id: me.id,
+    sender_name: me.display_name || 'Player',
+    sender_emoji: me.avatar_emoji || '🃏',
+    text: trimmed,
+  });
+  return { error };
+}
+
+function markChatRead() {
+  _chatUnreadCount = 0;
+  _chatListeners.forEach(cb => cb({ type: 'read', unread: 0 }));
+}
+
+function onChatEvent(callback) {
+  _chatListeners.add(callback);
+  return () => _chatListeners.delete(callback);
+}
+
+// Expose chat for future UI to use
+window.Chat = {
+  send: sendChatMessage,
+  markRead: markChatRead,
+  subscribe: onChatEvent,
+  messages: () => _chatMessages.slice(),
+  unread: () => _chatUnreadCount,
+};
+
+// ════════════════════════════════════════════════════════════════════════════
 document.addEventListener('visibilitychange', async () => {
   if (document.visibilityState !== 'visible') return;
   if (!sb || !currentGameId || !G) return;
@@ -4587,11 +4748,19 @@ document.addEventListener('visibilitychange', async () => {
     // Only overwrite G for guests. Host trusts their own in-memory state.
     if (!amHost) {
       G = data.state;
-      // Re-fetch my own private cards (may have been lost)
       if (G.handNumber > 0) {
         await fetchMyPrivateHand(currentGameId, G.handNumber);
       }
       applyMyPrivateHand();
+    } else {
+      // Host: check if my own cards are redacted (shouldn't happen but after page reload it might)
+      const myP = G.players.find(p => p.id === me.id);
+      if (myP && myP.hand?.length && myP.hand.every(c => c?.hidden)) {
+        if (G.handNumber > 0) {
+          await fetchMyPrivateHand(currentGameId, G.handNumber);
+          applyMyPrivateHand();
+        }
+      }
     }
     renderGame();
 
