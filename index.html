@@ -2527,63 +2527,16 @@ function enterGame(gameId, state) {
   startPresence(gameId);
 
   if (me.id === 'demo' || amHost) {
-    // Host: start listeners immediately, then countdown, then deal
+    dealNewHand();
     if (amHost && sb) {
       hostListenForActions(gameId);
       startHostHeartbeat(gameId);
     }
-    showGameStartCountdown(() => {
-      dealNewHand();
-    });
   } else {
     guestSubscribeToGame(gameId);
     startDisconnectWatcher(gameId);
-    // Show countdown on guest too so everyone's UI matches
-    showGameStartCountdown();
     renderGame();
   }
-}
-
-function showGameStartCountdown(onComplete) {
-  let el = document.getElementById('game-start-countdown');
-  if (!el) {
-    el = document.createElement('div');
-    el.id = 'game-start-countdown';
-    el.style.cssText = `
-      position: fixed; top:0; left:0; right:0; bottom:0; z-index:450;
-      background: rgba(8,20,14,0.88); backdrop-filter: blur(6px);
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
-      color: var(--gold-pale); font-family: 'Bebas Neue', sans-serif;
-    `;
-    document.body.appendChild(el);
-  }
-  el.style.display = 'flex';
-
-  let seconds = 3;
-  const render = () => {
-    el.innerHTML = `
-      <div style="font-size:0.9rem;letter-spacing:0.2em;color:var(--text-dim);margin-bottom:12px">
-        DEALING IN
-      </div>
-      <div style="font-size:7rem;line-height:1;color:var(--gold);text-shadow:0 0 30px rgba(212,168,67,0.4)">
-        ${seconds}
-      </div>
-      <div style="font-size:0.78rem;color:var(--text-dim);margin-top:24px;max-width:240px;text-align:center;line-height:1.5">
-        Get ready — shuffling the deck
-      </div>`;
-  };
-  render();
-
-  const interval = setInterval(() => {
-    seconds--;
-    if (seconds <= 0) {
-      clearInterval(interval);
-      el.style.display = 'none';
-      if (onComplete) onComplete();
-    } else {
-      render();
-    }
-  }, 1000);
 }
 
 // ── HOST: push full state after every action ──────────────────────────────────
@@ -2775,13 +2728,12 @@ function guestSubscribeToGame(gameId) {
       }
 
       if (isMyTurn() && !G.paused) {
-        if (G.actionIndex !== prevActionIndex || pauseJustEnded) {
-          // renderActionBar (via renderGame above) already started the timer for this turn
+        const thisTurnKey = `${G.handNumber || 0}:${G.actionIndex}:${G.stage}`;
+        if (_timerForActionKey !== thisTurnKey && G.actionIndex !== prevActionIndex) {
           pushTurnNotification();
         }
-      } else {
-        stopTurnTimer();
       }
+      // Timer lifecycle is managed in renderGame via _timerForActionKey guard
     })
     .subscribe();
 }
@@ -3048,6 +3000,19 @@ function renderGame() {
 
   // Action bar
   renderActionBar();
+
+  // Timer lifecycle — runs for host and guest alike, gated by turn key
+  if (G && !G.paused && isMyTurn()) {
+    const thisTurnKey = `${G.handNumber || 0}:${G.actionIndex}:${G.stage}`;
+    if (_timerForActionKey !== thisTurnKey) {
+      startTurnTimer(30);
+      _timerForActionKey = thisTurnKey;
+    }
+  } else {
+    if (_timerForActionKey !== null) {
+      stopTurnTimer();
+    }
+  }
 }
 
 // ── POSITION BADGES ───────────────────────────────────────────────────────────
@@ -3167,18 +3132,12 @@ function renderActionBar() {
   `;
 
   if (!myTurn) {
-    stopTurnTimer();
     const autoBar = document.getElementById('auto-action-bar');
     if (autoBar) autoBar.innerHTML = '';
+    // Don't touch the timer here — subscription handler owns timer lifecycle
     return;
   }
 
-  // Only start turn timer if it's NOT running for THIS action yet
-  const thisTurnKey = `${G.handNumber || 0}:${G.actionIndex}:${G.stage}`;
-  if (_timerForActionKey !== thisTurnKey) {
-    startTurnTimer(30); // internally calls stopTurnTimer which clears _timerForActionKey
-    _timerForActionKey = thisTurnKey; // set AFTER so it survives
-  }
   renderAutoActionBar();
 }
 
