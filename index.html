@@ -1846,7 +1846,7 @@ async function openLobby(gameId) {
     let alreadyEntered = false;
     gameStartChannel
       .on('postgres_changes',{event:'UPDATE',schema:'public',table:'games',filter:`id=eq.${gameId}`},
-        (payload) => {
+        async (payload) => {
           if (alreadyEntered) return;
           if (payload.new.status !== 'active') return;
           // HOST enters via startGame() directly — ignore DB event to avoid double-enterGame
@@ -1854,7 +1854,16 @@ async function openLobby(gameId) {
           alreadyEntered = true;
           gameStartChannel.unsubscribe();
           toast('Game starting!');
-          setTimeout(() => enterGame(gameId, payload.new.state), 800);
+          // Short delay then fetch FRESH state - host is dealing and pushing updates right now
+          // Don't use payload.new.state which is likely stale (handNumber=0 pre-deal)
+          setTimeout(async () => {
+            try {
+              const { data } = await sb.from('games').select('state').eq('id', gameId).maybeSingle();
+              enterGame(gameId, data?.state || payload.new.state);
+            } catch(e) {
+              enterGame(gameId, payload.new.state);
+            }
+          }, 1200); // wait a bit longer for host's dealNewHand to push
         })
       .subscribe();
   } catch(e) { console.warn(e); lobbyPlayers = [{user:me,seat_index:0}]; renderLobbySeats(); }
@@ -2720,7 +2729,7 @@ function guestSubscribeToGame(gameId) {
 
       if (isMyTurn() && !G.paused) {
         if (G.actionIndex !== prevActionIndex || pauseJustEnded) {
-          startTurnTimer(30);
+          // renderActionBar (via renderGame above) already started the timer for this turn
           pushTurnNotification();
         }
       } else {
@@ -3120,8 +3129,8 @@ function renderActionBar() {
   // Only start turn timer if it's NOT running for THIS action yet
   const thisTurnKey = `${G.handNumber || 0}:${G.actionIndex}:${G.stage}`;
   if (_timerForActionKey !== thisTurnKey) {
-    _timerForActionKey = thisTurnKey;
-    startTurnTimer(30);
+    startTurnTimer(30); // internally calls stopTurnTimer which clears _timerForActionKey
+    _timerForActionKey = thisTurnKey; // set AFTER so it survives
   }
   renderAutoActionBar();
 }
@@ -3155,6 +3164,8 @@ let _timerLeft = TURN_SECONDS;
 let _timerForActionKey = null; // tracks which specific turn the timer belongs to
 let _autoAction = null; // pre-selected action: 'check_fold' | 'check' | 'call' | 'fold'
 
+let _timerStartedAt = 0; // wall-clock time when this turn's timer began
+
 function startTurnTimer(seconds) {
   stopTurnTimer();
   const total = seconds || TURN_SECONDS;
@@ -3163,14 +3174,16 @@ function startTurnTimer(seconds) {
   const arcEl   = document.getElementById('timer-arc');
   if (!timerEl) return;
 
-  // Always fresh 30s - don't sync from turnStartAt (DB lag causes timer to start mid-countdown)
+  _timerStartedAt = Date.now();
   _timerLeft = total;
 
   timerEl.style.display = 'flex';
   updateTimerDisplay(_timerLeft, total, numEl, arcEl);
 
   _timerInterval = setInterval(() => {
-    _timerLeft--;
+    // Recompute from wall clock each tick — resistant to event loop delays
+    const elapsed = Math.floor((Date.now() - _timerStartedAt) / 1000);
+    _timerLeft = Math.max(0, total - elapsed);
     updateTimerDisplay(_timerLeft, total, numEl, arcEl);
     if (_timerLeft <= 0) {
       stopTurnTimer();
