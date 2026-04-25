@@ -2633,6 +2633,7 @@ function enterGame(gameId, state) {
   _myPrivateHand = null;
   startPresence(gameId);
   subscribeToChatForGame(gameId);
+  startNudgeListener(gameId);
 
   if (me.id === 'demo' || amHost) {
     if (amHost && sb) {
@@ -2775,7 +2776,124 @@ function hostListenForActions(gameId) {
     .subscribe();
 }
 
+// ── NUDGE ─────────────────────────────────────────────────────────────────────
+let _nudgeSubscription = null;
+let _lastNudgeAt = 0;
+
+function startNudgeListener(gameId) {
+  if (!sb || !gameId || me.id === 'demo') return;
+  if (_nudgeSubscription) _nudgeSubscription.unsubscribe();
+  _nudgeSubscription = sb.channel(`nudges:${gameId}`)
+    .on('postgres_changes', {
+      event: 'INSERT', schema: 'public', table: 'player_actions',
+      filter: `game_id=eq.${gameId}`,
+    }, payload => {
+      const row = payload.new;
+      if (row.action !== 'nudge') return;
+      // Only react if I'm the target
+      if (row.target_id !== me.id) return;
+      // Don't react to my own nudges (shouldn't happen but defense)
+      if (row.player_id === me.id) return;
+      const fromPlayer = G?.players.find(p => p.id === row.player_id);
+      receiveNudge(row.player_id, fromPlayer?.name || 'A player');
+    })
+    .subscribe();
+}
+
+function stopNudgeListener() {
+  if (_nudgeSubscription) { _nudgeSubscription.unsubscribe(); _nudgeSubscription = null; }
+}
+
+async function nudgePlayer(targetId, targetName) {
+  if (!sb || !currentGameId || me.id === 'demo') return;
+  if (targetId === me.id) return; // can't nudge yourself
+  // Rate-limit nudges from this client to once every 3 seconds
+  const now = Date.now();
+  if (now - _lastNudgeAt < 3000) {
+    toast('Slow down — wait a moment');
+    return;
+  }
+  _lastNudgeAt = now;
+
+  // Brief visual feedback for the nudger
+  if (navigator.vibrate) navigator.vibrate(20);
+  toast(`Nudged ${targetName}`);
+
+  // Send through player_actions; host AND all subscribed clients see it.
+  // We use `amount` field to encode the target player ID.
+  try {
+    await sb.from('player_actions').insert({
+      game_id: currentGameId,
+      player_id: me.id,
+      action: 'nudge',
+      amount: null,
+      target_id: targetId,
+      created_at: new Date().toISOString(),
+    });
+  } catch(e) {
+    // If target_id column doesn't exist, fall back to encoding in a side channel
+    // via game_messages with a hidden marker. For now just log.
+    console.warn('nudge insert:', e);
+  }
+}
+
+function receiveNudge(fromId, fromName) {
+  // Show toast + vibrate + browser notification
+  if (navigator.vibrate) navigator.vibrate([100, 60, 100, 60, 100]);
+
+  // In-app toast
+  showNudgeToast(fromName, fromId);
+
+  // Browser notification when app backgrounded
+  if ('Notification' in window && Notification.permission === 'granted' &&
+      document.visibilityState !== 'visible') {
+    new Notification('Felt Right — Nudged!', {
+      body: `${fromName} is waiting on you`,
+      tag: 'nudge-' + currentGameId,
+      requireInteraction: false,
+    });
+  }
+}
+
+function showNudgeToast(name, fromId) {
+  let el = document.getElementById('nudge-toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'nudge-toast';
+    el.style.cssText = `
+      position: fixed; top: calc(var(--safe-top) + 60px); left: 50%;
+      transform: translateX(-50%) translateY(-20px) scale(0.95);
+      background: var(--gold); color: #0d1a0d;
+      border-radius: 14px; padding: 12px 18px; z-index: 460;
+      font-weight: 700; font-size: 0.95rem; line-height: 1.2;
+      box-shadow: 0 8px 28px rgba(212,168,67,0.4), 0 0 0 1px var(--gold);
+      opacity: 0; transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+      display: flex; align-items: center; gap: 10px;
+    `;
+    document.body.appendChild(el);
+  }
+  // Find the from player to get their emoji
+  const fromPlayer = G?.players.find(p => p.id === fromId);
+  const emoji = fromPlayer?.emoji || '👋';
+  el.innerHTML = `<span style="font-size:1.4rem">${emoji}</span><span>${name} nudged you!</span>`;
+
+  requestAnimationFrame(() => {
+    el.style.opacity = '1';
+    el.style.transform = 'translateX(-50%) translateY(0) scale(1)';
+  });
+
+  clearTimeout(_nudgeToastTimer);
+  _nudgeToastTimer = setTimeout(() => {
+    el.style.opacity = '0';
+    el.style.transform = 'translateX(-50%) translateY(-20px) scale(0.95)';
+  }, 2800);
+}
+let _nudgeToastTimer = null;
+
 function applyRemoteAction(playerId, action, amount) {
+  // Nudges are handled by the universal nudge listener — ignore here
+  if (action === 'nudge') return;
+
   // Chop offer/accept/decline/cancel
   if (action === 'chop_offer') {
     G.chopOfferedBy = playerId;
@@ -3222,7 +3340,8 @@ function renderGame() {
     div.innerHTML = `
       <div class="hole-cards">${cardsHtml}</div>
       <div style="position:relative;display:inline-block">
-        <div class="avatar sm">${p.emoji||p.name[0]}</div>
+        <div class="avatar sm nudge-avatar" data-player-id="${p.id}" data-player-name="${p.name}"
+          style="cursor:pointer" title="Tap to nudge ${p.name}">${p.emoji||p.name[0]}</div>
         ${badges ? `<div style="position:absolute;bottom:-6px;right:-6px;display:flex;gap:2px">${badges}</div>` : ''}
       </div>
       <div class="name">${p.name}</div>
@@ -3234,6 +3353,9 @@ function renderGame() {
         : p.allIn ? `<div class="action-bubble bet" style="background:rgba(231,76,60,0.25);color:#e74c3c;border:1px solid rgba(231,76,60,0.3)">All-In</div>`
         : p.lastAction ? `<div class="action-bubble ${p.lastAction.type}">${p.lastAction.label}</div>` : ''}
     `;
+    // Wire the nudge handler
+    const av = div.querySelector('.nudge-avatar');
+    if (av) av.onclick = (e) => { e.stopPropagation(); nudgePlayer(p.id, p.name); };
     ring.appendChild(div);
   });
 
@@ -3255,6 +3377,8 @@ function renderGame() {
       if (navigator.vibrate) {
         navigator.vibrate([60, 40, 60]); // short-pause-short pattern
       }
+      // Browser notification if app is backgrounded
+      pushTurnNotification();
     }
   } else {
     if (_timerForActionKey !== null) {
@@ -4798,6 +4922,7 @@ function goHome() {
   stopDisconnectWatcher();
   stopPresence();
   unsubscribeFromChat();
+  stopNudgeListener();
   // Close chat panel if open and clear badge
   const panel = document.getElementById('chat-panel');
   const backdrop = document.getElementById('chat-backdrop');
