@@ -3882,8 +3882,14 @@ function renderPauseOverlayContent() {
           padding:10px 20px;border-radius:var(--r-sm);cursor:pointer">
           End Game for All
         </button>`
-      : `<button class="btn btn-primary" onclick="guestSignalBack()" style="min-width:240px">
+      : `<button class="btn btn-primary" onclick="guestSignalBack()" style="min-width:240px;margin-bottom:12px">
           I'm Back
+        </button>
+        <button onclick="leaveGameSitOut()" style="min-width:240px;background:none;
+          border:1px solid rgba(192,57,43,0.5);color:var(--red-light);
+          font-family:'DM Sans',sans-serif;font-weight:600;font-size:0.85rem;
+          padding:10px 20px;border-radius:var(--r-sm);cursor:pointer">
+          Leave Game
         </button>`
     }`;
 }
