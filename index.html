@@ -313,7 +313,8 @@ h3 { font-size: 1rem; font-weight: 600; }
   padding-bottom: 0; overflow: hidden; position: relative;
 }
 
-.table-wrap { flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: var(--safe-top) 0 var(--safe-bot); }
+.table-wrap { flex: 1; display: flex; flex-direction: column; min-height: 0; padding: var(--safe-top) 0 0; }
+.table-wrap > .table-area { flex: 1; min-height: 0; overflow-y: auto; }
 
 /* Blind/level info */
 .game-topbar {
@@ -395,12 +396,21 @@ h3 { font-size: 1rem; font-weight: 600; }
 
 /* Action buttons */
 .action-bar {
-  display: flex; gap: 8px; padding: 10px 12px 12px; background: rgba(0,0,0,0.4);
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 5px;
+  padding: 8px 10px max(8px, env(safe-area-inset-bottom));
+  background: rgba(0,0,0,0.4);
 }
-.action-bar .btn { flex: 1; min-width: 70px; font-size: 0.82rem; padding: 11px 8px; }
+.action-bar .btn {
+  font-size: 0.74rem;
+  padding: 9px 4px;
+  line-height: 1.15;
+  min-width: 0;
+}
+.action-bar .btn-full { grid-column: 1 / -1; }
 .bet-slider-row {
-  display: flex; align-items: center; gap: 10px; padding: 0 14px 8px; background: rgba(0,0,0,0.4);
+  display: flex; align-items: center; gap: 10px; padding: 4px 14px 6px; background: rgba(0,0,0,0.4);
 }
 .bet-slider-row input[type=range] {
   flex: 1; -webkit-appearance: none; height: 4px; background: var(--gold-dim); border-radius: 2px; outline: none;
@@ -767,20 +777,22 @@ h3 { font-size: 1rem; font-weight: 600; }
         <div class="blind-timer-countdown" id="blind-timer-countdown">10:00</div>
       </div>
 
-      <!-- Opponents -->
-      <div class="opponents-ring" id="opponents-ring"></div>
+      <!-- Scrollable table area: ring + community + my hand -->
+      <div class="table-area">
+        <!-- Opponents -->
+        <div class="opponents-ring" id="opponents-ring"></div>
 
-      <!-- Community cards + pot -->
-      <div class="community-area">
-        <div class="pot-label" id="pot-display">POT: 0</div>
-        <div class="community-cards" id="community-cards"></div>
-        <div class="stage-label" id="community-stage"></div>
-      </div>
+        <!-- Community cards + pot -->
+        <div class="community-area">
+          <div class="pot-label" id="pot-display">POT: 0</div>
+          <div class="community-cards" id="community-cards"></div>
+          <div class="stage-label" id="community-stage"></div>
+        </div>
 
-      <!-- My hand -->
-      <div class="my-hand-area">
-        <div class="my-cards" id="my-cards"></div>
-        <div class="my-info">
+        <!-- My hand -->
+        <div class="my-hand-area">
+          <div class="my-cards" id="my-cards"></div>
+          <div class="my-info">
           <div style="position:relative;display:inline-block">
             <div class="avatar sm" id="my-avatar">?</div>
             <div id="my-pos-badges" style="position:absolute;bottom:-6px;right:-6px;display:flex;gap:2px"></div>
@@ -795,6 +807,7 @@ h3 { font-size: 1rem; font-weight: 600; }
           <div id="my-action-bubble"></div>
         </div>
       </div>
+      </div><!-- /.table-area -->
 
       <!-- Bet slider (shown when raising) -->
       <div class="bet-slider-row" id="bet-slider-row" style="display:none">
@@ -1118,9 +1131,21 @@ function enterApp() {
   renderFriendsList();
   loadGames();
 
+  // Auto-refresh home games every 20s while user is on home screen
+  clearInterval(_homeRefreshInterval);
+  _homeRefreshInterval = setInterval(() => {
+    const homeScreen = document.getElementById('screen-home');
+    if (homeScreen && homeScreen.classList.contains('active') &&
+        document.visibilityState === 'visible' && me && me.id !== 'demo') {
+      loadGames();
+    }
+  }, 20000);
+
   // Global: listen for game invites arriving in real time
   if (me.id !== 'demo' && sb) subscribeToInvites();
 }
+
+let _homeRefreshInterval = null;
 
 // ════════════════════════════════════════════════════════════════════════════
 // AUTH
@@ -2604,6 +2629,7 @@ function enterGame(gameId, state) {
   // Reset turn/timer tracking for fresh game
   _lastTurnKey = null;
   _timerForActionKey = null;
+  _sliderTurnKey = null;
   _myPrivateHand = null;
   startPresence(gameId);
   subscribeToChatForGame(gameId);
@@ -3316,14 +3342,22 @@ function renderActionBar() {
   // Remember the previous slider value so we don't reset it on every render
   const prevSlider = document.getElementById('bet-slider');
   const prevValue = prevSlider ? parseInt(prevSlider.value) : null;
-  const prevMin = prevSlider ? parseInt(prevSlider.min) : null;
+
+  // Reset slider to minimum at the start of every turn (any player's turn).
+  // Within the same turn, preserve user input so they can prepare a bet.
+  const turnStateKey = `${G.handNumber}:${G.stage}:${G.actionIndex}`;
+  const turnChanged = _sliderTurnKey !== turnStateKey;
+  _sliderTurnKey = turnStateKey;
 
   let nextValue;
-  const defaultRaise = Math.min(snapTo5(Math.max(minRaise, blinds.big * 2)), maxBet);
-  if (prevValue !== null && prevMin !== null && prevValue >= minRaise && prevValue <= maxBet) {
+  if (turnChanged) {
+    // New turn — reset slider to the legal minimum
+    nextValue = minRaise;
+  } else if (prevValue !== null && prevValue >= minRaise && prevValue <= maxBet) {
+    // Same turn, user has been adjusting — keep their value
     nextValue = prevValue;
   } else {
-    nextValue = defaultRaise;
+    nextValue = minRaise;
   }
 
   if (canRaise) {
@@ -3357,7 +3391,7 @@ function renderActionBar() {
     <button class="btn btn-surface" onclick="playerAction('allin')" ${allInOk && myTurn?'':'disabled'}
       style="color:var(--red-light);font-weight:700">ALL IN<br><span style="font-size:0.72rem;opacity:0.8">${allInBet}</span></button>
     <button class="btn btn-primary" onclick="playerAction('raise')" ${!canRaise || !myTurn?'disabled':''}>
-      Raise<br><span style="font-size:0.72rem;opacity:0.8">${canRaise ? (prevValue ?? defaultRaise) : '—'}</span>
+      Raise<br><span style="font-size:0.72rem;opacity:0.8">${canRaise ? nextValue : '—'}</span>
     </button>
     ${isHeadsUp && myTurn ? `<button class="btn btn-surface btn-full" onclick="offerChopShortcut()"
       style="color:var(--gold-pale);margin-top:4px;font-size:0.8rem">🤝 Offer Chop</button>` : ''}
@@ -3405,6 +3439,7 @@ let _timerInterval = null;
 let _timerLeft = TURN_SECONDS;
 let _timerForActionKey = null; // tracks which specific turn the timer belongs to
 let _autoAction = null; // pre-selected action: 'check_fold' | 'check' | 'call' | 'fold'
+let _sliderTurnKey = null; // tracks which turn the slider is initialized for
 
 let _timerStartedAt = 0; // wall-clock time when this turn's timer began
 
@@ -5250,6 +5285,14 @@ let _chatNotifTimer = null;
 // ════════════════════════════════════════════════════════════════════════════
 document.addEventListener('visibilitychange', async () => {
   if (document.visibilityState !== 'visible') return;
+
+  // If on home screen, refresh games list so user sees fresh invites/lobbies
+  const homeScreen = document.getElementById('screen-home');
+  if (homeScreen && homeScreen.classList.contains('active') && me && me.id !== 'demo') {
+    loadGames();
+    renderFriendsList();
+  }
+
   if (!sb || !currentGameId || !G) return;
 
   try {
