@@ -327,6 +327,23 @@ h3 { font-size: 1rem; font-weight: 600; }
 .player-seat .card.sm .card-center { font-size: 0.8rem; }
 .player-seat.folded .avatar { opacity: 0.35; }
 .player-seat.folded .name { opacity: 0.35; }
+.bet-chip-front {
+  background: rgba(212, 168, 67, 0.15);
+  color: var(--gold);
+  border: 1px solid var(--gold-dim);
+  border-radius: 12px;
+  padding: 2px 8px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  margin-top: 2px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.bet-chip-front .chip-icon {
+  color: var(--gold);
+  font-size: 0.6rem;
+}
 .player-seat.active-turn .avatar { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(212,168,67,0.3), 0 0 12px rgba(212,168,67,0.2); }
 .action-bubble {
   font-size: 0.6rem; padding: 2px 6px; border-radius: 8px; margin-top: 1px;
@@ -615,7 +632,16 @@ h3 { font-size: 1rem; font-weight: 600; }
 
   <!-- ─── GAME LOBBY ─────────────────────────────────────────────────────── -->
   <div class="screen screen-full" id="screen-lobby">
-    <div class="lobby-header">
+    <div class="lobby-header" style="position:relative">
+      <button id="lobby-chat-btn" onclick="toggleChatPanel()" style="position:absolute;top:12px;right:12px;
+        background:none;border:1px solid var(--gold-dim);color:var(--gold);
+        font-size:0.9rem;padding:5px 10px;border-radius:6px;cursor:pointer;line-height:1">
+        💬
+        <span id="lobby-chat-unread-badge" style="display:none;position:absolute;top:-6px;right:-6px;
+          background:var(--red);color:#fff;border-radius:10px;font-size:0.6rem;
+          min-width:16px;height:16px;padding:0 4px;font-weight:700;
+          align-items:center;justify-content:center;line-height:1"></span>
+      </button>
       <div class="lobby-title" id="lobby-game-name">GAME NAME</div>
       <div class="lobby-code" id="lobby-game-id">Game ID: —</div>
       <div style="margin-top:8px; display:flex; gap:8px; justify-content:center; flex-wrap:wrap;" id="lobby-badges">
@@ -749,6 +775,9 @@ h3 { font-size: 1rem; font-weight: 600; }
           <div>
             <div class="my-name" id="my-name">You</div>
             <div class="my-chips" id="my-chips">1500</div>
+            <div id="my-bet-chip" style="display:none" class="bet-chip-front">
+              <span class="chip-icon">●</span> <span id="my-bet-amt">0</span>
+            </div>
           </div>
           <div id="my-action-bubble"></div>
         </div>
@@ -1220,6 +1249,9 @@ async function leaveLobby() {
   const lobbyId = currentLobbyId;
   const btn = document.getElementById('lobby-leave-btn');
   if (btn) { btn.style.pointerEvents = 'none'; btn.textContent = 'Leaving…'; }
+
+  unsubscribeFromChat();
+  updateChatBadge();
 
   // Set flag so reload returns to home (not login screen)
   sessionStorage.setItem('fr_auto_restore', '1');
@@ -1781,6 +1813,8 @@ let lobbyPlayers = [];
 
 async function openLobby(gameId) {
   currentLobbyId = gameId;
+  // Subscribe to chat for this game (lobby + game share same chat thread)
+  subscribeToChatForGame(gameId);
 
   // If game is already active, check if we should rejoin directly
   const gameRef = myGames.find(g => g.id === gameId);
@@ -2792,13 +2826,14 @@ function applyRemoteAction(playerId, action, amount) {
     p.chips -= amt; p.bet += amt; p.totalBet += amt; G.pot += amt;
     if (p.chips === 0) p.allIn = true;
     p.lastAction = { type:'bet', label:`Call ${amt}` };
-  } else if (['raise','pot','twopot'].includes(action)) {
+  } else if (['raise','twobet','twobb','threebb','pot','allin'].includes(action)) {
     const raiseTotal = Math.min(amount || 0, p.chips + p.bet);
     const add = raiseTotal - p.bet;
     if (add > 0) { p.chips -= add; p.bet = raiseTotal; p.totalBet += add; G.pot += add; }
     if (p.chips === 0) p.allIn = true;
     G.currentBet = raiseTotal;
-    p.lastAction = { type:'bet', label:`Raise ${raiseTotal}` };
+    const label = action === 'allin' ? 'All In' : `Raise ${raiseTotal}`;
+    p.lastAction = { type:'bet', label };
     G.players.forEach(op => {
       if (op.id !== p.id && !op.folded && !op.eliminated && !op.allIn) op.lastAction = null;
     });
@@ -3098,6 +3133,15 @@ function renderGame() {
   }
   if (myPlayer) {
     document.getElementById('my-chips').textContent = myPlayer.chips.toLocaleString();
+    const myBetChip = document.getElementById('my-bet-chip');
+    if (myBetChip) {
+      if (myPlayer.bet > 0) {
+        myBetChip.style.display = 'inline-flex';
+        document.getElementById('my-bet-amt').textContent = myPlayer.bet.toLocaleString();
+      } else {
+        myBetChip.style.display = 'none';
+      }
+    }
   }
 
   // Community cards
@@ -3142,6 +3186,9 @@ function renderGame() {
       </div>
       <div class="name">${p.name}</div>
       <div class="chips-count">${p.chips.toLocaleString()}</div>
+      ${p.bet > 0 ? `<div class="bet-chip-front" title="In front: ${p.bet}">
+        <span class="chip-icon">●</span> ${p.bet.toLocaleString()}
+      </div>` : ''}
       ${p.disconnected ? `<div class="action-bubble" style="color:var(--text-dim);font-size:0.6rem">📡 Away</div>`
         : p.allIn ? `<div class="action-bubble bet" style="background:rgba(231,76,60,0.25);color:#e74c3c;border:1px solid rgba(231,76,60,0.3)">All-In</div>`
         : p.lastAction ? `<div class="action-bubble ${p.lastAction.type}">${p.lastAction.label}</div>` : ''}
@@ -3222,17 +3269,32 @@ function renderActionBar() {
   const callAmt = Math.min(G.currentBet - myPlayer.bet, myPlayer.chips);
   const canCheck = G.currentBet === myPlayer.bet;
   const blinds = getBlinds(getCurrentBlindLevel());
-  const minRaiseTotal = Math.max(G.currentBet + blinds.big, blinds.big * 2);
-  const minRaise = Math.min(snapTo5(minRaiseTotal), myPlayer.chips);
-  const maxBet = myPlayer.chips;
-  const canRaise = maxBet >= minRaise;
 
-  const potBet    = Math.min(snapTo5(G.pot + callAmt), maxBet);
-  const twoPotBet = Math.min(snapTo5((G.pot + callAmt) * 2), maxBet);
-  const threePotBet = Math.min(snapTo5((G.pot + callAmt) * 3), maxBet);
-  const potOk  = canRaise && potBet >= minRaise;
-  const tpOk   = canRaise && twoPotBet >= minRaise;
-  const xpOk   = canRaise && threePotBet >= minRaise;
+  // User-specified min raise:
+  // A) If no bets yet (currentBet === 0), min = BB
+  // B) If someone bet, min raise total = 2 × current bet
+  let minRaiseTotal;
+  if (G.currentBet === 0) {
+    minRaiseTotal = blinds.big;
+  } else {
+    minRaiseTotal = G.currentBet * 2;
+  }
+  const minRaise = Math.min(snapTo5(minRaiseTotal), myPlayer.chips + myPlayer.bet);
+  const maxBet = myPlayer.chips + myPlayer.bet; // total they could push (chips remaining + already bet)
+  const canRaise = myPlayer.chips > 0 && (myPlayer.chips + myPlayer.bet) >= minRaise;
+
+  // Quick button targets (TOTAL bet amounts, not raise-by amounts):
+  const twoBet    = G.currentBet > 0 ? Math.min(G.currentBet * 2, maxBet) : 0;
+  const twoBB     = Math.min(blinds.big * 2, maxBet);
+  const threeBB   = Math.min(blinds.big * 3, maxBet);
+  const potBet    = Math.min(snapTo5(G.pot + callAmt + myPlayer.bet), maxBet);
+  const allInBet  = maxBet;
+
+  const twoBetOk  = G.currentBet > 0 && canRaise && twoBet >= minRaise;
+  const twoBBOk   = canRaise && twoBB >= minRaise;
+  const threeBBOk = canRaise && threeBB >= minRaise;
+  const potOk     = canRaise && potBet >= minRaise;
+  const allInOk   = canRaise && allInBet >= minRaise;
 
   const myTurn = isMyTurn();
 
@@ -3241,23 +3303,19 @@ function renderActionBar() {
   const prevValue = prevSlider ? parseInt(prevSlider.value) : null;
   const prevMin = prevSlider ? parseInt(prevSlider.min) : null;
 
-  // Preserve user's prepared bet unless min has gone up past their value
-  // (someone raised in front of them) — then reset to default
   let nextValue;
-  const defaultRaise = Math.min(snapTo5(Math.max(G.currentBet * 3, minRaise)), maxBet);
+  const defaultRaise = Math.min(snapTo5(Math.max(minRaise, blinds.big * 2)), maxBet);
   if (prevValue !== null && prevMin !== null && prevValue >= minRaise && prevValue <= maxBet) {
-    // User's prepared bet still valid — keep it
     nextValue = prevValue;
   } else {
     nextValue = defaultRaise;
   }
 
-  // Show/update slider (always visible if we can raise — even when not our turn)
   if (canRaise) {
     slider.style.display = 'flex';
     const sl = document.getElementById('bet-slider');
     sl.min = minRaise; sl.max = maxBet; sl.step = 5; sl.value = nextValue;
-    sl.disabled = !myTurn; // can see/adjust only when it's your turn
+    sl.disabled = !myTurn;
     updateBetLabel();
   } else {
     slider.style.display = 'none';
@@ -3273,12 +3331,16 @@ function renderActionBar() {
     ${canCheck
       ? `<button class="btn btn-surface" onclick="playerAction('check')" ${disabledAttr}>Check</button>`
       : `<button class="btn btn-surface" onclick="playerAction('call')" ${disabledAttr}>Call<br><span style="font-size:0.72rem;opacity:0.8">${callAmt}</span></button>`}
+    <button class="btn btn-surface" onclick="playerAction('twobet')" ${twoBetOk && myTurn?'':'disabled'}
+      style="color:var(--gold)">2× Bet<br><span style="font-size:0.72rem;opacity:0.8">${twoBet || '—'}</span></button>
+    <button class="btn btn-surface" onclick="playerAction('twobb')" ${twoBBOk && myTurn?'':'disabled'}
+      style="color:var(--gold)">2× BB<br><span style="font-size:0.72rem;opacity:0.8">${twoBB}</span></button>
+    <button class="btn btn-surface" onclick="playerAction('threebb')" ${threeBBOk && myTurn?'':'disabled'}
+      style="color:var(--gold)">3× BB<br><span style="font-size:0.72rem;opacity:0.8">${threeBB}</span></button>
     <button class="btn btn-surface" onclick="playerAction('pot')" ${potOk && myTurn?'':'disabled'}
       style="color:var(--gold)">Pot<br><span style="font-size:0.72rem;opacity:0.8">${potBet}</span></button>
-    <button class="btn btn-surface" onclick="playerAction('twopot')" ${tpOk && myTurn?'':'disabled'}
-      style="color:var(--gold)">2× Pot<br><span style="font-size:0.72rem;opacity:0.8">${twoPotBet}</span></button>
-    <button class="btn btn-surface" onclick="playerAction('threepot')" ${xpOk && myTurn?'':'disabled'}
-      style="color:var(--gold)">3× Pot<br><span style="font-size:0.72rem;opacity:0.8">${threePotBet}</span></button>
+    <button class="btn btn-surface" onclick="playerAction('allin')" ${allInOk && myTurn?'':'disabled'}
+      style="color:var(--red-light);font-weight:700">ALL IN<br><span style="font-size:0.72rem;opacity:0.8">${allInBet}</span></button>
     <button class="btn btn-primary" onclick="playerAction('raise')" ${!canRaise || !myTurn?'disabled':''}>
       Raise<br><span style="font-size:0.72rem;opacity:0.8">${canRaise ? (prevValue ?? defaultRaise) : '—'}</span>
     </button>
@@ -3294,7 +3356,6 @@ function renderActionBar() {
   if (!myTurn) {
     const autoBar = document.getElementById('auto-action-bar');
     if (autoBar) autoBar.innerHTML = '';
-    // Don't touch the timer here — subscription handler owns timer lifecycle
     return;
   }
 
@@ -3419,6 +3480,36 @@ function updateTimerDisplay(left, total, numEl, arcEl) {
 }
 
 // ── PLAYER ACTIONS ───────────────────────────────────────────────────────────
+function returnUncalledBets() {
+  // After a betting round, if the highest bettor's bet wasn't matched by anyone
+  // who's still in the hand, return the difference to them.
+  if (!G) return;
+  const inHand = G.players.filter(p => !p.folded && !p.eliminated);
+  if (inHand.length < 2) return;
+  // Find the player with the highest bet
+  let highest = inHand[0];
+  let secondHighest = 0;
+  for (const p of inHand) {
+    if (p.bet > highest.bet) {
+      secondHighest = highest.bet;
+      highest = p;
+    } else if (p.bet > secondHighest && p.id !== highest.id) {
+      secondHighest = p.bet;
+    }
+  }
+  const overage = highest.bet - secondHighest;
+  if (overage > 0) {
+    // Return overage to the player
+    highest.chips += overage;
+    highest.bet = secondHighest;
+    highest.totalBet -= overage;
+    G.pot -= overage;
+    if (highest.allIn && highest.chips > 0) {
+      highest.allIn = false; // they're not actually all-in if we returned chips
+    }
+  }
+}
+
 function execRaise(raiseTotal, myPlayer) {
   // If there's an existing bet to match first, call it then raise on top
   const add = raiseTotal - myPlayer.bet;
@@ -3474,24 +3565,28 @@ function playerAction(action) {
     const myPlayer = G.players.find(p => p.id === me.id);
     const callAmt = Math.min(G.currentBet - myPlayer.bet, myPlayer.chips);
     const blinds = getBlinds(getCurrentBlindLevel());
-    const minRaiseTotal = Math.max(G.currentBet + blinds.big, blinds.big * 2);
+    const minRaiseTotal = G.currentBet === 0 ? blinds.big : G.currentBet * 2;
+    const maxBet = myPlayer.chips + myPlayer.bet;
 
     let amount = null;
     if (action === 'raise') {
       amount = parseInt(document.getElementById('bet-slider').value);
+    } else if (action === 'twobet') {
+      amount = Math.min(G.currentBet * 2, maxBet);
+    } else if (action === 'twobb') {
+      amount = Math.min(blinds.big * 2, maxBet);
+    } else if (action === 'threebb') {
+      amount = Math.min(blinds.big * 3, maxBet);
     } else if (action === 'pot') {
-      amount = Math.min(snapTo5(G.pot + callAmt), myPlayer.chips + myPlayer.bet);
-      amount = Math.max(amount, minRaiseTotal);
-    } else if (action === 'twopot') {
-      amount = Math.min(snapTo5((G.pot + callAmt) * 2), myPlayer.chips + myPlayer.bet);
-      amount = Math.max(amount, minRaiseTotal);
-    } else if (action === 'threepot') {
-      amount = Math.min(snapTo5((G.pot + callAmt) * 3), myPlayer.chips + myPlayer.bet);
+      amount = Math.min(snapTo5(G.pot + callAmt + myPlayer.bet), maxBet);
+    } else if (action === 'allin') {
+      amount = maxBet;
+    }
+    if (amount !== null && action !== 'allin') {
       amount = Math.max(amount, minRaiseTotal);
     }
     document.getElementById('bet-slider-row').style.display = 'none';
     submitAction(action, amount);
-    // Optimistically show "waiting" immediately
     renderActionBar();
     return;
   }
@@ -3500,7 +3595,7 @@ function playerAction(action) {
   const myPlayer = G.players.find(p => p.id === me.id);
   const callAmt = Math.min(G.currentBet - myPlayer.bet, myPlayer.chips);
   const blinds = getBlinds(getCurrentBlindLevel());
-  const minRaiseTotal = Math.max(G.currentBet + blinds.big, blinds.big * 2);
+  const minRaiseTotal = G.currentBet === 0 ? blinds.big : G.currentBet * 2;
 
   if (action === 'fold') {
     myPlayer.folded = true;
@@ -3519,18 +3614,24 @@ function playerAction(action) {
     const raiseTotal = parseInt(document.getElementById('bet-slider').value);
     execRaise(Math.min(raiseTotal, myPlayer.chips + myPlayer.bet), myPlayer);
 
+  } else if (action === 'twobet') {
+    const target = Math.min(G.currentBet * 2, myPlayer.chips + myPlayer.bet);
+    execRaise(Math.max(target, minRaiseTotal), myPlayer);
+
+  } else if (action === 'twobb') {
+    const target = Math.min(blinds.big * 2, myPlayer.chips + myPlayer.bet);
+    execRaise(Math.max(target, minRaiseTotal), myPlayer);
+
+  } else if (action === 'threebb') {
+    const target = Math.min(blinds.big * 3, myPlayer.chips + myPlayer.bet);
+    execRaise(Math.max(target, minRaiseTotal), myPlayer);
+
   } else if (action === 'pot') {
-    // Call any existing bet first, then bet the pot
-    const potTotal = Math.min(snapTo5(G.pot + callAmt), myPlayer.chips + myPlayer.bet);
+    const potTotal = Math.min(snapTo5(G.pot + callAmt + myPlayer.bet), myPlayer.chips + myPlayer.bet);
     execRaise(Math.max(potTotal, minRaiseTotal), myPlayer);
 
-  } else if (action === 'twopot') {
-    const tpTotal = Math.min(snapTo5((G.pot + callAmt) * 2), myPlayer.chips + myPlayer.bet);
-    execRaise(Math.max(tpTotal, minRaiseTotal), myPlayer);
-
-  } else if (action === 'threepot') {
-    const xpTotal = Math.min(snapTo5((G.pot + callAmt) * 3), myPlayer.chips + myPlayer.bet);
-    execRaise(Math.max(xpTotal, minRaiseTotal), myPlayer);
+  } else if (action === 'allin') {
+    execRaise(myPlayer.chips + myPlayer.bet, myPlayer);
   }
 
   document.getElementById('bet-slider-row').style.display = 'none';
@@ -3980,6 +4081,8 @@ function advanceAction() {
 
 // ── ADVANCE STAGE ────────────────────────────────────────────────────────────
 function runOutToShowdown() {
+  // Return any uncalled bets first (e.g. one player all-in for less)
+  returnUncalledBets();
   // All remaining active players are all-in (or can't bet more) — deal remaining community cards
   if (G.stage === 'preflop') {
     G.community = [G.deck.pop(), G.deck.pop(), G.deck.pop(), G.deck.pop(), G.deck.pop()];
@@ -3996,6 +4099,8 @@ function runOutToShowdown() {
 }
 
 function advanceStage() {
+  // Return uncalled bets BEFORE clearing per-street bets
+  returnUncalledBets();
   // Reset bets AND lastAction for the new street
   G.players.forEach(p => { p.bet = 0; if (!p.folded && !p.eliminated) p.lastAction = null; });
   G.currentBet = 0;
@@ -4107,45 +4212,54 @@ function declineChop() {
 // ── SIDE POT BUILDER ─────────────────────────────────────────────────────────
 // Returns array of { amount, eligible[] } sorted smallest → largest cap
 function buildSidePots(players) {
-  // Only non-folded players can win a pot; folded players' money stays in but
-  // they have no eligibility.
-  const contributors = players.filter(p => !p.eliminated);
-  // Sort by totalBet ascending so we process all-ins smallest first
-  const sorted = [...contributors].sort((a, b) => a.totalBet - b.totalBet);
+  // Build side pots from totalBet contributions across all players (including folded).
+  // Standard poker side-pot algorithm:
+  //   1. Find all distinct totalBet "levels" (sorted ascending).
+  //   2. For each level, build a pot containing (level - prevLevel) from EVERY player
+  //      who contributed at least `level` chips (folded or not — their chips stay in).
+  //   3. Eligibility for that pot = players who contributed at least `level` AND haven't folded.
+  // This correctly handles: multiple all-ins, folded players who contributed, uncalled overage
+  // (which should already have been returned by returnUncalledBets before this is called).
+
+  const contributors = players.filter(p => !p.eliminated && p.totalBet > 0);
+  if (!contributors.length) return [];
+
+  // Distinct totalBet levels in ascending order
+  const levels = [...new Set(contributors.map(p => p.totalBet))].sort((a, b) => a - b);
 
   const pots = [];
-  let coveredSoFar = 0;
-
-  for (let i = 0; i < sorted.length; i++) {
-    const cap = sorted[i].totalBet;
-    if (cap <= coveredSoFar) continue; // already fully covered by a previous pot
-
-    // Amount each player contributes to this level
-    const level = cap - coveredSoFar;
+  let prev = 0;
+  for (const level of levels) {
+    const slice = level - prev;
+    if (slice <= 0) continue;
     let amount = 0;
     for (const p of contributors) {
-      amount += Math.min(p.totalBet - coveredSoFar, level);
-      if (amount < 0) amount = 0;
+      // Each player contributes min(slice, their remaining stake above prev)
+      const contribution = Math.max(0, Math.min(slice, p.totalBet - prev));
+      amount += contribution;
     }
-    // Clamp negative edge cases
-    amount = Math.max(0, amount);
-
-    // Eligible = non-folded players who put in at least this level
-    const eligible = sorted.slice(i).filter(p => !p.folded);
-
+    // Eligible to win = contributors whose totalBet >= level AND not folded
+    const eligible = contributors.filter(p => p.totalBet >= level && !p.folded);
     if (amount > 0) pots.push({ amount, eligible });
-    coveredSoFar = cap;
+    prev = level;
   }
 
-  // Consolidate: if multiple pots have the same eligible set, merge them
+  // Consolidate consecutive pots that have identical eligibility sets
   const merged = [];
   for (const pot of pots) {
     const last = merged[merged.length - 1];
-    const sameEligible = last &&
+    const sameElig = last &&
       last.eligible.length === pot.eligible.length &&
       last.eligible.every((p, i) => p.id === pot.eligible[i].id);
-    if (sameEligible) { last.amount += pot.amount; }
-    else { merged.push({ amount: pot.amount, eligible: [...pot.eligible] }); }
+    if (sameElig) last.amount += pot.amount;
+    else merged.push({ amount: pot.amount, eligible: [...pot.eligible] });
+  }
+
+  // Sanity: total pot amounts should equal sum of all totalBets
+  const computedTotal = merged.reduce((s, p) => s + p.amount, 0);
+  const expectedTotal = contributors.reduce((s, p) => s + p.totalBet, 0);
+  if (computedTotal !== expectedTotal) {
+    console.warn('Side pot mismatch:', { computedTotal, expectedTotal, gPot: G?.pot });
   }
 
   return merged;
@@ -4710,13 +4824,17 @@ window.addEventListener('load', () => {
 // CHAT (backend only - UI comes later)
 // ════════════════════════════════════════════════════════════════════════════
 let _chatSubscription = null;
+let _chatCurrentGameId = null;
 let _chatMessages = []; // array of {id, game_id, sender_id, sender_name, text, created_at}
 let _chatUnreadCount = 0;
 const _chatListeners = new Set(); // callbacks to notify on new message
 
 function subscribeToChatForGame(gameId) {
   if (!sb || !gameId || me.id === 'demo') return;
+  // Already subscribed to this game's chat - skip
+  if (_chatSubscription && _chatCurrentGameId === gameId) return;
   if (_chatSubscription) _chatSubscription.unsubscribe();
+  _chatCurrentGameId = gameId;
   _chatMessages = [];
   _chatUnreadCount = 0;
 
@@ -4753,6 +4871,7 @@ function subscribeToChatForGame(gameId) {
 
 function unsubscribeFromChat() {
   if (_chatSubscription) { _chatSubscription.unsubscribe(); _chatSubscription = null; }
+  _chatCurrentGameId = null;
   _chatMessages = [];
   _chatUnreadCount = 0;
 }
@@ -4900,13 +5019,17 @@ async function sendChatFromInput() {
 
 function updateChatBadge() {
   const badge = document.getElementById('chat-unread-badge');
-  if (!badge) return;
-  if (_chatUnreadCount > 0) {
-    badge.textContent = _chatUnreadCount > 9 ? '9+' : _chatUnreadCount;
-    badge.style.display = 'flex';
-  } else {
-    badge.style.display = 'none';
-  }
+  const lobbyBadge = document.getElementById('lobby-chat-unread-badge');
+  const text = _chatUnreadCount > 9 ? '9+' : _chatUnreadCount;
+  [badge, lobbyBadge].forEach(b => {
+    if (!b) return;
+    if (_chatUnreadCount > 0) {
+      b.textContent = text;
+      b.style.display = 'flex';
+    } else {
+      b.style.display = 'none';
+    }
+  });
 }
 
 // Subscribe to chat events to update UI
