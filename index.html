@@ -102,21 +102,34 @@ h3 { font-size: 1rem; font-weight: 600; }
 
 /* ─── CARDS (playing cards) ───────────────────────────────────────────────── */
 .card {
-  width: 62px; height: 90px; border-radius: 7px;
-  background: var(--cream); display: flex; flex-direction: column;
-  align-items: center; justify-content: space-between;
-  padding: 4px 6px; box-shadow: 0 3px 10px rgba(0,0,0,0.5);
+  width: 70px; height: 100px; border-radius: 8px;
+  background: var(--cream); display: block;
+  box-shadow: 0 3px 10px rgba(0,0,0,0.5);
   flex-shrink: 0; position: relative; user-select: none;
+  font-family: 'Bebas Neue', sans-serif;
 }
-.card.lg { width: 78px; height: 114px; padding: 6px 8px; border-radius: 9px; }
-.card-top, .card-bot { display: flex; flex-direction: column; align-items: flex-start; line-height: 1; }
-.card-bot { align-items: flex-end; transform: rotate(180deg); }
-.card-rank { font-family: 'Bebas Neue', sans-serif; font-size: 1.15rem; }
-.card.lg .card-rank { font-size: 1.4rem; }
-.card-suit { font-size: 0.85rem; }
-.card.lg .card-suit { font-size: 1.05rem; }
-.card-center { font-size: 1.7rem; position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); }
-.card.lg .card-center { font-size: 2.1rem; }
+.card.lg { width: 88px; height: 126px; border-radius: 10px; }
+.card-top, .card-bot {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 0.95;
+  font-weight: 700;
+}
+.card-top { top: 5px; left: 6px; }
+.card-bot { bottom: 5px; right: 6px; transform: rotate(180deg); }
+.card-rank { font-size: 1.4rem; letter-spacing: -0.02em; }
+.card.lg .card-rank { font-size: 1.7rem; }
+.card-suit { font-size: 1rem; margin-top: 1px; }
+.card.lg .card-suit { font-size: 1.2rem; }
+.card-center {
+  font-size: 2rem;
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%,-50%);
+}
+.card.lg .card-center { font-size: 2.5rem; }
 .card.red .card-rank, .card.red .card-suit, .card.red .card-center { color: var(--red); }
 .card.black .card-rank, .card.black .card-suit, .card.black .card-center { color: #111; }
 .card.back {
@@ -800,38 +813,6 @@ h3 { font-size: 1rem; font-weight: 600; }
       <!-- Overlays -->
       <div id="showdown-overlay" style="display:none"></div>
       <div id="elim-overlay" style="display:none"></div>
-
-      <!-- Chat slide-up panel -->
-      <div id="chat-backdrop" onclick="closeChatPanel()" style="display:none;position:fixed;inset:0;
-        background:rgba(0,0,0,0.5);z-index:399;backdrop-filter:blur(2px)"></div>
-      <div id="chat-panel" style="display:none;position:fixed;bottom:0;left:0;right:0;
-        max-width:520px;margin:0 auto;z-index:400;
-        background:var(--surface);border-top:1px solid var(--border);
-        border-radius:16px 16px 0 0;box-shadow:0 -8px 30px rgba(0,0,0,0.5);
-        max-height:70vh;display:none;flex-direction:column;
-        transform:translateY(100%);transition:transform 0.25s ease-out">
-        <div style="display:flex;align-items:center;justify-content:space-between;
-          padding:12px 16px;border-bottom:1px solid var(--border)">
-          <div style="font-family:'Bebas Neue',sans-serif;font-size:1.1rem;letter-spacing:0.1em;color:var(--gold-pale)">
-            TABLE CHAT
-          </div>
-          <button onclick="closeChatPanel()" style="background:none;border:none;color:var(--text-dim);
-            font-size:1.4rem;cursor:pointer;padding:4px 10px;line-height:1">×</button>
-        </div>
-        <div id="chat-messages" style="flex:1;overflow-y:auto;padding:12px 16px;
-          display:flex;flex-direction:column;gap:10px;min-height:200px"></div>
-        <div style="padding:10px 12px;border-top:1px solid var(--border);display:flex;gap:8px;
-          padding-bottom:max(10px, env(safe-area-inset-bottom))">
-          <input id="chat-input" type="text" placeholder="Say something…" maxlength="500"
-            onkeydown="if(event.key==='Enter'){event.preventDefault();sendChatFromInput()}"
-            style="flex:1;background:var(--surface2);border:1px solid var(--border);
-              color:var(--text);border-radius:8px;padding:10px 12px;font-size:0.9rem;
-              font-family:inherit;outline:none">
-          <button onclick="sendChatFromInput()" class="btn btn-primary" style="padding:10px 16px">
-            Send
-          </button>
-        </div>
-      </div>
       <div id="tourney-overlay" style="display:none"></div>
     </div>
   </div>
@@ -2769,6 +2750,34 @@ function hostListenForActions(gameId) {
 }
 
 function applyRemoteAction(playerId, action, amount) {
+  // Chop offer/accept/decline/cancel
+  if (action === 'chop_offer') {
+    G.chopOfferedBy = playerId;
+    G.chopOfferedAt = new Date().toISOString();
+    renderGame();
+    syncGameState();
+    return;
+  }
+  if (action === 'chop_accept') {
+    if (G.chopOfferedBy && G.chopOfferedBy !== playerId) {
+      finalizeChop();
+    }
+    return;
+  }
+  if (action === 'chop_decline') {
+    G.chopOfferedBy = null;
+    G.chopDeclined = true;
+    renderGame();
+    syncGameState();
+    return;
+  }
+  if (action === 'chop_cancel') {
+    G.chopOfferedBy = null;
+    renderGame();
+    syncGameState();
+    return;
+  }
+
   // Guest-initiated pause request — host applies the pause
   if (action === 'pause_request') {
     if (!G.paused && amHost) {
@@ -2967,6 +2976,7 @@ function proceedToDeal() {
   G.pot = 0;
   G.deck = makeDeck();
   G.revealedHands = {};
+  G.chopOfferedBy = null; // clear any unresolved chop proposal
   _animatedCards.clear();
   stopTurnTimer();
   _autoAction = null;
@@ -3079,6 +3089,11 @@ function renderGame() {
   // Handle pause state
   if (G?.paused) showPauseOverlay();
   else hidePauseOverlay();
+
+  // Show chop proposal overlay if one is active
+  if (G?.chopOfferedBy && !G.tournamentOver) {
+    renderChopProposal();
+  }
 
   // Show/hide host pause button (host only)
   const pauseBtn = document.getElementById('host-pause-btn');
@@ -4137,50 +4152,130 @@ function advanceStage() {
 }
 
 function offerChopShortcut() {
+  // The current player proposes a chop — set state and sync
+  if (!G) return;
   const activePlayers = G.players.filter(p => !p.eliminated && p.chips > 0);
-  offerChop(activePlayers);
+  if (activePlayers.length !== 2) return;
+
+  const myPlayer = G.players.find(p => p.id === me.id);
+  if (!myPlayer || myPlayer.eliminated) return;
+
+  G.chopOfferedBy = me.id;
+  G.chopOfferedAt = new Date().toISOString();
+
+  if (amHost) {
+    syncGameState();
+    renderGame(); // host triggers their own overlay via render
+  } else if (sb && currentGameId) {
+    // Guest: send via player_actions; host will set the flag
+    sb.from('player_actions').insert({
+      game_id: currentGameId,
+      player_id: me.id,
+      action: 'chop_offer',
+      amount: null,
+      created_at: new Date().toISOString(),
+    }).then(({ error }) => {
+      if (error) toast('Chop offer failed');
+      else toast('Chop offered — waiting for response');
+    });
+  }
 }
 
 // ── CHOP ─────────────────────────────────────────────────────────────────────
-function offerChop(activePlayers) {
-  const totalChips = activePlayers.reduce((s, p) => s + p.chips, 0);
+// Show the proposing player a "waiting" view, show the recipient an Accept/Decline view
+function renderChopProposal() {
+  if (!G || !G.chopOfferedBy) return;
   const overlay = document.getElementById('showdown-overlay');
   overlay.style.display = 'flex';
-  overlay.innerHTML = `
-    <div class="showdown-bar" style="gap:10px">
-      <div style="font-size:2rem">🤝</div>
-      <div class="showdown-result" style="font-size:1.4rem;color:var(--gold-pale)">Heads Up!</div>
-      <div style="font-size:0.85rem;color:var(--text-dim);text-align:center;line-height:1.5">
-        Two players remain.<br>Would you like to chop and end the game?
-      </div>
-      <div style="width:90%;max-width:300px">
-        ${activePlayers.map(p => `
-          <div style="display:flex;justify-content:space-between;align-items:center;
-            padding:8px 12px;background:rgba(255,255,255,0.05);border-radius:8px;margin-bottom:6px">
-            <div style="display:flex;align-items:center;gap:8px">
-              <div class="avatar sm">${p.emoji||p.name[0]}</div>
-              <div style="font-weight:500">${p.name}</div>
-            </div>
-            <div style="font-family:'Bebas Neue',sans-serif;color:var(--gold);font-size:1rem;letter-spacing:0.05em">
-              ${p.chips.toLocaleString()} chips
-            </div>
-          </div>`).join('')}
-      </div>
-      <div style="display:flex;gap:10px;margin-top:4px">
-        <button class="btn btn-ghost" onclick="declineChop()">Play On</button>
-        <button class="btn btn-primary" onclick="acceptChop()">Chop It</button>
-      </div>
-    </div>`;
+
+  const proposer = G.players.find(p => p.id === G.chopOfferedBy);
+  const activePlayers = G.players.filter(p => !p.eliminated && p.chips > 0);
+  const iAmProposer = G.chopOfferedBy === me.id;
+
+  if (iAmProposer) {
+    // Proposer waits
+    overlay.innerHTML = `
+      <div class="showdown-bar" style="gap:10px">
+        <div style="font-size:2rem">🤝</div>
+        <div class="showdown-result" style="font-size:1.3rem;color:var(--gold-pale)">Chop Offered</div>
+        <div style="font-size:0.85rem;color:var(--text-dim);text-align:center;line-height:1.5;max-width:280px">
+          Waiting for the other player to accept or decline…
+        </div>
+        <button class="btn btn-ghost" onclick="cancelChopOffer()" style="margin-top:8px">
+          Cancel Offer
+        </button>
+      </div>`;
+  } else {
+    // Recipient sees decision UI
+    overlay.innerHTML = `
+      <div class="showdown-bar" style="gap:10px">
+        <div style="font-size:2rem">🤝</div>
+        <div class="showdown-result" style="font-size:1.3rem;color:var(--gold-pale)">Chop Offer</div>
+        <div style="font-size:0.85rem;color:var(--text-dim);text-align:center;line-height:1.5">
+          ${proposer?.emoji || '🃏'} ${proposer?.name || 'Opponent'} offered to chop and end the game.
+        </div>
+        <div style="width:90%;max-width:300px">
+          ${activePlayers.map(p => `
+            <div style="display:flex;justify-content:space-between;align-items:center;
+              padding:8px 12px;background:rgba(255,255,255,0.05);border-radius:8px;margin-bottom:6px">
+              <div style="display:flex;align-items:center;gap:8px">
+                <div class="avatar sm">${p.emoji||p.name[0]}</div>
+                <div style="font-weight:500">${p.name}</div>
+              </div>
+              <div style="font-family:'Bebas Neue',sans-serif;color:var(--gold);font-size:1rem;letter-spacing:0.05em">
+                ${p.chips.toLocaleString()} chips
+              </div>
+            </div>`).join('')}
+        </div>
+        <div style="display:flex;gap:10px;margin-top:4px">
+          <button class="btn btn-ghost" onclick="declineChop()">Decline</button>
+          <button class="btn btn-primary" onclick="acceptChop()">Accept Chop</button>
+        </div>
+      </div>`;
+  }
 }
 
 function acceptChop() {
+  if (!amHost && me.id !== 'demo') {
+    // Guest accepts — submit, host finalizes
+    if (sb && currentGameId) {
+      sb.from('player_actions').insert({
+        game_id: currentGameId,
+        player_id: me.id,
+        action: 'chop_accept',
+        amount: null,
+        created_at: new Date().toISOString(),
+      }).then(() => {});
+    }
+    // Optimistic UI update so user sees feedback immediately
+    document.getElementById('showdown-overlay').innerHTML = `
+      <div class="showdown-bar" style="gap:10px">
+        <div style="font-size:2rem">🤝</div>
+        <div style="font-size:1rem;color:var(--text-dim)">Accepting chop…</div>
+      </div>`;
+    return;
+  }
+
+  // Host (or demo): finalize the chop
+  finalizeChop();
+}
+
+function finalizeChop() {
   const overlay = document.getElementById('showdown-overlay');
   const activePlayers = G.players.filter(p => !p.eliminated && p.chips > 0);
-  const totalChips = activePlayers.reduce((s, p) => s + p.chips, 0);
 
   // Final placements — chip leader gets 1st
   const sorted = [...activePlayers].sort((a, b) => b.chips - a.chips);
   G.finalPlacements = sorted.map(p => ({ name: p.name, emoji: p.emoji, chips: p.chips }));
+  G.tournamentOver = true;
+  G.chopOfferedBy = null;
+
+  if (amHost && sb && currentGameId) {
+    syncGameState();
+    sb.from('games').update({ status: 'finished' }).eq('id', currentGameId).then(() => {});
+    sb.from('game_messages').delete().eq('game_id', currentGameId).then(() => {});
+    sb.from('private_hands').delete().eq('game_id', currentGameId).then(() => {});
+  }
 
   overlay.style.display = 'flex';
   overlay.innerHTML = `
@@ -4208,11 +4303,53 @@ function acceptChop() {
 }
 
 function declineChop() {
-  document.getElementById('showdown-overlay').style.display = 'none';
-  // Reset flag so chop isn't offered again until player count changes
-  G.chopOffered = true; // keep true so it's not re-offered every hand
+  if (!amHost && me.id !== 'demo') {
+    // Guest declines - submit, host clears
+    if (sb && currentGameId) {
+      sb.from('player_actions').insert({
+        game_id: currentGameId,
+        player_id: me.id,
+        action: 'chop_decline',
+        amount: null,
+        created_at: new Date().toISOString(),
+      }).then(() => {});
+    }
+    document.getElementById('showdown-overlay').style.display = 'none';
+    toast('Chop declined');
+    return;
+  }
+
+  // Host or demo
+  G.chopOfferedBy = null;
   G.chopDeclined = true;
-  proceedToDeal();
+  document.getElementById('showdown-overlay').style.display = 'none';
+  if (amHost) syncGameState();
+  toast('Chop declined — keep playing');
+}
+
+function cancelChopOffer() {
+  if (!amHost && me.id !== 'demo') {
+    if (sb && currentGameId) {
+      sb.from('player_actions').insert({
+        game_id: currentGameId,
+        player_id: me.id,
+        action: 'chop_cancel',
+        amount: null,
+        created_at: new Date().toISOString(),
+      }).then(() => {});
+    }
+    document.getElementById('showdown-overlay').style.display = 'none';
+    return;
+  }
+
+  G.chopOfferedBy = null;
+  document.getElementById('showdown-overlay').style.display = 'none';
+  if (amHost) syncGameState();
+}
+
+// Legacy entry point used elsewhere — wraps the new flow
+function offerChop(activePlayers) {
+  offerChopShortcut();
 }
 
 // ── SIDE POT BUILDER ─────────────────────────────────────────────────────────
@@ -5169,5 +5306,38 @@ document.addEventListener('visibilitychange', async () => {
   } catch(e) { console.warn('visibility resume:', e); }
 });
 </script>
+
+<!-- Global Chat slide-up panel (outside all screens so it works in lobby AND game) -->
+<div id="chat-backdrop" onclick="closeChatPanel()" style="display:none;position:fixed;inset:0;
+  background:rgba(0,0,0,0.5);z-index:399;backdrop-filter:blur(2px)"></div>
+<div id="chat-panel" style="display:none;position:fixed;bottom:0;left:0;right:0;
+  max-width:520px;margin:0 auto;z-index:400;
+  background:var(--surface);border-top:1px solid var(--border);
+  border-radius:16px 16px 0 0;box-shadow:0 -8px 30px rgba(0,0,0,0.5);
+  max-height:70vh;flex-direction:column;
+  transform:translateY(100%);transition:transform 0.25s ease-out">
+  <div style="display:flex;align-items:center;justify-content:space-between;
+    padding:12px 16px;border-bottom:1px solid var(--border)">
+    <div style="font-family:'Bebas Neue',sans-serif;font-size:1.1rem;letter-spacing:0.1em;color:var(--gold-pale)">
+      TABLE CHAT
+    </div>
+    <button onclick="closeChatPanel()" style="background:none;border:none;color:var(--text-dim);
+      font-size:1.4rem;cursor:pointer;padding:4px 10px;line-height:1">×</button>
+  </div>
+  <div id="chat-messages" style="flex:1;overflow-y:auto;padding:12px 16px;
+    display:flex;flex-direction:column;gap:10px;min-height:200px"></div>
+  <div style="padding:10px 12px;border-top:1px solid var(--border);display:flex;gap:8px;
+    padding-bottom:max(10px, env(safe-area-inset-bottom))">
+    <input id="chat-input" type="text" placeholder="Say something…" maxlength="500"
+      onkeydown="if(event.key==='Enter'){event.preventDefault();sendChatFromInput()}"
+      style="flex:1;background:var(--surface2);border:1px solid var(--border);
+        color:var(--text);border-radius:8px;padding:10px 12px;font-size:0.9rem;
+        font-family:inherit;outline:none">
+    <button onclick="sendChatFromInput()" class="btn btn-primary" style="padding:10px 16px">
+      Send
+    </button>
+  </div>
+</div>
+
 </body>
 </html>
