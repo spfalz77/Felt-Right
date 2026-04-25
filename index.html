@@ -5243,6 +5243,22 @@ function renderStatsHtml(pub, priv, isOwnProfile) {
       <div style="font-family:'Bebas Neue',sans-serif;font-size:1rem;color:var(--gold-pale);letter-spacing:0.04em">${value}</div>
     </div>`;
 
+  // Same as statRow but the label is tappable to toggle an explanation row beneath
+  const statRowExplain = (label, value, explanation) => {
+    const safeExp = explanation.replace(/'/g, '&#39;').replace(/"/g, '&quot;');
+    return `
+      <div style="border-bottom:1px solid var(--border)">
+        <div style="display:flex;justify-content:space-between;padding:6px 0">
+          <div onclick="toggleStatExplain(this)" style="color:var(--gold-pale);font-size:0.85rem;cursor:pointer;
+            border-bottom:1px dotted var(--gold-dim);padding-bottom:1px;user-select:none"
+            data-explain="${safeExp}">${label}</div>
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:1rem;color:var(--gold-pale);letter-spacing:0.04em">${value}</div>
+        </div>
+        <div class="stat-explain" style="display:none;font-size:0.78rem;color:var(--text-dim);
+          padding:6px 10px 10px 4px;line-height:1.4;font-style:italic"></div>
+      </div>`;
+  };
+
   let html = `
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px;margin-bottom:12px">
       <div style="font-size:0.78rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px">
@@ -5286,15 +5302,22 @@ function renderStatsHtml(pub, priv, isOwnProfile) {
           🔒 Private — Playstyle
         </div>
         <div style="font-size:0.7rem;color:var(--text-dim);margin-bottom:10px;font-style:italic">
-          Only you can see these
+          Only you can see these. Tap a stat name to learn what it means.
         </div>
-        ${statRow('VPIP %', vpip + (vpip==='—'?'':'%'))}
-        ${statRow('PFR %', pfr + (pfr==='—'?'':'%'))}
-        ${statRow('Aggression Factor', aggFactor)}
-        ${statRow('3-Bets Made', priv.three_bet_count || 0)}
-        ${statRow('Fold to 3-Bet %', fold3bet + (fold3bet==='—'?'':'%'))}
-        ${statRow('River Call %', riverCallRate + (riverCallRate==='—'?'':'%'))}
-        ${statRow('Bets / Calls', `${priv.bets_made || 0} / ${priv.calls_made || 0}`)}
+        ${statRowExplain('VPIP %', vpip + (vpip==='—'?'':'%'),
+          'Voluntarily Put $ In Pot. The percent of hands where you chose to put money in pre-flop (calls or raises, not just blinds). High VPIP = loose; low VPIP = tight.')}
+        ${statRowExplain('PFR %', pfr + (pfr==='—'?'':'%'),
+          'Pre-Flop Raise. The percent of hands where you raised pre-flop. Aggressive players have high PFR. The gap between VPIP and PFR shows how often you call vs raise.')}
+        ${statRowExplain('Aggression Factor', aggFactor,
+          'Bets and raises divided by calls. Higher = more aggressive. AF below 1 means you call more than you bet/raise; above 2 is aggressive.')}
+        ${statRowExplain('3-Bets Made', priv.three_bet_count || 0,
+          'A 3-bet is when you re-raise after someone has already raised pre-flop. Tracks how often you put pressure with re-raises.')}
+        ${statRowExplain('Fold to 3-Bet %', fold3bet + (fold3bet==='—'?'':'%'),
+          'When someone 3-bets you pre-flop, how often you fold. High percentages can be exploited by aggressive opponents.')}
+        ${statRowExplain('River Call %', riverCallRate + (riverCallRate==='—'?'':'%'),
+          'When you reach the river, the percent of times you call a bet. High = you go to showdown often; low = you fold rivers easily.')}
+        ${statRowExplain('Bets / Calls', `${priv.bets_made || 0} / ${priv.calls_made || 0}`,
+          'Raw counts of times you bet or raised vs times you called. Used to compute Aggression Factor.')}
       </div>
     `;
   }
@@ -5832,6 +5855,26 @@ async function loadOtherUserPublicStats(userId) {
     const { data } = await sb.from('user_stats_public').select('*').eq('user_id', userId).maybeSingle();
     return data || makeEmptyPublicStats();
   } catch(e) { console.warn('loadOtherUserPublicStats:', e); return null; }
+}
+
+function toggleStatExplain(labelEl) {
+  if (!labelEl) return;
+  // Find the explain div (sibling of the parent flex row)
+  const wrapper = labelEl.closest('div').parentElement;
+  if (!wrapper) return;
+  const explainDiv = wrapper.querySelector('.stat-explain');
+  if (!explainDiv) return;
+
+  const explanation = labelEl.dataset.explain || '';
+  if (explainDiv.style.display === 'block') {
+    // Already shown — tap to hide
+    explainDiv.style.display = 'none';
+    explainDiv.textContent = '';
+  } else {
+    // Show explanation
+    explainDiv.textContent = explanation;
+    explainDiv.style.display = 'block';
+  }
 }
 
 async function clearMyPublicStats() {
