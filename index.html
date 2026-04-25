@@ -875,6 +875,9 @@ h3 { font-size: 1rem; font-weight: 600; }
       <button class="btn btn-ghost btn-full btn-sm" onclick="copyInviteLink()">📋 Copy App Link</button>
     </div>
 
+    <!-- Stats -->
+    <div id="profile-stats-section" style="margin:0 16px 16px"></div>
+
     <!-- Sign out -->
     <div style="padding:0 16px 24px;">
       <button class="btn btn-full" onclick="signOut()"
@@ -1130,6 +1133,7 @@ function enterApp() {
 
   renderFriendsList();
   loadGames();
+  loadMyStats();
 
   // Auto-refresh home games every 20s while user is on home screen
   clearInterval(_homeRefreshInterval);
@@ -1257,6 +1261,7 @@ async function leaveLobby() {
   if (btn) { btn.style.pointerEvents = 'none'; btn.textContent = 'Leaving…'; }
 
   unsubscribeFromChat();
+  stopNudgeListener();
   updateChatBadge();
 
   // Set flag so reload returns to home (not login screen)
@@ -1367,17 +1372,67 @@ function renderFriendsList() {
     return;
   }
   el.innerHTML = myFriends.map(f => `
-    <div class="list-row">
+    <div class="list-row" style="cursor:pointer" onclick="viewFriendProfile('${f.id}', '${(f.display_name||'').replace(/'/g, '&#39;')}', '${f.avatar_emoji||''}')">
       <div class="avatar">${f.avatar_emoji||f.display_name[0]}</div>
       <div class="list-row-info">
         <div class="name">${f.display_name}</div>
-        <div class="sub">Friend</div>
+        <div class="sub">Tap to view stats</div>
       </div>
-      <button onclick="removeFriend('${f.friendshipId}','${f.display_name}')"
+      <button onclick="event.stopPropagation();removeFriend('${f.friendshipId}','${(f.display_name||'').replace(/'/g, '&#39;')}')"
         style="background:none;border:1px solid rgba(192,57,43,0.3);color:var(--red-light);
           border-radius:50%;width:28px;height:28px;font-size:1.1rem;cursor:pointer;
           display:flex;align-items:center;justify-content:center;flex-shrink:0;line-height:1">−</button>
     </div>`).join('');
+}
+
+async function viewFriendProfile(userId, name, emoji) {
+  if (!sb || !userId) return;
+  // Show modal with friend's public stats
+  const stats = await loadOtherUserPublicStats(userId);
+
+  let modal = document.getElementById('friend-profile-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'friend-profile-modal';
+    modal.style.cssText = `
+      position: fixed; inset: 0; z-index: 410;
+      background: rgba(0,0,0,0.7); backdrop-filter: blur(4px);
+      display: flex; align-items: flex-end;
+    `;
+    document.body.appendChild(modal);
+  }
+
+  modal.innerHTML = `
+    <div onclick="event.stopPropagation()" style="background:var(--bg);width:100%;max-width:520px;margin:0 auto;
+      border-radius:16px 16px 0 0;max-height:90vh;display:flex;flex-direction:column;
+      border-top:1px solid var(--border)">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border)">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div class="avatar" style="font-size:1.7rem">${emoji || (name||'?')[0]}</div>
+          <div>
+            <div style="font-family:'Bebas Neue',sans-serif;font-size:1.1rem;letter-spacing:0.08em;color:var(--gold-pale)">
+              ${name}
+            </div>
+            <div style="font-size:0.7rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.1em">
+              Public Profile
+            </div>
+          </div>
+        </div>
+        <button onclick="closeFriendProfile()" style="background:none;border:none;color:var(--text-dim);
+          font-size:1.6rem;cursor:pointer;padding:4px 10px;line-height:1">×</button>
+      </div>
+      <div style="overflow-y:auto;padding:16px">
+        ${renderStatsHtml(stats, null, false)}
+      </div>
+    </div>
+  `;
+
+  modal.onclick = closeFriendProfile;
+}
+
+function closeFriendProfile() {
+  const modal = document.getElementById('friend-profile-modal');
+  if (modal) modal.remove();
 }
 
 async function removeFriend(friendshipId, name) {
@@ -1821,6 +1876,7 @@ async function openLobby(gameId) {
   currentLobbyId = gameId;
   // Subscribe to chat for this game (lobby + game share same chat thread)
   subscribeToChatForGame(gameId);
+  startNudgeListener(gameId);
 
   // If game is already active, check if we should rejoin directly
   const gameRef = myGames.find(g => g.id === gameId);
@@ -2006,9 +2062,14 @@ function renderLobbySeats() {
     const p = lobbyPlayers[i];
     if (p) {
       const isHost = p.user?.id === hostId;
+      const isMe = p.user?.id === me?.id;
+      const canNudge = !isMe && p.user?.id;
+      const emoji = p.user?.avatar_emoji||p.user?.display_name?.[0]||'?';
+      const name = p.user?.display_name||'Player';
       html += `<div class="seat filled">
-        <div class="avatar sm">${p.user?.avatar_emoji||p.user?.display_name?.[0]||'?'}</div>
-        <div class="seat-name">${p.user?.display_name||'Player'}</div>
+        <div class="avatar sm ${canNudge?'lobby-nudge-avatar':''}"
+          ${canNudge ? `data-nudge-id="${p.user.id}" data-nudge-name="${name}" style="cursor:pointer" title="Tap to nudge ${name}"` : ''}>${emoji}</div>
+        <div class="seat-name">${name}</div>
         ${isHost ? `<div class="seat-host">Host</div>` : ''}
       </div>`;
     } else {
@@ -2018,6 +2079,16 @@ function renderLobbySeats() {
 
   el.innerHTML = html;
   document.getElementById('lobby-player-count').textContent = `${lobbyPlayers.length} / ${MAX_SEATS} joined`;
+
+  // Wire nudge handlers on lobby avatars
+  el.querySelectorAll('.lobby-nudge-avatar').forEach(av => {
+    av.onclick = (e) => {
+      e.stopPropagation();
+      const id = av.dataset.nudgeId;
+      const name = av.dataset.nudgeName;
+      if (id) nudgePlayer(id, name);
+    };
+  });
 
   // Show Start Game if enough joined (host only)
   if (lobbyPlayers.length >= 2) {
@@ -2792,10 +2863,18 @@ function startNudgeListener(gameId) {
       if (row.action !== 'nudge') return;
       // Only react if I'm the target
       if (row.target_id !== me.id) return;
-      // Don't react to my own nudges (shouldn't happen but defense)
       if (row.player_id === me.id) return;
-      const fromPlayer = G?.players.find(p => p.id === row.player_id);
-      receiveNudge(row.player_id, fromPlayer?.name || 'A player');
+      // Find sender name — try game state first, then lobby players
+      let fromName = 'A player';
+      if (G?.players) {
+        const fromPlayer = G.players.find(p => p.id === row.player_id);
+        if (fromPlayer) fromName = fromPlayer.name;
+      }
+      if (fromName === 'A player' && Array.isArray(lobbyPlayers)) {
+        const lp = lobbyPlayers.find(p => p.user?.id === row.player_id);
+        if (lp) fromName = lp.user.display_name || fromName;
+      }
+      receiveNudge(row.player_id, fromName);
     })
     .subscribe();
 }
@@ -2805,9 +2884,10 @@ function stopNudgeListener() {
 }
 
 async function nudgePlayer(targetId, targetName) {
-  if (!sb || !currentGameId || me.id === 'demo') return;
-  if (targetId === me.id) return; // can't nudge yourself
-  // Rate-limit nudges from this client to once every 3 seconds
+  const gameId = currentGameId || currentLobbyId;
+  if (!sb || !gameId || me.id === 'demo') return;
+  if (targetId === me.id) return;
+
   const now = Date.now();
   if (now - _lastNudgeAt < 3000) {
     toast('Slow down — wait a moment');
@@ -2815,15 +2895,12 @@ async function nudgePlayer(targetId, targetName) {
   }
   _lastNudgeAt = now;
 
-  // Brief visual feedback for the nudger
   if (navigator.vibrate) navigator.vibrate(20);
   toast(`Nudged ${targetName}`);
 
-  // Send through player_actions; host AND all subscribed clients see it.
-  // We use `amount` field to encode the target player ID.
   try {
     await sb.from('player_actions').insert({
-      game_id: currentGameId,
+      game_id: gameId,
       player_id: me.id,
       action: 'nudge',
       amount: null,
@@ -2831,8 +2908,6 @@ async function nudgePlayer(targetId, targetName) {
       created_at: new Date().toISOString(),
     });
   } catch(e) {
-    // If target_id column doesn't exist, fall back to encoding in a side channel
-    // via game_messages with a hidden marker. For now just log.
     console.warn('nudge insert:', e);
   }
 }
@@ -2872,9 +2947,16 @@ function showNudgeToast(name, fromId) {
     `;
     document.body.appendChild(el);
   }
-  // Find the from player to get their emoji
-  const fromPlayer = G?.players.find(p => p.id === fromId);
-  const emoji = fromPlayer?.emoji || '👋';
+  // Find the from player to get their emoji - check G first, then lobby
+  let emoji = '👋';
+  if (G?.players) {
+    const fromPlayer = G.players.find(p => p.id === fromId);
+    if (fromPlayer?.emoji) emoji = fromPlayer.emoji;
+  }
+  if (emoji === '👋' && Array.isArray(lobbyPlayers)) {
+    const lp = lobbyPlayers.find(p => p.user?.id === fromId);
+    if (lp?.user?.avatar_emoji) emoji = lp.user.avatar_emoji;
+  }
   el.innerHTML = `<span style="font-size:1.4rem">${emoji}</span><span>${name} nudged you!</span>`;
 
   requestAnimationFrame(() => {
@@ -3114,6 +3196,15 @@ function dealNewHand() {
 function proceedToDeal() {
   const activePlayers = G.players.filter(p => !p.eliminated && p.chips > 0);
 
+  // Stat tracking: commit any leftover hand stats from prior hand, reset for this hand
+  commitHandStats();
+  resetHandStats();
+  // Mark "hand_played" if I'm an eligible non-eliminated player
+  const myP = G.players.find(p => p.id === me.id);
+  if (myP && !myP.eliminated && myP.chips > 0) {
+    _statsThisHand.hand_played = true;
+  }
+
   G.handNumber++;
   G.stage = 'preflop';
   G.community = [];
@@ -3121,6 +3212,7 @@ function proceedToDeal() {
   G.deck = makeDeck();
   G.revealedHands = {};
   G.chopOfferedBy = null; // clear any unresolved chop proposal
+  _autoAction = null; // away mode resets each hand
   _animatedCards.clear();
   stopTurnTimer();
   _autoAction = null;
@@ -3379,6 +3471,15 @@ function renderGame() {
       }
       // Browser notification if app is backgrounded
       pushTurnNotification();
+      // Stats: detect 3-bet faced (preflop, currentBet exceeds BB)
+      if (G.stage === 'preflop' && _statsThisHand) {
+        const blinds = getBlinds(getCurrentBlindLevel());
+        if (G.currentBet > blinds.big) _statsThisHand.three_bet_faced = true;
+      }
+      // Stats: track that we saw the river
+      if (G.stage === 'river' && _statsThisHand) {
+        _statsThisHand.saw_river = true;
+      }
     }
   } else {
     if (_timerForActionKey !== null) {
@@ -3435,9 +3536,7 @@ function renderActionBar() {
   const canCheck = G.currentBet === myPlayer.bet;
   const blinds = getBlinds(getCurrentBlindLevel());
 
-  // User-specified min raise:
-  // A) If no bets yet (currentBet === 0), min = BB
-  // B) If someone bet, min raise total = 2 × current bet
+  // Min raise: BB if no bet on the street, else 2x current bet
   let minRaiseTotal;
   if (G.currentBet === 0) {
     minRaiseTotal = blinds.big;
@@ -3445,50 +3544,53 @@ function renderActionBar() {
     minRaiseTotal = G.currentBet * 2;
   }
   const minRaise = Math.min(snapTo5(minRaiseTotal), myPlayer.chips + myPlayer.bet);
-  const maxBet = myPlayer.chips + myPlayer.bet; // total they could push (chips remaining + already bet)
+  const maxBet = myPlayer.chips + myPlayer.bet;
   const canRaise = myPlayer.chips > 0 && (myPlayer.chips + myPlayer.bet) >= minRaise;
 
-  // Quick button targets (TOTAL bet amounts, not raise-by amounts):
-  const twoBet    = G.currentBet > 0 ? Math.min(G.currentBet * 2, maxBet) : 0;
+  // Quick buttons
   const twoBB     = Math.min(blinds.big * 2, maxBet);
   const threeBB   = Math.min(blinds.big * 3, maxBet);
   const potBet    = Math.min(snapTo5(G.pot + callAmt + myPlayer.bet), maxBet);
   const allInBet  = maxBet;
 
-  const twoBetOk  = G.currentBet > 0 && canRaise && twoBet >= minRaise;
-  const twoBBOk   = canRaise && twoBB >= minRaise;
+  // Quick buttons require the value to meet the legal minimum (2x current bet)
+  // EXCEPT All In, which is always available
+  const twoBBOk   = canRaise && twoBB   >= minRaise;
   const threeBBOk = canRaise && threeBB >= minRaise;
-  const potOk     = canRaise && potBet >= minRaise;
-  const allInOk   = canRaise && allInBet >= minRaise;
+  const potOk     = canRaise && potBet  >= minRaise;
+  const allInOk   = myPlayer.chips > 0; // always selectable
 
   const myTurn = isMyTurn();
 
-  // Remember the previous slider value so we don't reset it on every render
+  // ── SLIDER LOGIC (item 3) ──
+  // Slider is ALWAYS active so any player can prep a bet during others' turns.
+  // Slider min auto-adjusts as betting progresses:
+  //   - At the start of a new turn (or when minRaise increases due to a raise from
+  //     someone else), if the current slider value is < minRaise, bump it up to minRaise.
+  //   - Player can decrease only down to minRaise, never below.
   const prevSlider = document.getElementById('bet-slider');
   const prevValue = prevSlider ? parseInt(prevSlider.value) : null;
 
-  // Reset slider to minimum at the start of every turn (any player's turn).
-  // Within the same turn, preserve user input so they can prepare a bet.
-  const turnStateKey = `${G.handNumber}:${G.stage}:${G.actionIndex}`;
-  const turnChanged = _sliderTurnKey !== turnStateKey;
-  _sliderTurnKey = turnStateKey;
-
   let nextValue;
-  if (turnChanged) {
-    // New turn — reset slider to the legal minimum
+  if (prevValue === null || isNaN(prevValue)) {
     nextValue = minRaise;
-  } else if (prevValue !== null && prevValue >= minRaise && prevValue <= maxBet) {
-    // Same turn, user has been adjusting — keep their value
-    nextValue = prevValue;
+  } else if (prevValue < minRaise) {
+    // Auto-bump up to legal minimum (someone bet/raised in front of us)
+    nextValue = minRaise;
+  } else if (prevValue > maxBet) {
+    nextValue = maxBet;
   } else {
-    nextValue = minRaise;
+    nextValue = prevValue;
   }
 
   if (canRaise) {
     slider.style.display = 'flex';
     const sl = document.getElementById('bet-slider');
-    sl.min = minRaise; sl.max = maxBet; sl.step = 5; sl.value = nextValue;
-    sl.disabled = !myTurn;
+    sl.min = minRaise;
+    sl.max = maxBet;
+    sl.step = 5;
+    sl.value = nextValue;
+    sl.disabled = false; // ITEM 2: always active, even when not my turn
     updateBetLabel();
   } else {
     slider.style.display = 'none';
@@ -3497,15 +3599,14 @@ function renderActionBar() {
   const activePlayers = G.players.filter(p => !p.folded && !p.eliminated && p.chips > 0);
   const isHeadsUp = activePlayers.length === 2;
 
-  // Always render the full action bar — disable buttons when not my turn
+  // Build the action bar.
+  // ITEM 5: "Place Bet" button. Only enabled on my turn.
   const disabledAttr = myTurn ? '' : 'disabled';
   bar.innerHTML = `
     <button class="btn btn-danger" onclick="playerAction('fold')" ${disabledAttr}>Fold</button>
     ${canCheck
       ? `<button class="btn btn-surface" onclick="playerAction('check')" ${disabledAttr}>Check</button>`
       : `<button class="btn btn-surface" onclick="playerAction('call')" ${disabledAttr}>Call<br><span style="font-size:0.72rem;opacity:0.8">${callAmt}</span></button>`}
-    <button class="btn btn-surface" onclick="playerAction('twobet')" ${twoBetOk && myTurn?'':'disabled'}
-      style="color:var(--gold)">2× Bet<br><span style="font-size:0.72rem;opacity:0.8">${twoBet || '—'}</span></button>
     <button class="btn btn-surface" onclick="playerAction('twobb')" ${twoBBOk && myTurn?'':'disabled'}
       style="color:var(--gold)">2× BB<br><span style="font-size:0.72rem;opacity:0.8">${twoBB}</span></button>
     <button class="btn btn-surface" onclick="playerAction('threebb')" ${threeBBOk && myTurn?'':'disabled'}
@@ -3514,8 +3615,9 @@ function renderActionBar() {
       style="color:var(--gold)">Pot<br><span style="font-size:0.72rem;opacity:0.8">${potBet}</span></button>
     <button class="btn btn-surface" onclick="playerAction('allin')" ${allInOk && myTurn?'':'disabled'}
       style="color:var(--red-light);font-weight:700">ALL IN<br><span style="font-size:0.72rem;opacity:0.8">${allInBet}</span></button>
-    <button class="btn btn-primary" onclick="playerAction('raise')" ${!canRaise || !myTurn?'disabled':''}>
-      Raise<br><span style="font-size:0.72rem;opacity:0.8">${canRaise ? nextValue : '—'}</span>
+    <button class="btn btn-primary btn-full" onclick="playerAction('raise')" ${!canRaise || !myTurn?'disabled':''}
+      style="grid-column:1/-1">
+      Place Bet · ${canRaise ? nextValue : '—'}
     </button>
     ${isHeadsUp && myTurn ? `<button class="btn btn-surface btn-full" onclick="offerChopShortcut()"
       style="color:var(--gold-pale);margin-top:4px;font-size:0.8rem">🤝 Offer Chop</button>` : ''}
@@ -3526,12 +3628,7 @@ function renderActionBar() {
     </button>` : ''}
   `;
 
-  if (!myTurn) {
-    const autoBar = document.getElementById('auto-action-bar');
-    if (autoBar) autoBar.innerHTML = '';
-    return;
-  }
-
+  // Always render the Away toggle so player can prep going AFK
   renderAutoActionBar();
 }
 
@@ -3601,13 +3698,13 @@ function fireAutoAction() {
   // Mark me as away so host sees it and future turns skip me
   myPlayer.disconnected = true;
 
-  // If player pre-selected an action, honour it
+  // If a check/fold preselection is on (long-press toggle), use it
+  if (_autoAction === 'check_fold') { playerAction(canCheck ? 'check' : 'fold'); return; }
   if (_autoAction === 'fold') { playerAction('fold'); return; }
   if (_autoAction === 'check' && canCheck) { playerAction('check'); return; }
   if (_autoAction === 'call') { playerAction(canCheck ? 'check' : 'call'); return; }
-  if (_autoAction === 'check_fold') { playerAction(canCheck ? 'check' : 'fold'); return; }
 
-  // Default: check if possible, otherwise fold
+  // Default: check if possible, otherwise fold (player went away with no preselection)
   playerAction(canCheck ? 'check' : 'fold');
 }
 
@@ -3620,20 +3717,72 @@ function setAutoAction(action) {
 function renderAutoActionBar() {
   const el = document.getElementById('auto-action-bar');
   if (!el) return;
-  const myPlayer = G.players.find(p => p.id === me.id);
-  const canCheck = myPlayer && G.currentBet === myPlayer.bet;
-  const opts = canCheck
-    ? [['check','Check'],['fold','Fold']]
-    : [['check_fold','Chk/Fold'],['call','Call'],['fold','Fold']];
+  const isAway = _autoAction === 'check_fold';
 
-  el.innerHTML = `<span style="font-size:0.65rem;color:var(--text-dim);letter-spacing:0.08em;text-transform:uppercase;margin-right:4px">Away:</span>` +
-    opts.map(([a, label]) =>
-      `<button class="btn btn-sm" onclick="setAutoAction('${a}')"
-        style="padding:5px 10px;font-size:0.72rem;
-          background:${_autoAction===a?'rgba(212,168,67,0.2)':'var(--surface2)'};
-          border:1px solid ${_autoAction===a?'var(--gold)':'var(--border)'};
-          color:${_autoAction===a?'var(--gold)':'var(--text-dim)'}">${label}</button>`
-    ).join('');
+  // Single Away toggle button. Long-press to enable, tap to disable when active.
+  el.innerHTML = `
+    <button id="away-toggle-btn"
+      style="padding:5px 12px;font-size:0.72rem;border-radius:4px;cursor:pointer;
+        background:${isAway?'rgba(231,76,60,0.2)':'var(--surface2)'};
+        border:1px solid ${isAway?'var(--red-light)':'var(--border)'};
+        color:${isAway?'var(--red-light)':'var(--text-dim)'};
+        font-weight:${isAway?'700':'400'};
+        user-select:none;-webkit-user-select:none">
+      ${isAway ? '⏸ AWAY (auto check/fold) — tap to cancel' : 'Hold to set Away mode'}
+    </button>`;
+
+  const btn = document.getElementById('away-toggle-btn');
+  if (!btn) return;
+
+  if (isAway) {
+    // Single tap to disable when already away
+    btn.onclick = () => {
+      _autoAction = null;
+      renderAutoActionBar();
+      toast('Away cancelled');
+    };
+  } else {
+    // Long-press to enable (mobile + desktop)
+    let pressTimer = null;
+    let pressed = false;
+
+    const startPress = (e) => {
+      e.preventDefault();
+      pressed = true;
+      pressTimer = setTimeout(() => {
+        if (!pressed) return;
+        // Long-press fired — confirm
+        if (confirm('Set yourself to Away mode? You will auto check or fold for the rest of this hand.')) {
+          _autoAction = 'check_fold';
+          if (navigator.vibrate) navigator.vibrate(40);
+          renderAutoActionBar();
+          toast('Away mode on — will auto check/fold');
+        }
+      }, 700); // 700ms long-press
+    };
+    const cancelPress = () => {
+      pressed = false;
+      if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+    };
+
+    btn.addEventListener('mousedown', startPress);
+    btn.addEventListener('touchstart', startPress);
+    btn.addEventListener('mouseup', cancelPress);
+    btn.addEventListener('mouseleave', cancelPress);
+    btn.addEventListener('touchend', cancelPress);
+    btn.addEventListener('touchcancel', cancelPress);
+  }
+}
+
+// Clear away mode at the end of every hand (item 8: persist only until end of hand)
+function clearAwayMode() {
+  _autoAction = null;
+}
+
+function setAutoAction(action) {
+  // Backward compat — direct toggle (used internally)
+  _autoAction = _autoAction === action ? null : action;
+  renderAutoActionBar();
 }
 
 function stopTurnTimer() {
@@ -3733,6 +3882,36 @@ async function leaveGameSitOut() {
 
 function playerAction(action) {
   stopTurnTimer();
+
+  // ── STATS: track this player's actions ──
+  if (_statsThisHand) {
+    const isPreflop = G.stage === 'preflop';
+    if (action === 'fold') {
+      // If facing a 3-bet preflop, mark folded to 3-bet
+      if (isPreflop && _statsThisHand.three_bet_faced) {
+        _statsThisHand.three_bet_folded = true;
+      }
+      if (G.stage === 'river') _statsThisHand.river_folded = true;
+    } else if (action === 'call') {
+      _statsThisHand.calls_made++;
+      // VPIP - voluntary money in pot (not just BB defense)
+      if (isPreflop) _statsThisHand.voluntarily_in = true;
+      if (G.stage === 'river') _statsThisHand.river_called = true;
+    } else if (['raise','twobet','twobb','threebb','pot','allin'].includes(action)) {
+      _statsThisHand.bets_made++;
+      _statsThisHand.raises_made++;
+      _statsThisHand.voluntarily_in = true;
+      if (isPreflop) {
+        _statsThisHand.pre_flop_raised = true;
+        // Detect 3-bet: if currentBet > BB (someone already raised)
+        const blinds = getBlinds(getCurrentBlindLevel());
+        if (G.currentBet > blinds.big) {
+          _statsThisHand.three_bet_made = true;
+        }
+      }
+      if (action === 'allin') _statsThisHand.all_in_taken = true;
+    }
+  }
 
   // GUEST: submit to DB, host will process and broadcast new state
   if (!amHost && me.id !== 'demo' && sb) {
@@ -4081,7 +4260,7 @@ async function endGameForAll() {
   try {
     await sb.from('games').update({ status: 'finished' }).eq('id', currentGameId);
     await sb.from('private_hands').delete().eq('game_id', currentGameId);
-    await sb.from('game_messages').delete().eq('game_id', currentGameId);
+    // Chat preserved as 200-message rolling history
     toast('Game ended');
   } catch(e) { console.warn('endGameForAll:', e); }
 
@@ -4432,8 +4611,8 @@ function finalizeChop() {
   if (amHost && sb && currentGameId) {
     syncGameState();
     sb.from('games').update({ status: 'finished' }).eq('id', currentGameId).then(() => {});
-    sb.from('game_messages').delete().eq('game_id', currentGameId).then(() => {});
     sb.from('private_hands').delete().eq('game_id', currentGameId).then(() => {});
+    // Chat history is preserved across the game's lifetime
   }
 
   overlay.style.display = 'flex';
@@ -4583,6 +4762,18 @@ function doShowdown() {
     winner.chips += winAmt;
     G.pot = 0;
 
+    // Stats tracking
+    if (_statsThisHand) {
+      _statsThisHand.pot_at_end = winAmt;
+      if (winner.id === me.id) {
+        _statsThisHand.won_hand = true;
+        _statsThisHand.won_amount = winAmt;
+        if (_statsThisHand.all_in_taken) _statsThisHand.won_all_in = true;
+      } else {
+        if (_statsThisHand.all_in_taken) _statsThisHand.won_all_in = false;
+      }
+    }
+
     let newElim = false;
     G.players.forEach(p => {
       if (!p.eliminated && p.chips <= 0) {
@@ -4615,6 +4806,7 @@ function doShowdown() {
     syncGameState();
     // Auto-advance after 4 seconds (host schedules, guests follow via state)
     if (amHost) scheduleAutoDeal(4000);
+    commitHandStats();
     return;
   }
 
@@ -4662,7 +4854,36 @@ function doShowdown() {
 
   // Apply winnings
   G.players.forEach(p => { p.chips += winnings[p.id]; });
+  const totalPotAmt = sidePots.reduce((s, p) => s + p.amount, 0);
   G.pot = 0;
+
+  // ── STATS at showdown ──
+  if (_statsThisHand) {
+    _statsThisHand.went_to_showdown = true;
+    _statsThisHand.pot_at_end = totalPotAmt;
+    const myWinning = winnings[me.id] || 0;
+    if (myWinning > 0) {
+      _statsThisHand.won_hand = true;
+      _statsThisHand.won_at_showdown = true;
+      _statsThisHand.won_amount = myWinning;
+      if (_statsThisHand.all_in_taken) _statsThisHand.won_all_in = true;
+    } else if (handMap[me.id]) {
+      // I went to showdown but lost
+      _statsThisHand.lost_amount = totalPotAmt;
+      if (_statsThisHand.all_in_taken) _statsThisHand.won_all_in = false;
+      // Bad beat: I held a strong hand (full house+) but lost
+      const myHand = handMap[me.id];
+      if (myHand && myHand.rank >= 7) {
+        _statsThisHand.is_bad_beat_loser = true;
+      }
+    }
+    // Best hand I made (whether I won or not)
+    if (handMap[me.id]) {
+      const r = handMap[me.id].rank;
+      _statsThisHand.final_hand_rank = r;
+      _statsThisHand.final_hand_label = HAND_RANK_LABELS[r] || handMap[me.id].name;
+    }
+  }
 
   // Eliminate busted players
   let newElimSD = false;
@@ -4723,6 +4944,7 @@ function doShowdown() {
 
   syncGameState();
   if (amHost) scheduleAutoDeal(4000);
+  commitHandStats();
 }
 
 // ── MUCK OR SHOW ─────────────────────────────────────────────────────────────
@@ -4885,9 +5107,29 @@ function endTournament() {
   if (amHost && sb && currentGameId) {
     syncGameState();
     sb.from('games').update({ status: 'finished' }).eq('id', currentGameId).then(() => {});
-    // Cleanup: delete all chat messages and private hands for this finished game
-    sb.from('game_messages').delete().eq('game_id', currentGameId).then(() => {});
     sb.from('private_hands').delete().eq('game_id', currentGameId).then(() => {});
+    // Chat history preserved as rolling 200-message log
+  }
+
+  // ── STATS: record tournament finish ──
+  // Each client computes their own placement based on finalPlacements (1 = winner)
+  if (G.finalPlacements && me?.id !== 'demo') {
+    // finalPlacements[0] is the winner (most recent unshift), so order represents finish
+    // Find my position. If I'm not in finalPlacements, I'm the winner (still standing)
+    const myPlayer = G.players.find(p => p.id === me.id);
+    if (myPlayer) {
+      let myPlacement = null;
+      // The current winner (still has chips) is placement #1
+      if (winner?.id === me.id) {
+        myPlacement = 1;
+      } else {
+        // My placement = my index in finalPlacements where 0 = winner, etc.
+        const idx = G.finalPlacements.findIndex(p => p.name === myPlayer.name);
+        if (idx >= 0) myPlacement = idx + 1;
+      }
+      const myChips = myPlayer.chips || 0;
+      commitTournamentStats(myPlacement, myChips);
+    }
   }
 
   showTournamentOverlay(winner);
@@ -4972,6 +5214,110 @@ function loadProfileScreen() {
       grid.appendChild(btn);
     });
   }
+
+  // Render stats section
+  renderProfileStats();
+}
+
+function renderProfileStats() {
+  const el = document.getElementById('profile-stats-section');
+  if (!el) return;
+  if (!_myPublicStats || !_myPrivateStats) {
+    el.innerHTML = `<div style="color:var(--text-dim);font-size:0.85rem;padding:10px 0">Loading stats…</div>`;
+    if (me?.id !== 'demo' && sb) loadMyStats().then(() => renderProfileStats());
+    return;
+  }
+  el.innerHTML = renderStatsHtml(_myPublicStats, _myPrivateStats, true);
+}
+
+function renderStatsHtml(pub, priv, isOwnProfile) {
+  if (!pub) pub = makeEmptyPublicStats();
+
+  const winRate = pub.hands_played ? ((pub.hands_won / pub.hands_played) * 100).toFixed(1) : '—';
+  const tournamentWinRate = pub.tournaments_played ? ((pub.tournaments_won / pub.tournaments_played) * 100).toFixed(0) : '—';
+  const showdownWinRate = pub.showdowns_played ? ((pub.showdowns_won / pub.showdowns_played) * 100).toFixed(1) : '—';
+
+  const statRow = (label, value) => `
+    <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)">
+      <div style="color:var(--text-dim);font-size:0.85rem">${label}</div>
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:1rem;color:var(--gold-pale);letter-spacing:0.04em">${value}</div>
+    </div>`;
+
+  let html = `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px;margin-bottom:12px">
+      <div style="font-size:0.78rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px">
+        🏆 Tournaments
+      </div>
+      ${statRow('Played', pub.tournaments_played || 0)}
+      ${statRow('Wins', `${pub.tournaments_won || 0} (${tournamentWinRate}${tournamentWinRate==='—'?'':'%'})`)}
+      ${statRow('2nd Place', pub.second_place || 0)}
+      ${statRow('3rd Place', pub.third_place || 0)}
+      ${statRow('Best Finish', pub.best_finish ? `#${pub.best_finish}` : '—')}
+      ${statRow('Total Chips Won', (pub.total_chips_won || 0).toLocaleString())}
+    </div>
+
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px;margin-bottom:12px">
+      <div style="font-size:0.78rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px">
+        🃏 Hand Stats
+      </div>
+      ${statRow('Hands Played', pub.hands_played || 0)}
+      ${statRow('Hands Won', `${pub.hands_won || 0} (${winRate}${winRate==='—'?'':'%'})`)}
+      ${statRow('Showdowns', `${pub.showdowns_won || 0}/${pub.showdowns_played || 0} (${showdownWinRate}${showdownWinRate==='—'?'':'%'})`)}
+      ${statRow('Best Hand', pub.best_hand_label || '—')}
+      ${statRow('Biggest Pot Won', (pub.biggest_pot_won || 0).toLocaleString())}
+      ${statRow('Biggest Pot Lost', (pub.biggest_pot_lost || 0).toLocaleString())}
+      ${statRow('Worst Bad Beat', pub.worst_bad_beat_pot ? `${pub.worst_bad_beat_label||'?'} for ${pub.worst_bad_beat_pot.toLocaleString()}` : '—')}
+      ${statRow('All-In W/L', `${pub.all_in_wins || 0}/${pub.all_in_losses || 0}`)}
+    </div>
+  `;
+
+  // Private stats only shown on own profile
+  if (isOwnProfile && priv) {
+    const vpip = priv.hands_dealt ? ((priv.vpip_count / priv.hands_dealt) * 100).toFixed(1) : '—';
+    const pfr = priv.hands_dealt ? ((priv.pfr_count / priv.hands_dealt) * 100).toFixed(1) : '—';
+    const totalActions = (priv.bets_made || 0) + (priv.calls_made || 0);
+    const aggFactor = priv.calls_made ? (priv.bets_made / priv.calls_made).toFixed(2) : '—';
+    const fold3bet = priv.three_bet_faced ? ((priv.three_bet_folded / priv.three_bet_faced) * 100).toFixed(1) : '—';
+    const riverCallRate = priv.river_seen ? ((priv.river_called / priv.river_seen) * 100).toFixed(1) : '—';
+
+    html += `
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px;margin-bottom:12px">
+        <div style="font-size:0.78rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:4px">
+          🔒 Private — Playstyle
+        </div>
+        <div style="font-size:0.7rem;color:var(--text-dim);margin-bottom:10px;font-style:italic">
+          Only you can see these
+        </div>
+        ${statRow('VPIP %', vpip + (vpip==='—'?'':'%'))}
+        ${statRow('PFR %', pfr + (pfr==='—'?'':'%'))}
+        ${statRow('Aggression Factor', aggFactor)}
+        ${statRow('3-Bets Made', priv.three_bet_count || 0)}
+        ${statRow('Fold to 3-Bet %', fold3bet + (fold3bet==='—'?'':'%'))}
+        ${statRow('River Call %', riverCallRate + (riverCallRate==='—'?'':'%'))}
+        ${statRow('Bets / Calls', `${priv.bets_made || 0} / ${priv.calls_made || 0}`)}
+      </div>
+    `;
+  }
+
+  // Reset buttons (only on own profile)
+  if (isOwnProfile) {
+    html += `
+      <div style="display:flex;gap:10px;margin-bottom:12px">
+        <button onclick="clearMyPublicStats()" style="flex:1;background:none;
+          border:1px solid rgba(192,57,43,0.4);color:var(--red-light);
+          font-size:0.78rem;padding:10px;border-radius:var(--r-sm);cursor:pointer">
+          Clear Public Stats
+        </button>
+        <button onclick="clearMyPrivateStats()" style="flex:1;background:none;
+          border:1px solid rgba(192,57,43,0.4);color:var(--red-light);
+          font-size:0.78rem;padding:10px;border-radius:var(--r-sm);cursor:pointer">
+          Clear Private Stats
+        </button>
+      </div>
+    `;
+  }
+
+  return html;
 }
 
 function updateAvatarEverywhere(emoji) {
@@ -5335,6 +5681,184 @@ function updateChatBadge() {
     }
   });
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// STATS TRACKING
+// ════════════════════════════════════════════════════════════════════════════
+// Each client tracks its OWN stats (host-authoritative game state determines outcomes,
+// but stat persistence is per-user). Updates happen at end of each hand and at tournament end.
+
+let _myPublicStats = null;
+let _myPrivateStats = null;
+let _statsThisHand = null; // tracks per-hand events so we update once at hand end
+
+function resetHandStats() {
+  _statsThisHand = {
+    hand_played: false,        // any hand we participated in
+    voluntarily_in: false,     // VPIP - put money in the pot non-blind
+    pre_flop_raised: false,    // PFR
+    three_bet_made: false,     // raised over a previous raise pre-flop
+    three_bet_faced: false,    // someone 3-bet me preflop
+    three_bet_folded: false,   // folded to a 3-bet
+    bets_made: 0,
+    raises_made: 0,
+    calls_made: 0,
+    saw_river: false,
+    river_called: false,
+    river_folded: false,
+    went_to_showdown: false,
+    won_at_showdown: false,
+    won_hand: false,
+    won_amount: 0,
+    lost_amount: 0,
+    all_in_taken: false,
+    won_all_in: false,
+    final_hand_rank: null,     // 1=high, 9=straight flush, etc. higher = better
+    final_hand_label: null,
+    is_bad_beat_loser: false,
+    pot_at_end: 0,
+  };
+}
+resetHandStats();
+
+async function loadMyStats() {
+  if (!sb || !me?.id || me.id === 'demo') return;
+  try {
+    const [pub, priv] = await Promise.all([
+      sb.from('user_stats_public').select('*').eq('user_id', me.id).maybeSingle(),
+      sb.from('user_stats_private').select('*').eq('user_id', me.id).maybeSingle(),
+    ]);
+    _myPublicStats = pub.data || makeEmptyPublicStats();
+    _myPrivateStats = priv.data || makeEmptyPrivateStats();
+  } catch(e) { console.warn('loadMyStats:', e); }
+}
+
+function makeEmptyPublicStats() {
+  return {
+    user_id: me.id, tournaments_played: 0, tournaments_won: 0, second_place: 0, third_place: 0,
+    total_chips_won: 0, best_finish: null, hands_played: 0, hands_won: 0,
+    best_hand_rank: null, best_hand_label: null,
+    biggest_pot_won: 0, biggest_pot_lost: 0,
+    worst_bad_beat_pot: 0, worst_bad_beat_label: null,
+    all_in_wins: 0, all_in_losses: 0, showdowns_played: 0, showdowns_won: 0,
+  };
+}
+
+function makeEmptyPrivateStats() {
+  return {
+    user_id: me.id, hands_dealt: 0, vpip_count: 0, pfr_count: 0,
+    three_bet_count: 0, three_bet_faced: 0, three_bet_folded: 0,
+    bets_made: 0, raises_made: 0, calls_made: 0,
+    river_seen: 0, river_called: 0, river_folded: 0,
+  };
+}
+
+async function commitHandStats() {
+  if (!sb || !me?.id || me.id === 'demo') return;
+  if (!_myPublicStats || !_myPrivateStats) return;
+  if (!_statsThisHand.hand_played) { resetHandStats(); return; }
+
+  const s = _statsThisHand;
+  const pub = _myPublicStats;
+  const priv = _myPrivateStats;
+
+  // PUBLIC stats
+  pub.hands_played = (pub.hands_played || 0) + 1;
+  if (s.won_hand) {
+    pub.hands_won = (pub.hands_won || 0) + 1;
+    if (s.won_amount > (pub.biggest_pot_won || 0)) pub.biggest_pot_won = s.won_amount;
+  }
+  if (s.went_to_showdown) {
+    pub.showdowns_played = (pub.showdowns_played || 0) + 1;
+    if (s.won_at_showdown) pub.showdowns_won = (pub.showdowns_won || 0) + 1;
+    else if (s.pot_at_end > (pub.biggest_pot_lost || 0)) pub.biggest_pot_lost = s.pot_at_end;
+  }
+  if (s.final_hand_rank && (!pub.best_hand_rank || s.final_hand_rank > pub.best_hand_rank)) {
+    pub.best_hand_rank = s.final_hand_rank;
+    pub.best_hand_label = s.final_hand_label;
+  }
+  if (s.all_in_taken) {
+    if (s.won_all_in) pub.all_in_wins = (pub.all_in_wins || 0) + 1;
+    else pub.all_in_losses = (pub.all_in_losses || 0) + 1;
+  }
+  if (s.is_bad_beat_loser && s.pot_at_end > (pub.worst_bad_beat_pot || 0)) {
+    pub.worst_bad_beat_pot = s.pot_at_end;
+    pub.worst_bad_beat_label = s.final_hand_label;
+  }
+
+  // PRIVATE stats
+  priv.hands_dealt = (priv.hands_dealt || 0) + 1;
+  if (s.voluntarily_in) priv.vpip_count = (priv.vpip_count || 0) + 1;
+  if (s.pre_flop_raised) priv.pfr_count = (priv.pfr_count || 0) + 1;
+  if (s.three_bet_made) priv.three_bet_count = (priv.three_bet_count || 0) + 1;
+  if (s.three_bet_faced) priv.three_bet_faced = (priv.three_bet_faced || 0) + 1;
+  if (s.three_bet_folded) priv.three_bet_folded = (priv.three_bet_folded || 0) + 1;
+  priv.bets_made = (priv.bets_made || 0) + s.bets_made;
+  priv.raises_made = (priv.raises_made || 0) + s.raises_made;
+  priv.calls_made = (priv.calls_made || 0) + s.calls_made;
+  if (s.saw_river) {
+    priv.river_seen = (priv.river_seen || 0) + 1;
+    if (s.river_called) priv.river_called = (priv.river_called || 0) + 1;
+    if (s.river_folded) priv.river_folded = (priv.river_folded || 0) + 1;
+  }
+
+  try {
+    await sb.from('user_stats_public').upsert({ ...pub, updated_at: new Date().toISOString() });
+    await sb.from('user_stats_private').upsert({ ...priv, updated_at: new Date().toISOString() });
+  } catch(e) { console.warn('commitHandStats:', e); }
+
+  resetHandStats();
+}
+
+async function commitTournamentStats(placement, finalChips) {
+  if (!sb || !me?.id || me.id === 'demo') return;
+  if (!_myPublicStats) return;
+  const pub = _myPublicStats;
+  pub.tournaments_played = (pub.tournaments_played || 0) + 1;
+  if (placement === 1) pub.tournaments_won = (pub.tournaments_won || 0) + 1;
+  else if (placement === 2) pub.second_place = (pub.second_place || 0) + 1;
+  else if (placement === 3) pub.third_place = (pub.third_place || 0) + 1;
+  if (finalChips > 0) pub.total_chips_won = (pub.total_chips_won || 0) + finalChips;
+  if (placement && (!pub.best_finish || placement < pub.best_finish)) pub.best_finish = placement;
+
+  try {
+    await sb.from('user_stats_public').upsert({ ...pub, updated_at: new Date().toISOString() });
+  } catch(e) { console.warn('commitTournamentStats:', e); }
+}
+
+async function loadOtherUserPublicStats(userId) {
+  if (!sb || !userId) return null;
+  try {
+    const { data } = await sb.from('user_stats_public').select('*').eq('user_id', userId).maybeSingle();
+    return data || makeEmptyPublicStats();
+  } catch(e) { console.warn('loadOtherUserPublicStats:', e); return null; }
+}
+
+async function clearMyPublicStats() {
+  if (!confirm('Clear all your public stats? This cannot be undone.')) return;
+  try {
+    await sb.from('user_stats_public').delete().eq('user_id', me.id);
+    _myPublicStats = makeEmptyPublicStats();
+    toast('Public stats cleared');
+    if (typeof renderProfileStats === 'function') renderProfileStats();
+  } catch(e) { toast('Failed: ' + e.message); }
+}
+
+async function clearMyPrivateStats() {
+  if (!confirm('Clear all your private stats? This cannot be undone.')) return;
+  try {
+    await sb.from('user_stats_private').delete().eq('user_id', me.id);
+    _myPrivateStats = makeEmptyPrivateStats();
+    toast('Private stats cleared');
+    if (typeof renderProfileStats === 'function') renderProfileStats();
+  } catch(e) { toast('Failed: ' + e.message); }
+}
+
+const HAND_RANK_LABELS = {
+  1: 'High Card', 2: 'Pair', 3: 'Two Pair', 4: 'Three of a Kind',
+  5: 'Straight', 6: 'Flush', 7: 'Full House', 8: 'Four of a Kind',
+  9: 'Straight Flush', 10: 'Royal Flush'
+};
 
 // Subscribe to chat events to update UI
 onChatEvent((evt) => {
