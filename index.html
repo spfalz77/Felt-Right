@@ -109,6 +109,12 @@ h3 { font-size: 1rem; font-weight: 600; }
   font-family: 'Bebas Neue', sans-serif;
 }
 .card.lg { width: 88px; height: 126px; border-radius: 10px; }
+.card.showdown-card { width: 38px; height: 54px; border-radius: 5px; padding: 0; }
+.card.showdown-card .card-top { top: 2px; left: 3px; }
+.card.showdown-card .card-bot { bottom: 2px; right: 3px; }
+.card.showdown-card .card-rank { font-size: 0.85rem; }
+.card.showdown-card .card-suit { font-size: 0.55rem; }
+.card.showdown-card .card-center { font-size: 1.1rem; }
 .card-top, .card-bot {
   position: absolute;
   display: flex;
@@ -381,7 +387,29 @@ h3 { font-size: 1rem; font-weight: 600; }
   font-family: 'Bebas Neue', sans-serif; font-size: 1.3rem; letter-spacing: 0.1em;
   color: var(--gold-pale); text-shadow: 0 1px 4px rgba(0,0,0,0.5);
 }
-.community-cards { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+.community-row {
+  display: flex; align-items: center; gap: 8px; justify-content: center; padding: 0 8px;
+}
+.burn-stack {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding-right: 4px;
+}
+.burn-stack .burn-card {
+  width: 18px; height: 26px; border-radius: 3px;
+  background: var(--surface2); border: 1px solid var(--gold-dim);
+  margin-bottom: -22px; position: relative;
+}
+.burn-stack .burn-card:last-child { margin-bottom: 0; }
+.burn-stack .burn-label {
+  font-size: 0.55rem; letter-spacing: 0.1em; color: var(--text-dim);
+  text-transform: uppercase; margin-top: 6px;
+}
+.community-cards { display: flex; gap: 4px; justify-content: center; flex-shrink: 1; min-width: 0; }
+/* Sized so 5 cards fit comfortably in the row including burn stack */
+.community-cards .card { width: calc((100vw - 100px) / 6); max-width: 56px; height: calc(((100vw - 100px) / 6) * 1.43); max-height: 80px; }
+.community-cards .card .card-rank { font-size: 1.1rem; }
+.community-cards .card .card-suit { font-size: 0.75rem; }
+.community-cards .card .card-center { font-size: 1.5rem; }
 .stage-label { font-size: 0.68rem; letter-spacing: 0.18em; text-transform: uppercase; color: rgba(255,255,255,0.25); }
 
 /* Your hand area */
@@ -785,7 +813,15 @@ h3 { font-size: 1rem; font-weight: 600; }
         <!-- Community cards + pot -->
         <div class="community-area">
           <div class="pot-label" id="pot-display">POT: 0</div>
-          <div class="community-cards" id="community-cards"></div>
+          <div class="community-row">
+            <div class="burn-stack" id="burn-stack" style="display:none">
+              <div class="burn-card"></div>
+              <div class="burn-card"></div>
+              <div class="burn-card"></div>
+              <div class="burn-label">Burn</div>
+            </div>
+            <div class="community-cards" id="community-cards"></div>
+          </div>
           <div class="stage-label" id="community-stage"></div>
         </div>
 
@@ -877,6 +913,16 @@ h3 { font-size: 1rem; font-weight: 600; }
 
     <!-- Stats -->
     <div id="profile-stats-section" style="margin:0 16px 16px"></div>
+
+    <!-- Sound toggle -->
+    <div style="margin:0 16px 16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px;display:flex;align-items:center;justify-content:space-between">
+      <div>
+        <div style="font-size:0.78rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.1em">Sounds</div>
+        <div style="font-size:0.72rem;color:var(--text-dim);margin-top:2px">Card and chip effects</div>
+      </div>
+      <button id="sound-toggle-btn" onclick="toggleSounds()" style="background:none;border:1px solid var(--gold-dim);
+        color:var(--gold);padding:6px 14px;border-radius:6px;cursor:pointer;font-size:0.85rem">On</button>
+    </div>
 
     <!-- Sign out -->
     <div style="padding:0 16px 24px;">
@@ -1134,6 +1180,8 @@ function enterApp() {
   renderFriendsList();
   loadGames();
   loadMyStats();
+  // Load saved sound preference
+  try { _soundsEnabled = localStorage.getItem('fr_sounds_enabled') !== '0'; } catch(e) {}
 
   // Auto-refresh home games every 20s while user is on home screen
   clearInterval(_homeRefreshInterval);
@@ -2701,6 +2749,7 @@ function enterGame(gameId, state) {
   _lastTurnKey = null;
   _timerForActionKey = null;
   _sliderTurnKey = null;
+  _lastSoundState = null;
   _myPrivateHand = null;
   startPresence(gameId);
   subscribeToChatForGame(gameId);
@@ -3090,6 +3139,8 @@ function guestSubscribeToGame(gameId) {
 
       const prevHandNumber = G?.handNumber || 0;
       const prevActionIndex = G?.actionIndex;
+      const prevMyChips = G?.players?.find(p => p.id === me.id)?.chips ?? null;
+      const prevStage = G?.stage;
 
       // Host changed (migration happened) — update our role accordingly
       if (row.host_id && row.host_id !== me.id && amHost) {
@@ -3122,6 +3173,25 @@ function guestSubscribeToGame(gameId) {
       // Tournament over — show end screen for everyone
       if (G.tournamentOver) {
         const winner = G.players.find(p => !p.eliminated && p.chips > 0) || G.players[0];
+        // Commit tournament stats for guests (host already did theirs in endTournament)
+        if (!amHost && me.id !== 'demo') {
+          const myPlayer = G.players.find(p => p.id === me.id);
+          if (myPlayer) {
+            let myPlacement = null;
+            if (winner?.id === me.id) {
+              myPlacement = 1;
+            } else {
+              const idx = G.finalPlacements?.findIndex(p => p.name === myPlayer.name) ?? -1;
+              if (idx >= 0) myPlacement = idx + 1;
+            }
+            // Only commit once — guard via sessionStorage
+            const key = `fr_tourney_done_${currentGameId}`;
+            if (!sessionStorage.getItem(key)) {
+              sessionStorage.setItem(key, '1');
+              commitTournamentStats(myPlacement, myPlayer.chips || 0);
+            }
+          }
+        }
         showTournamentOverlay(winner);
         return;
       }
@@ -3129,11 +3199,49 @@ function guestSubscribeToGame(gameId) {
       const pauseJustEnded = _prevPaused === true && !G.paused;
       _prevPaused = G.paused === true;
 
+      // ── GUEST STATS tracking ──
+      // Detect end of hand by stage entering showdown OR hand number incrementing
+      const enteredShowdown = prevStage !== 'showdown' && G.stage === 'showdown';
+      const newHand = G.handNumber !== prevHandNumber && prevHandNumber > 0;
+      const myCurrentChips = G.players?.find(p => p.id === me.id)?.chips ?? null;
+
+      if ((enteredShowdown || newHand) && !amHost && _statsThisHand && _statsThisHand.hand_played) {
+        // Compute won/lost from chip delta
+        if (prevMyChips !== null && myCurrentChips !== null) {
+          const delta = myCurrentChips - prevMyChips;
+          if (delta > 0) {
+            _statsThisHand.won_hand = true;
+            _statsThisHand.won_amount = delta;
+            if (_statsThisHand.all_in_taken) _statsThisHand.won_all_in = true;
+          } else if (delta < 0) {
+            _statsThisHand.lost_amount = -delta;
+            if (_statsThisHand.all_in_taken) _statsThisHand.won_all_in = false;
+          }
+        }
+        // If we went to showdown, mark it
+        if (enteredShowdown) {
+          const myP = G.players?.find(p => p.id === me.id);
+          if (myP && !myP.folded && !myP.eliminated) {
+            _statsThisHand.went_to_showdown = true;
+            if (_statsThisHand.won_hand) _statsThisHand.won_at_showdown = true;
+          }
+        }
+        commitHandStats();
+      }
+
       if (G.handNumber !== prevHandNumber) {
         _autoAction = null;
         const autoBar = document.getElementById('auto-action-bar');
         if (autoBar) autoBar.innerHTML = '';
         fetchMyPrivateHand(gameId, G.handNumber);
+        // Start fresh stat tracking for this hand
+        if (!amHost) {
+          resetHandStats();
+          const myP = G.players?.find(p => p.id === me.id);
+          if (myP && !myP.eliminated && myP.chips > 0) {
+            _statsThisHand.hand_played = true;
+          }
+        }
       }
 
       applyMyPrivateHand();
@@ -3322,6 +3430,21 @@ function isMyTurn() {
 
 // ── RENDER ───────────────────────────────────────────────────────────────────
 function renderGame() {
+  // ── SOUND triggers based on state changes ──
+  if (G && _lastSoundState) {
+    // Pot grew (chip movement)
+    if (G.pot > _lastSoundState.pot) playChipSound();
+    // Community card count grew (flop/turn/river dealt)
+    if (G.community.length > _lastSoundState.communityLen) playCardDealSound();
+    // New hand started (handNumber incremented) — shuffle sound
+    if (G.handNumber > _lastSoundState.handNumber) playCardShuffleSound();
+  }
+  _lastSoundState = G ? {
+    pot: G.pot,
+    communityLen: G.community.length,
+    handNumber: G.handNumber,
+  } : null;
+
   // Handle pause state
   if (G?.paused) showPauseOverlay();
   else hidePauseOverlay();
@@ -3402,6 +3525,12 @@ function renderGame() {
     const el = makeCardEl(c, false, false, cardKey(c, 'comm'));
     commEl.appendChild(el);
   });
+
+  // Show burn stack once flop is on the table (post-flop streets)
+  const burnEl = document.getElementById('burn-stack');
+  if (burnEl) {
+    burnEl.style.display = G.community.length >= 3 ? 'flex' : 'none';
+  }
 
   // Opponents ring
   const ring = document.getElementById('opponents-ring');
@@ -4916,30 +5045,38 @@ function doShowdown() {
     : '';
 
   overlay.innerHTML = `
-    <div class="showdown-bar">
-      <div style="font-size:0.7rem;letter-spacing:0.15em;text-transform:uppercase;color:var(--text-dim);margin-bottom:4px">Showdown</div>
+    <div class="showdown-bar" style="max-width:90%;width:100%">
+      <div style="font-size:0.78rem;letter-spacing:0.18em;text-transform:uppercase;color:var(--gold-pale);margin-bottom:6px">Showdown</div>
       ${potSummary}
       ${showPlayers.map(p => {
         const won = totalWon(p.id);
         const hand = handMap[p.id];
-        const cardPips = p.hand.map(c =>
-          `<span style="font-size:0.9rem;font-weight:700;color:${isRed(c)?'var(--red)':'#eee'}">${c.rank}${c.suit}</span>`
-        ).join(' ');
+        const cardEls = p.hand.map(c => {
+          const red = isRed(c);
+          return `<div class="card showdown-card ${red?'red':'black'}">
+            <div class="card-top"><div class="card-rank">${c.rank}</div><div class="card-suit">${c.suit}</div></div>
+            <div class="card-center">${c.suit}</div>
+            <div class="card-bot"><div class="card-rank">${c.rank}</div><div class="card-suit">${c.suit}</div></div>
+          </div>`;
+        }).join('');
         return `
-        <div style="display:flex;align-items:center;gap:10px;padding:8px 14px;
-          background:${won>0?'rgba(212,168,67,0.12)':'rgba(255,255,255,0.04)'};
-          border:1px solid ${won>0?'var(--gold-dim)':'transparent'};
-          border-radius:8px;width:90%;max-width:320px;margin-bottom:4px">
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;
+          background:${won>0?'rgba(212,168,67,0.18)':'rgba(255,255,255,0.04)'};
+          border:1.5px solid ${won>0?'var(--gold)':'transparent'};
+          border-radius:10px;width:100%;max-width:340px;margin-bottom:6px">
           <div class="avatar sm">${p.emoji||p.name[0]}</div>
           <div style="flex:1;min-width:0">
-            <div style="font-weight:600;font-size:0.85rem">${p.name}</div>
-            <div style="font-size:0.72rem;color:var(--text-dim);margin:1px 0">${cardPips}</div>
-            <div style="font-size:0.72rem;color:${won>0?'var(--gold)':'var(--text-dim)'};font-style:italic">${hand.name}</div>
+            <div style="font-weight:600;font-size:0.85rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.name}</div>
+            <div style="display:flex;gap:4px;margin:3px 0">${cardEls}</div>
+            <div style="font-size:0.7rem;color:${won>0?'var(--gold)':'var(--text-dim)'};font-style:italic">${hand.name}</div>
           </div>
-          ${won > 0 ? `<span class="badge badge-gold">+${won}</span>` : ''}
+          ${won > 0 ? `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">
+            <span style="font-family:'Bebas Neue',sans-serif;color:var(--gold);font-size:1.3rem;line-height:1">+${won.toLocaleString()}</span>
+            <span style="font-size:0.6rem;color:var(--gold-dim);letter-spacing:0.1em;text-transform:uppercase">chips</span>
+          </div>` : ''}
         </div>`;
       }).join('')}
-      <div style="font-size:0.78rem;color:var(--text-dim);margin-top:12px">Next hand in 4s…</div>
+      <div style="font-size:0.78rem;color:var(--text-dim);margin-top:8px">Next hand in 4s…</div>
     </div>`;
 
   syncGameState();
@@ -5217,6 +5354,10 @@ function loadProfileScreen() {
 
   // Render stats section
   renderProfileStats();
+  // Update sound button state
+  try { _soundsEnabled = localStorage.getItem('fr_sounds_enabled') !== '0'; } catch(e) {}
+  const sBtn = document.getElementById('sound-toggle-btn');
+  if (sBtn) sBtn.textContent = _soundsEnabled ? 'On' : 'Off';
 }
 
 function renderProfileStats() {
@@ -5706,6 +5847,92 @@ function updateChatBadge() {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+// SOUNDS — generated via Web Audio API, no asset files needed
+// ════════════════════════════════════════════════════════════════════════════
+let _audioCtx = null;
+let _soundsEnabled = true;
+let _lastSoundState = null;
+
+function getAudioCtx() {
+  if (!_audioCtx) {
+    try {
+      _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    } catch(e) { _audioCtx = null; }
+  }
+  // Resume if suspended (mobile autoplay restrictions)
+  if (_audioCtx?.state === 'suspended') _audioCtx.resume().catch(()=>{});
+  return _audioCtx;
+}
+
+function playChipSound() {
+  if (!_soundsEnabled) return;
+  const ctx = getAudioCtx();
+  if (!ctx) return;
+  // Multiple short clicks layered to mimic chips clinking
+  const now = ctx.currentTime;
+  for (let i = 0; i < 3; i++) {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(2800 + Math.random() * 600, now + i * 0.04);
+    osc.frequency.exponentialRampToValueAtTime(900 + Math.random() * 200, now + i * 0.04 + 0.06);
+    gain.gain.setValueAtTime(0.001, now + i * 0.04);
+    gain.gain.exponentialRampToValueAtTime(0.18, now + i * 0.04 + 0.005);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.04 + 0.07);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(now + i * 0.04);
+    osc.stop(now + i * 0.04 + 0.08);
+  }
+}
+
+function playCardShuffleSound() {
+  if (!_soundsEnabled) return;
+  const ctx = getAudioCtx();
+  if (!ctx) return;
+  // White noise burst with bandpass — sounds like riffle shuffle
+  const duration = 0.4;
+  const buffer = ctx.createBuffer(1, ctx.sampleRate * duration, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < data.length; i++) {
+    // Gradual envelope with random fluctuations
+    const t = i / data.length;
+    const env = Math.sin(t * Math.PI) * (0.5 + 0.5 * Math.sin(t * 50));
+    data[i] = (Math.random() * 2 - 1) * env * 0.3;
+  }
+  const src = ctx.createBufferSource();
+  src.buffer = buffer;
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'bandpass';
+  filter.frequency.value = 4000;
+  filter.Q.value = 0.8;
+  const gain = ctx.createGain();
+  gain.gain.value = 0.5;
+  src.connect(filter).connect(gain).connect(ctx.destination);
+  src.start();
+}
+
+function playCardDealSound() {
+  if (!_soundsEnabled) return;
+  const ctx = getAudioCtx();
+  if (!ctx) return;
+  // Quick whoosh + tap
+  const now = ctx.currentTime;
+  const buffer = ctx.createBuffer(1, ctx.sampleRate * 0.12, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < data.length; i++) {
+    const t = i / data.length;
+    data[i] = (Math.random() * 2 - 1) * Math.exp(-t * 8) * 0.4;
+  }
+  const src = ctx.createBufferSource();
+  src.buffer = buffer;
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'highpass';
+  filter.frequency.value = 1500;
+  src.connect(filter).connect(ctx.destination);
+  src.start(now);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 // STATS TRACKING
 // ════════════════════════════════════════════════════════════════════════════
 // Each client tracks its OWN stats (host-authoritative game state determines outcomes,
@@ -5855,6 +6082,19 @@ async function loadOtherUserPublicStats(userId) {
     const { data } = await sb.from('user_stats_public').select('*').eq('user_id', userId).maybeSingle();
     return data || makeEmptyPublicStats();
   } catch(e) { console.warn('loadOtherUserPublicStats:', e); return null; }
+}
+
+function toggleSounds() {
+  _soundsEnabled = !_soundsEnabled;
+  try { localStorage.setItem('fr_sounds_enabled', _soundsEnabled ? '1' : '0'); } catch(e) {}
+  const btn = document.getElementById('sound-toggle-btn');
+  if (btn) btn.textContent = _soundsEnabled ? 'On' : 'Off';
+  if (_soundsEnabled) {
+    playChipSound();
+    toast('Sounds enabled');
+  } else {
+    toast('Sounds muted');
+  }
 }
 
 function toggleStatExplain(labelEl) {
