@@ -4883,13 +4883,14 @@ function unsubscribeFromChat() {
 }
 
 async function sendChatMessage(text) {
-  if (!sb || !currentGameId || me.id === 'demo') return { error: 'not available' };
+  const gameId = currentGameId || currentLobbyId;
+  if (!sb || !gameId || me.id === 'demo') return { error: 'not available' };
   const trimmed = (text || '').trim();
   if (!trimmed) return { error: 'empty' };
   if (trimmed.length > 500) return { error: 'too long' };
 
   const { error } = await sb.from('game_messages').insert({
-    game_id: currentGameId,
+    game_id: gameId,
     sender_id: me.id,
     sender_name: me.display_name || 'Player',
     sender_emoji: me.avatar_emoji || '🃏',
