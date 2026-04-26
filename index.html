@@ -914,14 +914,25 @@ h3 { font-size: 1rem; font-weight: 600; }
     <!-- Stats -->
     <div id="profile-stats-section" style="margin:0 16px 16px"></div>
 
-    <!-- Sound toggle -->
-    <div style="margin:0 16px 16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px;display:flex;align-items:center;justify-content:space-between">
-      <div>
-        <div style="font-size:0.78rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.1em">Sounds</div>
-        <div style="font-size:0.72rem;color:var(--text-dim);margin-top:2px">Card and chip effects</div>
+    <!-- Settings -->
+    <div style="margin:0 16px 16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:6px 16px">
+      <div style="font-size:0.78rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.1em;padding:10px 0 6px">Settings</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)">
+        <div>
+          <div style="font-size:0.88rem">Sounds</div>
+          <div style="font-size:0.72rem;color:var(--text-dim);margin-top:2px">Card and chip effects during play</div>
+        </div>
+        <button id="sound-toggle-btn" onclick="toggleSounds()" style="background:none;border:1px solid var(--gold-dim);
+          color:var(--gold);padding:6px 16px;border-radius:6px;cursor:pointer;font-size:0.85rem;min-width:60px">On</button>
       </div>
-      <button id="sound-toggle-btn" onclick="toggleSounds()" style="background:none;border:1px solid var(--gold-dim);
-        color:var(--gold);padding:6px 14px;border-radius:6px;cursor:pointer;font-size:0.85rem">On</button>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0">
+        <div>
+          <div style="font-size:0.88rem">Notifications</div>
+          <div style="font-size:0.72rem;color:var(--text-dim);margin-top:2px">Push alerts when it's your turn or someone nudges you</div>
+        </div>
+        <button id="notif-toggle-btn" onclick="toggleNotifications()" style="background:none;border:1px solid var(--gold-dim);
+          color:var(--gold);padding:6px 16px;border-radius:6px;cursor:pointer;font-size:0.85rem;min-width:60px">On</button>
+      </div>
     </div>
 
     <!-- Sign out -->
@@ -1180,8 +1191,11 @@ function enterApp() {
   renderFriendsList();
   loadGames();
   loadMyStats();
-  // Load saved sound preference
-  try { _soundsEnabled = localStorage.getItem('fr_sounds_enabled') !== '0'; } catch(e) {}
+  // Load saved settings preferences
+  try {
+    _soundsEnabled = localStorage.getItem('fr_sounds_enabled') !== '0';
+    _notificationsEnabled = localStorage.getItem('fr_notifications_enabled') !== '0';
+  } catch(e) {}
 
   // Auto-refresh home games every 20s while user is on home screen
   clearInterval(_homeRefreshInterval);
@@ -2208,7 +2222,7 @@ async function handleNewInvite(gameId) {
     const hostName = game.users?.display_name || 'Someone';
     showInviteBanner(game, hostName);
 
-    if ('Notification' in window && Notification.permission === 'granted' && document.visibilityState !== 'visible') {
+    if (_notificationsEnabled && 'Notification' in window && Notification.permission === 'granted' && document.visibilityState !== 'visible') {
       new Notification('Felt Right — Game Invite', {
         body: `${hostName} invited you to "${game.name}"`,
         tag: `invite-${game.id}`,
@@ -2969,7 +2983,7 @@ function receiveNudge(fromId, fromName) {
   showNudgeToast(fromName, fromId);
 
   // Browser notification when app backgrounded
-  if ('Notification' in window && Notification.permission === 'granted' &&
+  if (_notificationsEnabled && 'Notification' in window && Notification.permission === 'granted' &&
       document.visibilityState !== 'visible') {
     new Notification('Felt Right — Nudged!', {
       body: `${fromName} is waiting on you`,
@@ -3283,6 +3297,7 @@ async function submitAction(action, amount) {
 
 // ── NOTIFICATIONS ─────────────────────────────────────────────────────────────
 function pushTurnNotification() {
+  if (!_notificationsEnabled) return;
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
   if (document.visibilityState === 'visible') return;
   new Notification('Felt Right — Your Turn', {
@@ -5354,10 +5369,13 @@ function loadProfileScreen() {
 
   // Render stats section
   renderProfileStats();
-  // Update sound button state
-  try { _soundsEnabled = localStorage.getItem('fr_sounds_enabled') !== '0'; } catch(e) {}
-  const sBtn = document.getElementById('sound-toggle-btn');
-  if (sBtn) sBtn.textContent = _soundsEnabled ? 'On' : 'Off';
+  // Update settings buttons
+  try {
+    _soundsEnabled = localStorage.getItem('fr_sounds_enabled') !== '0';
+    _notificationsEnabled = localStorage.getItem('fr_notifications_enabled') !== '0';
+  } catch(e) {}
+  updateSoundButton();
+  updateNotificationButton();
 }
 
 function renderProfileStats() {
@@ -5851,6 +5869,7 @@ function updateChatBadge() {
 // ════════════════════════════════════════════════════════════════════════════
 let _audioCtx = null;
 let _soundsEnabled = true;
+let _notificationsEnabled = true;
 let _lastSoundState = null;
 
 function getAudioCtx() {
@@ -5868,20 +5887,42 @@ function playChipSound() {
   if (!_soundsEnabled) return;
   const ctx = getAudioCtx();
   if (!ctx) return;
-  // Multiple short clicks layered to mimic chips clinking
+  // Chip splash: low ceramic-clack thumps at varying pitches with quick decay.
+  // Several layered to simulate multiple chips landing on top of each other.
   const now = ctx.currentTime;
-  for (let i = 0; i < 3; i++) {
+  const chipCount = 5 + Math.floor(Math.random() * 3); // 5-7 chips
+  for (let i = 0; i < chipCount; i++) {
+    const t0 = now + i * 0.022 + Math.random() * 0.015;
+    // Body: low pitched square wave for the "clack"
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
-    osc.type = 'triangle';
-    osc.frequency.setValueAtTime(2800 + Math.random() * 600, now + i * 0.04);
-    osc.frequency.exponentialRampToValueAtTime(900 + Math.random() * 200, now + i * 0.04 + 0.06);
-    gain.gain.setValueAtTime(0.001, now + i * 0.04);
-    gain.gain.exponentialRampToValueAtTime(0.18, now + i * 0.04 + 0.005);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.04 + 0.07);
-    osc.connect(gain).connect(ctx.destination);
-    osc.start(now + i * 0.04);
-    osc.stop(now + i * 0.04 + 0.08);
+    const filter = ctx.createBiquadFilter();
+    osc.type = 'square';
+    const baseFreq = 180 + Math.random() * 220; // 180-400Hz
+    osc.frequency.setValueAtTime(baseFreq, t0);
+    osc.frequency.exponentialRampToValueAtTime(baseFreq * 0.5, t0 + 0.04);
+    filter.type = 'lowpass';
+    filter.frequency.value = 1200;
+    filter.Q.value = 1.5;
+    gain.gain.setValueAtTime(0.001, t0);
+    gain.gain.exponentialRampToValueAtTime(0.22, t0 + 0.002);
+    gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.05);
+    osc.connect(filter).connect(gain).connect(ctx.destination);
+    osc.start(t0);
+    osc.stop(t0 + 0.06);
+
+    // High-freq clack accent (the click of one chip striking another)
+    const click = ctx.createOscillator();
+    const cgain = ctx.createGain();
+    click.type = 'triangle';
+    click.frequency.setValueAtTime(2400 + Math.random() * 800, t0);
+    click.frequency.exponentialRampToValueAtTime(800, t0 + 0.015);
+    cgain.gain.setValueAtTime(0.001, t0);
+    cgain.gain.exponentialRampToValueAtTime(0.07, t0 + 0.002);
+    cgain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.02);
+    click.connect(cgain).connect(ctx.destination);
+    click.start(t0);
+    click.stop(t0 + 0.025);
   }
 }
 
@@ -5889,47 +5930,72 @@ function playCardShuffleSound() {
   if (!_soundsEnabled) return;
   const ctx = getAudioCtx();
   if (!ctx) return;
-  // White noise burst with bandpass — sounds like riffle shuffle
-  const duration = 0.4;
-  const buffer = ctx.createBuffer(1, ctx.sampleRate * duration, ctx.sampleRate);
-  const data = buffer.getChannelData(0);
-  for (let i = 0; i < data.length; i++) {
-    // Gradual envelope with random fluctuations
-    const t = i / data.length;
-    const env = Math.sin(t * Math.PI) * (0.5 + 0.5 * Math.sin(t * 50));
-    data[i] = (Math.random() * 2 - 1) * env * 0.3;
+  // Riffle shuffle: rapid succession of paper-slide ticks with rising/falling envelope.
+  // Many tiny noise bursts, each ~3-5ms, total duration ~0.6s.
+  const now = ctx.currentTime;
+  const duration = 0.6;
+  const tickCount = 40;
+  for (let i = 0; i < tickCount; i++) {
+    const t = i / tickCount;
+    const t0 = now + t * duration + Math.random() * 0.005;
+    // Tick = very short noise burst
+    const buffer = ctx.createBuffer(1, ctx.sampleRate * 0.008, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let j = 0; j < data.length; j++) {
+      data[j] = (Math.random() * 2 - 1) * (1 - j / data.length);
+    }
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.value = 5000 + Math.random() * 3000;
+    filter.Q.value = 4;
+    const gain = ctx.createGain();
+    // Bell-shaped envelope: louder in the middle of the shuffle
+    const envelope = Math.sin(t * Math.PI) * 0.18;
+    gain.gain.value = envelope;
+    src.connect(filter).connect(gain).connect(ctx.destination);
+    src.start(t0);
   }
-  const src = ctx.createBufferSource();
-  src.buffer = buffer;
-  const filter = ctx.createBiquadFilter();
-  filter.type = 'bandpass';
-  filter.frequency.value = 4000;
-  filter.Q.value = 0.8;
-  const gain = ctx.createGain();
-  gain.gain.value = 0.5;
-  src.connect(filter).connect(gain).connect(ctx.destination);
-  src.start();
 }
 
 function playCardDealSound() {
   if (!_soundsEnabled) return;
   const ctx = getAudioCtx();
   if (!ctx) return;
-  // Quick whoosh + tap
+  // Single card sliding off the deck — short paper-whoosh with a soft thump landing.
   const now = ctx.currentTime;
-  const buffer = ctx.createBuffer(1, ctx.sampleRate * 0.12, ctx.sampleRate);
-  const data = buffer.getChannelData(0);
-  for (let i = 0; i < data.length; i++) {
-    const t = i / data.length;
-    data[i] = (Math.random() * 2 - 1) * Math.exp(-t * 8) * 0.4;
+  // The slide: filtered noise with quick decay
+  const slideBuffer = ctx.createBuffer(1, ctx.sampleRate * 0.09, ctx.sampleRate);
+  const sd = slideBuffer.getChannelData(0);
+  for (let j = 0; j < sd.length; j++) {
+    const t = j / sd.length;
+    // Loudest at the start (the "swoosh"), tapers fast
+    sd[j] = (Math.random() * 2 - 1) * Math.exp(-t * 12) * 0.5;
   }
-  const src = ctx.createBufferSource();
-  src.buffer = buffer;
-  const filter = ctx.createBiquadFilter();
-  filter.type = 'highpass';
-  filter.frequency.value = 1500;
-  src.connect(filter).connect(ctx.destination);
-  src.start(now);
+  const slide = ctx.createBufferSource();
+  slide.buffer = slideBuffer;
+  const slideFilter = ctx.createBiquadFilter();
+  slideFilter.type = 'bandpass';
+  slideFilter.frequency.value = 2200;
+  slideFilter.Q.value = 1.8;
+  const slideGain = ctx.createGain();
+  slideGain.gain.value = 0.6;
+  slide.connect(slideFilter).connect(slideGain).connect(ctx.destination);
+  slide.start(now);
+
+  // Soft landing thump 60ms in
+  const thump = ctx.createOscillator();
+  const tgain = ctx.createGain();
+  thump.type = 'sine';
+  thump.frequency.setValueAtTime(140, now + 0.06);
+  thump.frequency.exponentialRampToValueAtTime(70, now + 0.1);
+  tgain.gain.setValueAtTime(0.001, now + 0.06);
+  tgain.gain.exponentialRampToValueAtTime(0.12, now + 0.062);
+  tgain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+  thump.connect(tgain).connect(ctx.destination);
+  thump.start(now + 0.06);
+  thump.stop(now + 0.11);
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -6087,14 +6153,72 @@ async function loadOtherUserPublicStats(userId) {
 function toggleSounds() {
   _soundsEnabled = !_soundsEnabled;
   try { localStorage.setItem('fr_sounds_enabled', _soundsEnabled ? '1' : '0'); } catch(e) {}
-  const btn = document.getElementById('sound-toggle-btn');
-  if (btn) btn.textContent = _soundsEnabled ? 'On' : 'Off';
+  updateSoundButton();
   if (_soundsEnabled) {
     playChipSound();
     toast('Sounds enabled');
   } else {
     toast('Sounds muted');
   }
+}
+
+function updateSoundButton() {
+  const btn = document.getElementById('sound-toggle-btn');
+  if (!btn) return;
+  btn.textContent = _soundsEnabled ? 'On' : 'Off';
+  btn.style.color = _soundsEnabled ? 'var(--gold)' : 'var(--text-dim)';
+  btn.style.borderColor = _soundsEnabled ? 'var(--gold-dim)' : 'var(--border)';
+}
+
+async function toggleNotifications() {
+  // If currently on (or unset), turning off
+  if (_notificationsEnabled) {
+    _notificationsEnabled = false;
+    try { localStorage.setItem('fr_notifications_enabled', '0'); } catch(e) {}
+    updateNotificationButton();
+    toast('Notifications off');
+    return;
+  }
+
+  // Turning on — request browser permission if needed
+  if ('Notification' in window) {
+    if (Notification.permission === 'denied') {
+      toast('Browser notifications are blocked — enable in site settings');
+      return;
+    }
+    if (Notification.permission !== 'granted') {
+      try {
+        const result = await Notification.requestPermission();
+        if (result !== 'granted') {
+          toast('Permission denied');
+          return;
+        }
+      } catch(e) {
+        toast('Could not request permission');
+        return;
+      }
+    }
+  }
+
+  _notificationsEnabled = true;
+  try { localStorage.setItem('fr_notifications_enabled', '1'); } catch(e) {}
+  updateNotificationButton();
+  toast('Notifications on');
+}
+
+function updateNotificationButton() {
+  const btn = document.getElementById('notif-toggle-btn');
+  if (!btn) return;
+  // If browser permission is denied, show "Blocked"
+  if ('Notification' in window && Notification.permission === 'denied') {
+    btn.textContent = 'Blocked';
+    btn.style.color = 'var(--red-light)';
+    btn.style.borderColor = 'rgba(192,57,43,0.4)';
+    return;
+  }
+  btn.textContent = _notificationsEnabled ? 'On' : 'Off';
+  btn.style.color = _notificationsEnabled ? 'var(--gold)' : 'var(--text-dim)';
+  btn.style.borderColor = _notificationsEnabled ? 'var(--gold-dim)' : 'var(--border)';
 }
 
 function toggleStatExplain(labelEl) {
@@ -6167,7 +6291,7 @@ onChatEvent((evt) => {
     showChatNotification(`${msg.sender_emoji || '🃏'} ${msg.sender_name}: ${preview}`);
     if (navigator.vibrate) navigator.vibrate(40);
     // Browser notification if app in background
-    if ('Notification' in window && Notification.permission === 'granted' &&
+    if (_notificationsEnabled && 'Notification' in window && Notification.permission === 'granted' &&
         document.visibilityState !== 'visible') {
       new Notification('Felt Right — Table Chat', {
         body: `${msg.sender_name}: ${preview}`,
