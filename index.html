@@ -6099,19 +6099,22 @@ function toggleSounds() {
 
 function toggleStatExplain(labelEl) {
   if (!labelEl) return;
-  // Find the explain div (sibling of the parent flex row)
-  const wrapper = labelEl.closest('div').parentElement;
-  if (!wrapper) return;
-  const explainDiv = wrapper.querySelector('.stat-explain');
+  // DOM structure:
+  //   outer-div  <-- this is what we want
+  //     flex-row     <-- labelEl.parentElement
+  //       label   <-- labelEl
+  //       value
+  //     stat-explain  <-- the div we're toggling
+  const outerWrapper = labelEl.parentElement?.parentElement;
+  if (!outerWrapper) return;
+  const explainDiv = outerWrapper.querySelector('.stat-explain');
   if (!explainDiv) return;
 
   const explanation = labelEl.dataset.explain || '';
   if (explainDiv.style.display === 'block') {
-    // Already shown — tap to hide
     explainDiv.style.display = 'none';
     explainDiv.textContent = '';
   } else {
-    // Show explanation
     explainDiv.textContent = explanation;
     explainDiv.style.display = 'block';
   }
