@@ -1405,6 +1405,7 @@ async function leaveLobby() {
 
   unsubscribeFromChat();
   stopNudgeListener();
+  clearInterval(_lobbyStatusPoller);
   updateChatBadge();
 
   // Set flag so reload returns to home (not login screen)
@@ -1985,6 +1986,13 @@ async function rejoinActiveGame(gameId, gameRef) {
     }
     currentGameId = gameId;
     G = data.state;
+
+    // Close chat panel if it was open (so it doesn't cover the rejoined game)
+    const chatPanel = document.getElementById('chat-panel');
+    const chatBackdrop = document.getElementById('chat-backdrop');
+    if (chatPanel) chatPanel.style.display = 'none';
+    if (chatBackdrop) chatBackdrop.style.display = 'none';
+
     showScreen('game');
     screenStack = ['home', 'game'];
     startBlindTimer();
@@ -2017,6 +2025,7 @@ async function rejoinActiveGame(gameId, gameRef) {
 // LOBBY
 // ════════════════════════════════════════════════════════════════════════════
 let lobbyPlayers = [];
+let _lobbyStatusPoller = null;
 
 async function openLobby(gameId) {
   currentLobbyId = gameId;
@@ -2166,6 +2175,25 @@ async function openLobby(gameId) {
     // Only fires once on lobby -> active transition, then unsubscribes
     const gameStartChannel = sb.channel(`gamestart:${gameId}`);
     let alreadyEntered = false;
+
+    // Fallback poller: if real-time event is missed (e.g. user was in chat when host started),
+    // a poll every 4s catches the active status and transitions the user into the game.
+    clearInterval(_lobbyStatusPoller);
+    _lobbyStatusPoller = setInterval(async () => {
+      if (alreadyEntered) { clearInterval(_lobbyStatusPoller); return; }
+      if (currentLobbyId !== gameId) { clearInterval(_lobbyStatusPoller); return; }
+      try {
+        const { data } = await sb.from('games').select('status, host_id, state').eq('id', gameId).maybeSingle();
+        if (!data) return;
+        if (data.status === 'active' && data.host_id !== me.id) {
+          alreadyEntered = true;
+          clearInterval(_lobbyStatusPoller);
+          gameStartChannel.unsubscribe();
+          enterGame(gameId, data.state);
+        }
+      } catch(e) {}
+    }, 4000);
+
     gameStartChannel
       .on('postgres_changes',{event:'UPDATE',schema:'public',table:'games',filter:`id=eq.${gameId}`},
         async (payload) => {
@@ -2174,6 +2202,7 @@ async function openLobby(gameId) {
           // HOST enters via startGame() directly — ignore DB event to avoid double-enterGame
           if (payload.new.host_id === me.id) return;
           alreadyEntered = true;
+          clearInterval(_lobbyStatusPoller);
           gameStartChannel.unsubscribe();
           toast('Game starting!');
           // Short delay then fetch FRESH state - host is dealing and pushing updates right now
@@ -2884,6 +2913,13 @@ async function attemptHostMigration(gameId, oldHostId) {
 function enterGame(gameId, state) {
   currentGameId = gameId;
   G = JSON.parse(JSON.stringify(state));
+
+  // Close chat panel if open (so the guest isn't stuck on chat when the host starts the game)
+  const chatPanel = document.getElementById('chat-panel');
+  const chatBackdrop = document.getElementById('chat-backdrop');
+  if (chatPanel) chatPanel.style.display = 'none';
+  if (chatBackdrop) chatBackdrop.style.display = 'none';
+
   showScreen('game');
   screenStack = ['home', 'game'];
   startBlindTimer();
@@ -5535,6 +5571,7 @@ function goHome() {
   stopPresence();
   unsubscribeFromChat();
   stopNudgeListener();
+  clearInterval(_lobbyStatusPoller); _lobbyStatusPoller = null;
   // Close chat panel if open and clear badge
   const panel = document.getElementById('chat-panel');
   const backdrop = document.getElementById('chat-backdrop');
