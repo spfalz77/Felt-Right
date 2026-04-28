@@ -2580,6 +2580,7 @@ function startDemoLobby() {
 // START GAME
 // ════════════════════════════════════════════════════════════════════════════
 function startGame() {
+  console.log('startGame() called. lobbyId=' + currentLobbyId + ' players=' + lobbyPlayers.length);
   // lobbyPlayers already contains only joined/playing/waiting (invited filtered out)
   let playerSource = lobbyPlayers;
 
@@ -2642,6 +2643,7 @@ function startGame() {
   if (me.id !== 'demo' && sb && currentLobbyId) {
     amHost = true;
     stopLobbyWatchdog(); // game is starting — no need for inactivity check
+    console.log('host: updating game to active for ' + currentLobbyId);
     sb.from('games').update({
       status: 'active',
       state: initialState,
@@ -2649,8 +2651,12 @@ function startGame() {
       last_host_seen: new Date().toISOString(),
       blind_config: { levels: BLIND_LEVELS, duration: blindDurationSeconds },
       buy_in_amount: gameBuyIn,
-    }).eq('id', currentLobbyId).then(({ error }) => {
-      if (error) console.warn('startGame sync error:', error);
+    }).eq('id', currentLobbyId).then(({ error, data, status }) => {
+      if (error) {
+        console.error('startGame UPDATE FAILED: ' + JSON.stringify(error));
+      } else {
+        console.log('host: status=active update succeeded (HTTP ' + status + ')');
+      }
     });
   } else {
     amHost = me.id === 'demo'; // demo always acts as host
