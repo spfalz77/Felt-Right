@@ -545,6 +545,42 @@ h3 { font-size: 1rem; font-weight: 600; }
 .place-name { font-weight: 500; }
 .place-chips { font-family: 'Bebas Neue', sans-serif; color: var(--gold); letter-spacing: 0.05em; }
 </style>
+<script>
+// Capture console output from the very start, before any other script runs
+window.__dbgLogs = [];
+(function() {
+  function pushLog(level, args) {
+    try {
+      const time = new Date().toLocaleTimeString();
+      const text = Array.from(args).map(a => {
+        if (a === null) return 'null';
+        if (a === undefined) return 'undefined';
+        if (typeof a === 'string') return a;
+        if (a instanceof Error) return a.message + '\n' + (a.stack||'');
+        try { return JSON.stringify(a); } catch(e) { return String(a); }
+      }).join(' ');
+      window.__dbgLogs.push({ level, text: '[' + time + '] ' + (level === 'log' ? '' : level.toUpperCase() + ' ') + text });
+      if (window.__dbgLogs.length > 1000) window.__dbgLogs.shift();
+      // If the panel is open, append immediately
+      if (window.__dbgPanelOpen && window.__dbgAppendLog) window.__dbgAppendLog(level, window.__dbgLogs[window.__dbgLogs.length-1].text);
+    } catch(e) {}
+  }
+  ['log', 'warn', 'error', 'info', 'debug'].forEach(level => {
+    const orig = console[level] ? console[level].bind(console) : function(){};
+    console[level] = function() {
+      pushLog(level, arguments);
+      orig.apply(console, arguments);
+    };
+  });
+  window.addEventListener('error', function(e) {
+    pushLog('error', ['UNCAUGHT: ' + e.message + ' at ' + (e.filename||'?') + ':' + (e.lineno||'?')]);
+  });
+  window.addEventListener('unhandledrejection', function(e) {
+    pushLog('error', ['PROMISE: ' + (e.reason && e.reason.message ? e.reason.message : e.reason)]);
+  });
+  console.log('debug console wrapper installed');
+})();
+</script>
 </head>
 <body>
 <div id="root">
@@ -6945,85 +6981,70 @@ document.addEventListener('visibilitychange', async () => {
   const logEl = document.getElementById('dbg-log');
   const panel = document.getElementById('dbg-panel');
   const toggle = document.getElementById('dbg-toggle');
-  const logs = [];
 
-  function append(level, args) {
-    const time = new Date().toLocaleTimeString();
-    const text = Array.from(args).map(a => {
-      if (a === null) return 'null';
-      if (a === undefined) return 'undefined';
-      if (typeof a === 'string') return a;
-      try { return JSON.stringify(a, null, 1); } catch(e) { return String(a); }
-    }).join(' ');
-    const line = `[${time}] ${level === 'log' ? '' : level.toUpperCase() + ' '}${text}`;
-    logs.push(line);
-    if (logs.length > 500) logs.shift();
-    if (logEl) {
-      const div = document.createElement('div');
-      const color = level === 'error' ? '#f55' : level === 'warn' ? '#fa0' : '#0f0';
-      div.style.color = color;
-      div.style.borderBottom = '1px dotted #222';
-      div.style.padding = '2px 0';
-      div.textContent = line;
-      logEl.appendChild(div);
-      logEl.scrollTop = logEl.scrollHeight;
-    }
+  function colorFor(level) {
+    return level === 'error' ? '#f55' : level === 'warn' ? '#fa0' : level === 'info' ? '#5af' : '#0f0';
   }
 
-  // Wrap console methods
-  ['log', 'warn', 'error', 'info'].forEach(level => {
-    const original = console[level].bind(console);
-    console[level] = function() {
-      try { append(level, arguments); } catch(e) {}
-      original.apply(console, arguments);
-    };
-  });
+  function appendOne(level, text) {
+    if (!logEl) return;
+    const div = document.createElement('div');
+    div.style.color = colorFor(level);
+    div.style.borderBottom = '1px dotted #222';
+    div.style.padding = '2px 0';
+    div.textContent = text;
+    logEl.appendChild(div);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
 
-  // Catch uncaught errors
-  window.addEventListener('error', e => {
-    append('error', [`UNCAUGHT: ${e.message} at ${e.filename}:${e.lineno}`]);
-  });
-  window.addEventListener('unhandledrejection', e => {
-    append('error', [`UNHANDLED PROMISE: ${e.reason?.message || e.reason}`]);
-  });
+  // Expose so the head script can append in real time when panel is open
+  window.__dbgAppendLog = appendOne;
+
+  function renderAll() {
+    logEl.innerHTML = '';
+    (window.__dbgLogs || []).forEach(entry => appendOne(entry.level, entry.text));
+  }
 
   toggle.onclick = () => {
     if (panel.style.display === 'flex') {
       panel.style.display = 'none';
+      window.__dbgPanelOpen = false;
     } else {
       panel.style.display = 'flex';
+      window.__dbgPanelOpen = true;
+      renderAll();
     }
   };
 
-  document.getElementById('dbg-close').onclick = () => panel.style.display = 'none';
+  document.getElementById('dbg-close').onclick = () => {
+    panel.style.display = 'none';
+    window.__dbgPanelOpen = false;
+  };
   document.getElementById('dbg-clear').onclick = () => {
-    logs.length = 0;
+    window.__dbgLogs.length = 0;
     if (logEl) logEl.innerHTML = '';
   };
   document.getElementById('dbg-copy').onclick = async () => {
-    const text = logs.join('\n');
+    const text = (window.__dbgLogs || []).map(l => l.text).join('\n');
     try {
       if (navigator.clipboard) {
         await navigator.clipboard.writeText(text);
-        document.getElementById('dbg-copy').textContent = 'COPIED!';
-        setTimeout(() => { document.getElementById('dbg-copy').textContent = 'COPY'; }, 1200);
       } else {
-        // Fallback: textarea select method
         const ta = document.createElement('textarea');
         ta.value = text;
         document.body.appendChild(ta);
         ta.select();
         document.execCommand('copy');
         ta.remove();
-        document.getElementById('dbg-copy').textContent = 'COPIED!';
-        setTimeout(() => { document.getElementById('dbg-copy').textContent = 'COPY'; }, 1200);
       }
+      document.getElementById('dbg-copy').textContent = 'COPIED';
+      setTimeout(() => { document.getElementById('dbg-copy').textContent = 'COPY'; }, 1200);
     } catch(e) {
       document.getElementById('dbg-copy').textContent = 'FAIL';
     }
   };
 
-  console.log('Debug console ready');
+  console.log('debug panel ready, ' + (window.__dbgLogs?.length || 0) + ' logs buffered');
 })();
 </script>
 
