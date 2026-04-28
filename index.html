@@ -1686,13 +1686,35 @@ async function loadGames() {
     // My games (all statuses including invited)
     const { data, error } = await sb
       .from('game_players')
-      .select(`status, game:games(id, name, status, host_id, hand_number, created_at, state, game_players(count))`)
+      .select(`status, game_id, game:games(id, name, status, host_id, hand_number, created_at, state, game_players(count))`)
       .eq('user_id', me.id);
 
-    if (error) throw error;
+    if (error) { console.warn('loadGames game_players error:', error); throw error; }
 
-    myGames = (data || [])
-      .filter(d => d.game)
+    // Detect rows where the join didn't return the game (could indicate RLS filter)
+    const rowsWithGame = (data || []).filter(d => d.game);
+    const rowsMissingGame = (data || []).filter(d => !d.game && d.game_id);
+
+    if (rowsMissingGame.length) {
+      console.warn(`loadGames: ${rowsMissingGame.length} game_players rows had no game join; fetching directly`);
+      // Try fetching the games directly (separately from the join)
+      const missingIds = rowsMissingGame.map(r => r.game_id);
+      const { data: directGames, error: dgError } = await sb
+        .from('games')
+        .select('id, name, status, host_id, hand_number, created_at, state, game_players(count)')
+        .in('id', missingIds);
+      if (dgError) console.warn('loadGames direct fetch error:', dgError);
+      // Merge fetched games back into rows
+      if (directGames?.length) {
+        const directMap = new Map(directGames.map(g => [g.id, g]));
+        rowsMissingGame.forEach(r => {
+          const g = directMap.get(r.game_id);
+          if (g) { r.game = g; rowsWithGame.push(r); }
+        });
+      }
+    }
+
+    myGames = rowsWithGame
       .map(d => ({
         ...d.game,
         player_count: d.game?.game_players?.[0]?.count || 0,
@@ -2177,22 +2199,36 @@ async function openLobby(gameId) {
     let alreadyEntered = false;
 
     // Fallback poller: if real-time event is missed (e.g. user was in chat when host started),
-    // a poll every 4s catches the active status and transitions the user into the game.
+    // a poll every 2s catches the active status and transitions the user into the game.
+    // This is the primary mechanism since 'games' table may not be in realtime publication.
     clearInterval(_lobbyStatusPoller);
+    const startedAt = Date.now();
     _lobbyStatusPoller = setInterval(async () => {
       if (alreadyEntered) { clearInterval(_lobbyStatusPoller); return; }
       if (currentLobbyId !== gameId) { clearInterval(_lobbyStatusPoller); return; }
       try {
         const { data } = await sb.from('games').select('status, host_id, state').eq('id', gameId).maybeSingle();
-        if (!data) return;
+        if (!data) {
+          // Game might have been deleted — go home
+          if (Date.now() - startedAt > 6000) {
+            clearInterval(_lobbyStatusPoller);
+            toast('Lobby no longer exists');
+            goHome();
+          }
+          return;
+        }
         if (data.status === 'active' && data.host_id !== me.id) {
           alreadyEntered = true;
           clearInterval(_lobbyStatusPoller);
           gameStartChannel.unsubscribe();
           enterGame(gameId, data.state);
+        } else if (data.status === 'finished') {
+          clearInterval(_lobbyStatusPoller);
+          toast('Game ended');
+          goHome();
         }
-      } catch(e) {}
-    }, 4000);
+      } catch(e) { console.warn('lobby status poll:', e); }
+    }, 2000);
 
     gameStartChannel
       .on('postgres_changes',{event:'UPDATE',schema:'public',table:'games',filter:`id=eq.${gameId}`},
