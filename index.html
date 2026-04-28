@@ -1055,6 +1055,7 @@ window.__dbgLogs = [];
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 
 <script>
+console.log('main app script loading...');
 // ════════════════════════════════════════════════════════════════════════════
 // CONFIG — Replace with your Supabase project values
 // ════════════════════════════════════════════════════════════════════════════
@@ -1231,6 +1232,7 @@ let G = null; // full game state object
 // INIT
 // ════════════════════════════════════════════════════════════════════════════
 async function init() {
+  console.log('init() called');
   try {
     sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   } catch(e) {
@@ -2096,6 +2098,7 @@ let lobbyPlayers = [];
 let _lobbyStatusPoller = null;
 
 async function openLobby(gameId) {
+  console.log('openLobby called for ' + gameId);
   currentLobbyId = gameId;
   // Subscribe to chat for this game (lobby + game share same chat thread)
   subscribeToChatForGame(gameId);
@@ -2249,11 +2252,13 @@ async function openLobby(gameId) {
     // This is the primary mechanism since 'games' table may not be in realtime publication.
     clearInterval(_lobbyStatusPoller);
     const startedAt = Date.now();
+    console.log('starting lobby status poller for ' + gameId);
     _lobbyStatusPoller = setInterval(async () => {
       if (alreadyEntered) { clearInterval(_lobbyStatusPoller); return; }
       if (currentLobbyId !== gameId) { clearInterval(_lobbyStatusPoller); return; }
       try {
         const { data } = await sb.from('games').select('status, host_id, state').eq('id', gameId).maybeSingle();
+        console.log('poll: status=' + (data?.status||'?') + ' iAmHost=' + (data?.host_id===me.id));
         if (!data) {
           // Game might have been deleted — go home
           if (Date.now() - startedAt > 6000) {
