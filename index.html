@@ -2221,7 +2221,15 @@ async function openLobby(gameId) {
           alreadyEntered = true;
           clearInterval(_lobbyStatusPoller);
           gameStartChannel.unsubscribe();
-          enterGame(gameId, data.state);
+          console.log('[lobby poll] Detected active status, entering game', gameId);
+          try {
+            enterGame(gameId, data.state);
+          } catch(err) {
+            console.error('[lobby poll] enterGame failed:', err);
+            toast('Failed to enter game: ' + (err.message || err));
+            // Reset so user can try again
+            alreadyEntered = false;
+          }
         } else if (data.status === 'finished') {
           clearInterval(_lobbyStatusPoller);
           toast('Game ended');
@@ -2947,47 +2955,57 @@ async function attemptHostMigration(gameId, oldHostId) {
 
 // ── ENTER GAME ────────────────────────────────────────────────────────────────
 function enterGame(gameId, state) {
-  currentGameId = gameId;
-  G = JSON.parse(JSON.stringify(state));
+  console.log('[enterGame] starting for', gameId, 'amHost=', amHost);
+  try {
+    currentGameId = gameId;
+    currentLobbyId = null; // critical: stop the lobby poller from re-firing
+    G = JSON.parse(JSON.stringify(state));
 
-  // Close chat panel if open (so the guest isn't stuck on chat when the host starts the game)
-  const chatPanel = document.getElementById('chat-panel');
-  const chatBackdrop = document.getElementById('chat-backdrop');
-  if (chatPanel) chatPanel.style.display = 'none';
-  if (chatBackdrop) chatBackdrop.style.display = 'none';
+    // Close chat panel if open (so the guest isn't stuck on chat when the host starts the game)
+    const chatPanel = document.getElementById('chat-panel');
+    const chatBackdrop = document.getElementById('chat-backdrop');
+    if (chatPanel) chatPanel.style.display = 'none';
+    if (chatBackdrop) chatBackdrop.style.display = 'none';
 
-  showScreen('game');
-  screenStack = ['home', 'game'];
-  startBlindTimer();
-  _gamePaused = false;
-  // Reset turn/timer tracking for fresh game
-  _lastTurnKey = null;
-  _timerForActionKey = null;
-  _sliderTurnKey = null;
-  _lastSoundState = null;
-  _myPrivateHand = null;
-  startPresence(gameId);
-  subscribeToChatForGame(gameId);
-  startNudgeListener(gameId);
+    showScreen('game');
+    screenStack = ['home', 'game'];
+    console.log('[enterGame] screen shown');
 
-  if (me.id === 'demo' || amHost) {
-    if (amHost && sb) {
-      hostListenForActions(gameId);
-      startHostHeartbeat(gameId);
-      // Wait 5 seconds so guests can fully sync their subscriptions before first deal
-      showInitializingOverlay();
-      setTimeout(() => {
-        hideInitializingOverlay();
+    try { startBlindTimer(); } catch(e) { console.warn('[enterGame] blindTimer:', e); }
+    _gamePaused = false;
+    // Reset turn/timer tracking for fresh game
+    _lastTurnKey = null;
+    _timerForActionKey = null;
+    _sliderTurnKey = null;
+    _lastSoundState = null;
+    _myPrivateHand = null;
+    try { startPresence(gameId); } catch(e) { console.warn('[enterGame] presence:', e); }
+    try { subscribeToChatForGame(gameId); } catch(e) { console.warn('[enterGame] chat:', e); }
+    try { startNudgeListener(gameId); } catch(e) { console.warn('[enterGame] nudge:', e); }
+
+    if (me.id === 'demo' || amHost) {
+      if (amHost && sb) {
+        try { hostListenForActions(gameId); } catch(e) { console.warn('[enterGame] hostListen:', e); }
+        try { startHostHeartbeat(gameId); } catch(e) { console.warn('[enterGame] heartbeat:', e); }
+        // Wait 5 seconds so guests can fully sync their subscriptions before first deal
+        showInitializingOverlay();
+        setTimeout(() => {
+          hideInitializingOverlay();
+          dealNewHand();
+        }, 5000);
+      } else {
+        // Demo mode: deal immediately, no sync concerns
         dealNewHand();
-      }, 5000);
+      }
     } else {
-      // Demo mode: deal immediately, no sync concerns
-      dealNewHand();
+      try { guestSubscribeToGame(gameId); } catch(e) { console.warn('[enterGame] guestSub:', e); }
+      try { startDisconnectWatcher(gameId); } catch(e) { console.warn('[enterGame] disconnect:', e); }
+      try { renderGame(); } catch(e) { console.warn('[enterGame] render:', e); }
+      console.log('[enterGame] guest setup complete');
     }
-  } else {
-    guestSubscribeToGame(gameId);
-    startDisconnectWatcher(gameId);
-    renderGame();
+  } catch(err) {
+    console.error('[enterGame] FATAL:', err);
+    toast('Could not enter game: ' + (err.message || err));
   }
 }
 
