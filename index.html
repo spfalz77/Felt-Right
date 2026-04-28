@@ -584,14 +584,12 @@ window.__dbgLogs = [];
   window.addEventListener('unhandledrejection', function(e) {
     pushLog('error', ['PROMISE: ' + (e.reason && e.reason.message ? e.reason.message : e.reason)]);
   });
-  console.log('debug console wrapper installed BUILD-2026-04-27-A');
+  console.log('debug console ready');
   console.log('user agent: ' + navigator.userAgent.slice(0, 80));
-  // Heartbeat every 5s so we know the page is alive
+  // Quiet heartbeat (once per minute) so we know the page is alive
   setInterval(function() {
-    if (window.__dbgLogs.length < 50) {
-      console.log('heartbeat ' + new Date().toLocaleTimeString());
-    }
-  }, 5000);
+    console.log('heartbeat');
+  }, 60000);
 })();
 </script>
 </head>
@@ -1058,7 +1056,6 @@ window.__dbgLogs = [];
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 
 <script>
-console.log('main app script loading...');
 // ════════════════════════════════════════════════════════════════════════════
 // CONFIG — Replace with your Supabase project values
 // ════════════════════════════════════════════════════════════════════════════
@@ -1235,7 +1232,6 @@ let G = null; // full game state object
 // INIT
 // ════════════════════════════════════════════════════════════════════════════
 async function init() {
-  console.log('init() called');
   try {
     sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   } catch(e) {
@@ -2101,7 +2097,6 @@ let lobbyPlayers = [];
 let _lobbyStatusPoller = null;
 
 async function openLobby(gameId) {
-  console.log('openLobby called for ' + gameId);
   currentLobbyId = gameId;
   // Subscribe to chat for this game (lobby + game share same chat thread)
   subscribeToChatForGame(gameId);
@@ -2255,13 +2250,11 @@ async function openLobby(gameId) {
     // This is the primary mechanism since 'games' table may not be in realtime publication.
     clearInterval(_lobbyStatusPoller);
     const startedAt = Date.now();
-    console.log('starting lobby status poller for ' + gameId);
     _lobbyStatusPoller = setInterval(async () => {
       if (alreadyEntered) { clearInterval(_lobbyStatusPoller); return; }
       if (currentLobbyId !== gameId) { clearInterval(_lobbyStatusPoller); return; }
       try {
         const { data } = await sb.from('games').select('status, host_id, state').eq('id', gameId).maybeSingle();
-        console.log('poll: status=' + (data?.status||'?') + ' iAmHost=' + (data?.host_id===me.id));
         if (!data) {
           // Game might have been deleted — go home
           if (Date.now() - startedAt > 6000) {
@@ -2275,13 +2268,11 @@ async function openLobby(gameId) {
           alreadyEntered = true;
           clearInterval(_lobbyStatusPoller);
           gameStartChannel.unsubscribe();
-          console.log('[lobby poll] Detected active status, entering game', gameId);
           try {
             enterGame(gameId, data.state);
           } catch(err) {
             console.error('[lobby poll] enterGame failed:', err);
             toast('Failed to enter game: ' + (err.message || err));
-            // Reset so user can try again
             alreadyEntered = false;
           }
         } else if (data.status === 'finished') {
@@ -2580,7 +2571,6 @@ function startDemoLobby() {
 // START GAME
 // ════════════════════════════════════════════════════════════════════════════
 function startGame() {
-  console.log('startGame() called. lobbyId=' + currentLobbyId + ' players=' + lobbyPlayers.length);
   // lobbyPlayers already contains only joined/playing/waiting (invited filtered out)
   let playerSource = lobbyPlayers;
 
@@ -2643,7 +2633,6 @@ function startGame() {
   if (me.id !== 'demo' && sb && currentLobbyId) {
     amHost = true;
     stopLobbyWatchdog(); // game is starting — no need for inactivity check
-    console.log('host: updating game to active for ' + currentLobbyId);
     sb.from('games').update({
       status: 'active',
       state: initialState,
@@ -2651,12 +2640,8 @@ function startGame() {
       last_host_seen: new Date().toISOString(),
       blind_config: { levels: BLIND_LEVELS, duration: blindDurationSeconds },
       buy_in_amount: gameBuyIn,
-    }).eq('id', currentLobbyId).then(({ error, data, status }) => {
-      if (error) {
-        console.error('startGame UPDATE FAILED: ' + JSON.stringify(error));
-      } else {
-        console.log('host: status=active update succeeded (HTTP ' + status + ')');
-      }
+    }).eq('id', currentLobbyId).then(({ error }) => {
+      if (error) console.error('startGame UPDATE failed:', error);
     });
   } else {
     amHost = me.id === 'demo'; // demo always acts as host
@@ -3015,57 +3000,48 @@ async function attemptHostMigration(gameId, oldHostId) {
 
 // ── ENTER GAME ────────────────────────────────────────────────────────────────
 function enterGame(gameId, state) {
-  console.log('[enterGame] starting for', gameId, 'amHost=', amHost);
-  try {
-    currentGameId = gameId;
-    currentLobbyId = null; // critical: stop the lobby poller from re-firing
-    G = JSON.parse(JSON.stringify(state));
+  currentGameId = gameId;
+  currentLobbyId = null; // critical: stop the lobby poller from re-firing
+  G = JSON.parse(JSON.stringify(state));
 
-    // Close chat panel if open (so the guest isn't stuck on chat when the host starts the game)
-    const chatPanel = document.getElementById('chat-panel');
-    const chatBackdrop = document.getElementById('chat-backdrop');
-    if (chatPanel) chatPanel.style.display = 'none';
-    if (chatBackdrop) chatBackdrop.style.display = 'none';
+  // Close chat panel if open (so the guest isn't stuck on chat when the host starts the game)
+  const chatPanel = document.getElementById('chat-panel');
+  const chatBackdrop = document.getElementById('chat-backdrop');
+  if (chatPanel) chatPanel.style.display = 'none';
+  if (chatBackdrop) chatBackdrop.style.display = 'none';
 
-    showScreen('game');
-    screenStack = ['home', 'game'];
-    console.log('[enterGame] screen shown');
+  showScreen('game');
+  screenStack = ['home', 'game'];
+  startBlindTimer();
+  _gamePaused = false;
+  // Reset turn/timer tracking for fresh game
+  _lastTurnKey = null;
+  _timerForActionKey = null;
+  _sliderTurnKey = null;
+  _lastSoundState = null;
+  _myPrivateHand = null;
+  startPresence(gameId);
+  subscribeToChatForGame(gameId);
+  startNudgeListener(gameId);
 
-    try { startBlindTimer(); } catch(e) { console.warn('[enterGame] blindTimer:', e); }
-    _gamePaused = false;
-    // Reset turn/timer tracking for fresh game
-    _lastTurnKey = null;
-    _timerForActionKey = null;
-    _sliderTurnKey = null;
-    _lastSoundState = null;
-    _myPrivateHand = null;
-    try { startPresence(gameId); } catch(e) { console.warn('[enterGame] presence:', e); }
-    try { subscribeToChatForGame(gameId); } catch(e) { console.warn('[enterGame] chat:', e); }
-    try { startNudgeListener(gameId); } catch(e) { console.warn('[enterGame] nudge:', e); }
-
-    if (me.id === 'demo' || amHost) {
-      if (amHost && sb) {
-        try { hostListenForActions(gameId); } catch(e) { console.warn('[enterGame] hostListen:', e); }
-        try { startHostHeartbeat(gameId); } catch(e) { console.warn('[enterGame] heartbeat:', e); }
-        // Wait 5 seconds so guests can fully sync their subscriptions before first deal
-        showInitializingOverlay();
-        setTimeout(() => {
-          hideInitializingOverlay();
-          dealNewHand();
-        }, 5000);
-      } else {
-        // Demo mode: deal immediately, no sync concerns
+  if (me.id === 'demo' || amHost) {
+    if (amHost && sb) {
+      hostListenForActions(gameId);
+      startHostHeartbeat(gameId);
+      // Wait 5 seconds so guests can fully sync their subscriptions before first deal
+      showInitializingOverlay();
+      setTimeout(() => {
+        hideInitializingOverlay();
         dealNewHand();
-      }
+      }, 5000);
     } else {
-      try { guestSubscribeToGame(gameId); } catch(e) { console.warn('[enterGame] guestSub:', e); }
-      try { startDisconnectWatcher(gameId); } catch(e) { console.warn('[enterGame] disconnect:', e); }
-      try { renderGame(); } catch(e) { console.warn('[enterGame] render:', e); }
-      console.log('[enterGame] guest setup complete');
+      // Demo mode: deal immediately
+      dealNewHand();
     }
-  } catch(err) {
-    console.error('[enterGame] FATAL:', err);
-    toast('Could not enter game: ' + (err.message || err));
+  } else {
+    guestSubscribeToGame(gameId);
+    startDisconnectWatcher(gameId);
+    renderGame();
   }
 }
 
@@ -3630,7 +3606,6 @@ function proceedToDeal() {
   _autoAction = null; // away mode resets each hand
   _animatedCards.clear();
   stopTurnTimer();
-  _autoAction = null;
   const autoBar = document.getElementById('auto-action-bar');
   if (autoBar) autoBar.innerHTML = '';
 
@@ -6973,10 +6948,10 @@ document.addEventListener('visibilitychange', async () => {
   </div>
 </div>
 
-<!-- ═══ IN-APP DEBUG CONSOLE ═══════════════════════════════════════════════ -->
-<div id="dbg-toggle" style="position:fixed;top:60px;right:6px;z-index:99999;
+<!-- ═══ IN-APP DEBUG CONSOLE (hidden by default; tap top-left corner 5x to reveal) ═══ -->
+<div id="dbg-toggle" style="display:none;position:fixed;top:60px;right:6px;z-index:99999;
   min-width:48px;height:32px;padding:0 10px;border-radius:16px;background:#ff0;color:#000;
-  display:flex;align-items:center;justify-content:center;font-size:0.78rem;font-weight:700;
+  align-items:center;justify-content:center;font-size:0.78rem;font-weight:700;
   cursor:pointer;box-shadow:0 2px 12px rgba(255,255,0,0.6);border:2px solid #000;
   font-family:monospace;user-select:none;-webkit-user-select:none">
   LOG <span id="dbg-count" style="margin-left:5px;background:#000;color:#ff0;
@@ -7072,6 +7047,43 @@ document.addEventListener('visibilitychange', async () => {
   };
 
   console.log('debug panel ready, ' + (window.__dbgLogs?.length || 0) + ' logs buffered');
+
+  // Hidden activation: tap top-left corner 5 times within 3 seconds to show the LOG button.
+  // Once shown, persists via localStorage. Tap LOG button + hold 2s to hide again.
+  let cornerTaps = 0;
+  let cornerTapTimer = null;
+  document.addEventListener('click', e => {
+    if (e.clientX < 50 && e.clientY < 50) {
+      cornerTaps++;
+      clearTimeout(cornerTapTimer);
+      cornerTapTimer = setTimeout(() => { cornerTaps = 0; }, 3000);
+      if (cornerTaps >= 5) {
+        cornerTaps = 0;
+        try { localStorage.setItem('fr_debug_visible', '1'); } catch(e) {}
+        toggle.style.display = 'flex';
+      }
+    }
+  }, true);
+
+  // Restore visibility from localStorage
+  try {
+    if (localStorage.getItem('fr_debug_visible') === '1') {
+      toggle.style.display = 'flex';
+    }
+  } catch(e) {}
+
+  // Long-press LOG button (2s) to hide it again
+  let pressTimer = null;
+  toggle.addEventListener('touchstart', () => {
+    pressTimer = setTimeout(() => {
+      try { localStorage.removeItem('fr_debug_visible'); } catch(e) {}
+      toggle.style.display = 'none';
+      panel.style.display = 'none';
+      window.__dbgPanelOpen = false;
+    }, 2000);
+  });
+  toggle.addEventListener('touchend', () => clearTimeout(pressTimer));
+  toggle.addEventListener('touchmove', () => clearTimeout(pressTimer));
 })();
 </script>
 
