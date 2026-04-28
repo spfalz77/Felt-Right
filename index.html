@@ -561,6 +561,9 @@ window.__dbgLogs = [];
       }).join(' ');
       window.__dbgLogs.push({ level, text: '[' + time + '] ' + (level === 'log' ? '' : level.toUpperCase() + ' ') + text });
       if (window.__dbgLogs.length > 1000) window.__dbgLogs.shift();
+      // Update count badge live
+      const cb = document.getElementById('dbg-count');
+      if (cb) cb.textContent = window.__dbgLogs.length;
       // If the panel is open, append immediately
       if (window.__dbgPanelOpen && window.__dbgAppendLog) window.__dbgAppendLog(level, window.__dbgLogs[window.__dbgLogs.length-1].text);
     } catch(e) {}
@@ -579,6 +582,13 @@ window.__dbgLogs = [];
     pushLog('error', ['PROMISE: ' + (e.reason && e.reason.message ? e.reason.message : e.reason)]);
   });
   console.log('debug console wrapper installed');
+  console.log('user agent: ' + navigator.userAgent.slice(0, 80));
+  // Heartbeat every 5s so we know the page is alive
+  setInterval(function() {
+    if (window.__dbgLogs.length < 50) {
+      console.log('heartbeat ' + new Date().toLocaleTimeString());
+    }
+  }, 5000);
 })();
 </script>
 </head>
@@ -6950,11 +6960,14 @@ document.addEventListener('visibilitychange', async () => {
 </div>
 
 <!-- ═══ IN-APP DEBUG CONSOLE ═══════════════════════════════════════════════ -->
-<div id="dbg-toggle" style="position:fixed;bottom:80px;right:8px;z-index:9998;
-  width:36px;height:36px;border-radius:50%;background:rgba(212,168,67,0.9);color:#000;
-  display:flex;align-items:center;justify-content:center;font-size:1.1rem;font-weight:700;
-  cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,0.5);border:none;font-family:monospace;
-  user-select:none">⌨</div>
+<div id="dbg-toggle" style="position:fixed;top:60px;right:6px;z-index:99999;
+  min-width:48px;height:32px;padding:0 10px;border-radius:16px;background:#ff0;color:#000;
+  display:flex;align-items:center;justify-content:center;font-size:0.78rem;font-weight:700;
+  cursor:pointer;box-shadow:0 2px 12px rgba(255,255,0,0.6);border:2px solid #000;
+  font-family:monospace;user-select:none;-webkit-user-select:none">
+  LOG <span id="dbg-count" style="margin-left:5px;background:#000;color:#ff0;
+    padding:1px 5px;border-radius:8px;font-size:0.7rem">0</span>
+</div>
 
 <div id="dbg-panel" style="display:none;position:fixed;bottom:0;left:0;right:0;
   height:50vh;background:#0a0a0a;color:#0f0;font-family:'Courier New',monospace;
