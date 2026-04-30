@@ -420,7 +420,12 @@ h3 { font-size: 1rem; font-weight: 600; }
   display: flex; flex-direction: column; align-items: center; gap: 8px;
   padding: 8px 16px 0;
 }
-.my-cards { display: flex; gap: 10px; }
+.my-cards { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; max-width: 100%; }
+.my-cards .card.lg { width: 78px; height: 112px; }
+.my-cards.omaha .card.lg { width: 64px; height: 92px; }
+.my-cards.omaha .card.lg .card-rank { font-size: 1.4rem; }
+.my-cards.omaha .card.lg .card-suit { font-size: 0.95rem; }
+.my-cards.omaha .card.lg .card-center { font-size: 2rem; }
 .my-info { display: flex; align-items: center; gap: 10px; }
 .my-name { font-weight: 600; font-size: 0.9rem; }
 .my-chips { font-family: 'Bebas Neue', sans-serif; font-size: 1.1rem; color: var(--gold); letter-spacing: 0.05em; }
@@ -547,6 +552,25 @@ h3 { font-size: 1rem; font-weight: 600; }
 .place-medal { font-size: 1.1rem; }
 .place-name { font-weight: 500; }
 .place-chips { font-family: 'Bebas Neue', sans-serif; color: var(--gold); letter-spacing: 0.05em; }
+
+.format-btn {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 12px 10px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.15s;
+  color: var(--text);
+}
+.format-btn.format-selected {
+  background: rgba(212,168,67,0.12);
+  border-color: var(--gold);
+  color: var(--gold-pale);
+}
+.format-btn:hover:not(:disabled):not(.format-selected) {
+  border-color: var(--gold-dim);
+}
 </style>
 <script>
 // Capture console output from the very start, before any other script runs
@@ -753,6 +777,9 @@ window.__dbgLogs = [];
           align-items:center;justify-content:center;line-height:1"></span>
       </button>
       <div class="lobby-title" id="lobby-game-name">GAME NAME</div>
+      <div id="lobby-variant-badge" style="font-family:'Bebas Neue',sans-serif;font-size:0.78rem;
+        letter-spacing:0.18em;color:var(--gold-pale);text-align:center;margin-top:-4px;
+        margin-bottom:8px;opacity:0.7">HOLDEM</div>
       <div class="lobby-code" id="lobby-game-id">Game ID: —</div>
       <div style="margin-top:8px; display:flex; gap:8px; justify-content:center; flex-wrap:wrap;" id="lobby-badges">
         <span class="badge badge-gold">Sit & Go</span>
@@ -1041,10 +1068,41 @@ window.__dbgLogs = [];
       <div class="input-label">Game Name</div>
       <input class="input" id="new-game-name" type="text" placeholder="Friday Night Poker">
     </div>
-    <div style="background:var(--surface2); border-radius:var(--r-sm); padding:12px 14px; margin-bottom:16px; font-size:0.85rem; color:var(--text-dim); line-height:1.5;">
-      <strong style="color:var(--text)">Sit & Go · Texas Hold'em</strong><br>
-      1500 starting chips · Moderate blinds<br>
-      Invite friends after creating
+
+    <div class="input-group">
+      <div class="input-label">Format</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <button id="format-tournament" onclick="selectGameFormat('tournament')" type="button"
+          class="format-btn format-selected">
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:1rem;letter-spacing:0.08em">Tournament</div>
+          <div style="font-size:0.7rem;color:var(--text-dim);margin-top:2px">Sit & Go · single winner</div>
+        </button>
+        <button id="format-home" onclick="selectGameFormat('home')" type="button" disabled
+          class="format-btn" style="opacity:0.45;cursor:not-allowed">
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:1rem;letter-spacing:0.08em">Home Game</div>
+          <div style="font-size:0.7rem;color:var(--text-dim);margin-top:2px">Coming soon</div>
+        </button>
+      </div>
+    </div>
+
+    <div class="input-group" id="variant-selection-group">
+      <div class="input-label">Variant</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <button id="variant-holdem" onclick="selectGameVariant('holdem')" type="button"
+          class="format-btn format-selected">
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:1rem;letter-spacing:0.08em">Hold'em</div>
+          <div style="font-size:0.7rem;color:var(--text-dim);margin-top:2px">2 hole cards</div>
+        </button>
+        <button id="variant-omaha" onclick="selectGameVariant('omaha')" type="button"
+          class="format-btn">
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:1rem;letter-spacing:0.08em">Omaha</div>
+          <div style="font-size:0.7rem;color:var(--text-dim);margin-top:2px">4 hole cards</div>
+        </button>
+      </div>
+    </div>
+
+    <div style="background:var(--surface2); border-radius:var(--r-sm); padding:10px 14px; margin-bottom:16px; font-size:0.78rem; color:var(--text-dim); line-height:1.5;">
+      <span id="create-game-summary">Sit & Go · Texas Hold'em · 1500 chips</span>
     </div>
     <button class="btn btn-primary btn-full" onclick="createGame()">Create Game</button>
   </div>
@@ -1086,6 +1144,28 @@ let BLIND_LEVELS = [
 ];
 let blindDurationSeconds = DEFAULT_BLIND_DURATION;
 let gameBuyIn = 20; // Default $20 buy-in
+let gameFormat = 'tournament'; // 'tournament' | 'home' (home not implemented yet)
+let gameVariant = 'holdem';    // for tournament: 'holdem' | 'omaha'
+
+// Variant configuration table — single source of truth for cards-per-hand etc.
+const VARIANTS = {
+  holdem: {
+    name: "Texas Hold'em",
+    short: 'HOLDEM',
+    holeCards: 2,
+    description: '2 hole cards · best 5 of 7',
+  },
+  omaha: {
+    name: 'Omaha',
+    short: 'OMAHA',
+    holeCards: 4,
+    description: '4 hole cards · must use exactly 2',
+  },
+};
+
+function getVariantConfig() {
+  return VARIANTS[G?.variant || gameVariant] || VARIANTS.holdem;
+}
 
 // ── PAYOUT CALCULATION ──
 // Round up to nearest $10
@@ -1916,7 +1996,7 @@ async function createGame() {
 
   if (me.id === 'demo') {
     const fakeId = 'demo-' + Math.random().toString(36).slice(2,8);
-    myGames.unshift({ id: fakeId, name, status:'lobby', hand_number:0, host_id: me.id, player_count:1 });
+    myGames.unshift({ id: fakeId, name, status:'lobby', hand_number:0, host_id: me.id, player_count:1, game_format: gameFormat, game_variant: gameVariant });
     renderGamesList();
     openLobby(fakeId);
     return;
@@ -1924,7 +2004,13 @@ async function createGame() {
 
   try {
     const { data, error } = await sb.from('games')
-      .insert({ name, host_id: me.id, status:'lobby' }).select().single();
+      .insert({
+        name,
+        host_id: me.id,
+        status: 'lobby',
+        game_format: gameFormat,
+        game_variant: gameVariant,
+      }).select().single();
     if (error) throw error;
     // Host joins their own game immediately with a seat
     const { error: pErr } = await sb.from('game_players').insert({
@@ -1937,6 +2023,41 @@ async function createGame() {
     await loadGames();
     openLobby(data.id);
   } catch(e) { toast('Error creating game: ' + e.message); }
+}
+
+function selectGameFormat(format) {
+  gameFormat = format;
+  document.getElementById('format-tournament')?.classList.toggle('format-selected', format === 'tournament');
+  document.getElementById('format-home')?.classList.toggle('format-selected', format === 'home');
+  // Show/hide variant selection based on format (home games have different variants later)
+  const variantGroup = document.getElementById('variant-selection-group');
+  if (variantGroup) variantGroup.style.display = format === 'tournament' ? 'block' : 'none';
+  updateCreateGameSummary();
+}
+
+function selectGameVariant(variant) {
+  gameVariant = variant;
+  document.getElementById('variant-holdem')?.classList.toggle('format-selected', variant === 'holdem');
+  document.getElementById('variant-omaha')?.classList.toggle('format-selected', variant === 'omaha');
+  updateCreateGameSummary();
+}
+
+function updateCreateGameSummary() {
+  const el = document.getElementById('create-game-summary');
+  if (!el) return;
+  const variantName = (VARIANTS[gameVariant] || VARIANTS.holdem).name;
+  if (gameFormat === 'tournament') {
+    el.innerHTML = `<strong style="color:var(--text)">Sit & Go · ${variantName}</strong><br>1500 starting chips · Moderate blinds`;
+  } else {
+    el.innerHTML = `<strong style="color:var(--text)">Home Game</strong><br>Coming soon`;
+  }
+}
+
+function updateLobbyVariantBadge() {
+  const el = document.getElementById('lobby-variant-badge');
+  if (!el) return;
+  const cfg = VARIANTS[gameVariant] || VARIANTS.holdem;
+  el.textContent = cfg.short + ' · ' + cfg.description;
 }
 
 // ── LOBBY HOST MIGRATION ──────────────────────────────────────────────────────
@@ -2042,7 +2163,7 @@ async function rejoinActiveGame(gameId, gameRef) {
       localStorage.setItem('fr_sitout', JSON.stringify(sitOutList));
     } catch(e) { /* ignore */ }
 
-    const { data, error } = await sb.from('games').select('state,host_id,blind_config,buy_in_amount').eq('id', gameId).single();
+    const { data, error } = await sb.from('games').select('state,host_id,blind_config,buy_in_amount,game_format,game_variant').eq('id', gameId).single();
     if (error || !data?.state) { toast('Could not load game'); return; }
 
     amHost = data.host_id === me.id;
@@ -2053,6 +2174,8 @@ async function rejoinActiveGame(gameId, gameRef) {
     if (data.buy_in_amount !== undefined && data.buy_in_amount !== null) {
       gameBuyIn = data.buy_in_amount;
     }
+    if (data.game_format) gameFormat = data.game_format;
+    if (data.game_variant) gameVariant = data.game_variant;
     currentGameId = gameId;
     G = data.state;
 
@@ -2160,17 +2283,20 @@ async function openLobby(gameId) {
   document.getElementById('blind-editor-section').style.display = isHost ? 'block' : 'none';
   if (isHost) renderBlindEditor();
 
-  // Load buy_in_amount from DB if it exists, else use default $20
+  // Load buy_in_amount + game format/variant from DB
   if (sb && me.id !== 'demo') {
-    sb.from('games').select('buy_in_amount').eq('id', gameId).single().then(({ data }) => {
+    sb.from('games').select('buy_in_amount, game_format, game_variant').eq('id', gameId).single().then(({ data }) => {
       if (data?.buy_in_amount !== undefined && data?.buy_in_amount !== null) {
         gameBuyIn = data.buy_in_amount;
       } else {
         gameBuyIn = 20;
       }
+      if (data?.game_format) gameFormat = data.game_format;
+      if (data?.game_variant) gameVariant = data.game_variant;
       const inp = document.getElementById('buy-in-input');
       if (inp) inp.value = gameBuyIn;
       updatePayoutPreview();
+      updateLobbyVariantBadge();
     });
   }
 
@@ -2628,6 +2754,8 @@ function startGame() {
     sbIdx: -1,
     bbIdx: -1,
     finalPlacements: [],
+    format: gameFormat,
+    variant: gameVariant,
   };
 
   if (me.id !== 'demo' && sb && currentLobbyId) {
@@ -3632,9 +3760,13 @@ function proceedToDeal() {
   dealer.isDealer = true;
   G.dealerId = dealer.id;
 
-  // Deal 2 cards to each active player
+  // Deal hole cards to each active player (2 for Hold'em, 4 for Omaha)
+  const numHoleCards = (VARIANTS[G.variant] || VARIANTS.holdem).holeCards;
   for (const p of G.players) {
-    if (!p.folded) { p.hand = [G.deck.pop(), G.deck.pop()]; }
+    if (!p.folded) {
+      p.hand = [];
+      for (let i = 0; i < numHoleCards; i++) p.hand.push(G.deck.pop());
+    }
   }
 
   // Write each player's hole cards to private_hands BEFORE syncing state
@@ -3775,12 +3907,15 @@ function renderGame() {
   }
 
   const stages = { preflop:'PRE-FLOP', flop:'FLOP', turn:'TURN', river:'RIVER', showdown:'SHOWDOWN' };
-  document.getElementById('stage-label').textContent = stages[G.stage]||G.stage.toUpperCase();
+  const variantTag = G.variant === 'omaha' ? ' · OMAHA' : '';
+  document.getElementById('stage-label').textContent = (stages[G.stage]||G.stage.toUpperCase()) + variantTag;
 
   // My hand
   const myPlayer = G.players.find(p => p.id === me.id);
   const myCards = document.getElementById('my-cards');
   myCards.innerHTML = '';
+  // Apply variant class so 4-card Omaha gets compact cards
+  myCards.className = 'my-cards' + (G.variant === 'omaha' ? ' omaha' : '');
   if (myPlayer && myPlayer.hand.length) {
     myPlayer.hand.forEach((c,i) => {
       const el = makeCardEl(c, false, true, cardKey(c, 'hole'));
