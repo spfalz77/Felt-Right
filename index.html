@@ -1275,19 +1275,49 @@ function score5(cards) {
   const tieVals=grps.flatMap(g=>Array(g.count).fill(g.val));
   return{rank,name,tieVals};
 }
-function evalBest(hole,comm){
-  const all=[...hole,...comm];
-  const combos=choose5(all);
-  let best=null;
-  for(const c of combos){
-    const h=score5(c);
-    if(!best||cmpScore(h,best)>0)best=h;
+function evalBest(hole, comm, variant) {
+  // Route to variant-specific evaluation
+  if (variant === 'omaha') return evalBestOmaha(hole, comm);
+  // Default: Hold'em — best 5 of any 7 (2 hole + 5 community)
+  const all = [...hole, ...comm];
+  const combos = choose5(all);
+  let best = null;
+  for (const c of combos) {
+    const h = score5(c);
+    if (!best || cmpScore(h, best) > 0) best = h;
   }
   return best;
 }
-function cmpScore(a,b){
-  if(a.rank!==b.rank)return a.rank-b.rank;
-  for(let i=0;i<a.tieVals.length;i++)if(a.tieVals[i]!==b.tieVals[i])return a.tieVals[i]-b.tieVals[i];
+
+// Omaha: must use EXACTLY 2 hole cards + EXACTLY 3 community cards.
+// C(4,2) × C(5,3) = 60 combinations.
+function evalBestOmaha(hole, comm) {
+  if (!hole || hole.length < 4 || comm.length < 5) {
+    // Fallback if cards are missing — shouldn't happen but be safe
+    return evalBest(hole, comm); // hold'em mode
+  }
+  let best = null;
+  // Iterate over all pairs of hole cards
+  for (let h1 = 0; h1 < hole.length; h1++) {
+    for (let h2 = h1 + 1; h2 < hole.length; h2++) {
+      // Iterate over all triples of community cards
+      for (let c1 = 0; c1 < comm.length; c1++) {
+        for (let c2 = c1 + 1; c2 < comm.length; c2++) {
+          for (let c3 = c2 + 1; c3 < comm.length; c3++) {
+            const five = [hole[h1], hole[h2], comm[c1], comm[c2], comm[c3]];
+            const score = score5(five);
+            if (!best || cmpScore(score, best) > 0) best = score;
+          }
+        }
+      }
+    }
+  }
+  return best;
+}
+
+function cmpScore(a, b) {
+  if (a.rank !== b.rank) return a.rank - b.rank;
+  for (let i = 0; i < a.tieVals.length; i++) if (a.tieVals[i] !== b.tieVals[i]) return a.tieVals[i] - b.tieVals[i];
   return 0;
 }
 
@@ -4853,7 +4883,7 @@ function runCpuTurn() {
     return;
   }
 
-  const hand = evalBest(p.hand, G.community);
+  const hand = evalBest(p.hand, G.community, G.variant);
   const strength = hand ? hand.rank : 0;
   const callAmt = Math.min(G.currentBet - p.bet, p.chips);
   const r = Math.random();
@@ -5363,7 +5393,7 @@ function doShowdown() {
   // Evaluate each active player's best hand
   const handMap = {};
   active.forEach(p => {
-    if (p.hand.length) handMap[p.id] = evalBest(p.hand, G.community);
+    if (p.hand.length) handMap[p.id] = evalBest(p.hand, G.community, G.variant);
   });
 
   // Results accumulator: how much each player wins
@@ -6439,49 +6469,28 @@ async function loadMyLedger() {
 }
 
 // Compute pairwise net balances from ledger rows.
-// Returns Map<opponent_id, { name, emoji, balance }> where positive balance = they owe me.
+// Returns array of { id, name, emoji, balance } where positive balance = they owe me.
+// We only count rows WHERE user_id = me.id (my own perspective). If a row has me as
+// opponent_id but a different user_id, it's the OTHER user's record of OUR transaction —
+// we'd double-count if we included it.
 async function computePairwiseBalances() {
-  const rows = await loadMyLedger();
+  if (!sb || me.id === 'demo') return [];
+  const { data: myRows } = await sb.from('payout_ledger')
+    .select('*, opponent:users!opponent_id(id, display_name, avatar_emoji)')
+    .eq('user_id', me.id)
+    .is('settled_at', null)
+    .order('created_at', { ascending: false });
+
   const map = new Map();
-  for (const row of rows) {
-    // Determine which side I'm on
-    let opponentId, sign;
-    if (row.user_id === me.id) {
-      // This row is from my perspective; amount is what I gain (+) or lose (-)
-      opponentId = row.opponent_id;
-      sign = 1;
-    } else {
-      // This row is from opponent's perspective; flip the sign
-      opponentId = row.user_id;
-      sign = -1;
-    }
-    if (!opponentId) continue;
-    const adjustedAmount = row.amount * sign;
-    // Need opponent name/emoji. If row.user_id === me.id, opponent is in row.opponent
-    let oppName = 'Unknown', oppEmoji = '🃏';
-    if (row.user_id === me.id && row.opponent) {
-      oppName = row.opponent.display_name || oppName;
-      oppEmoji = row.opponent.avatar_emoji || oppEmoji;
-    }
-    if (!map.has(opponentId)) map.set(opponentId, { id: opponentId, name: oppName, emoji: oppEmoji, balance: 0, rowIds: [] });
-    const entry = map.get(opponentId);
-    entry.balance += adjustedAmount;
+  for (const row of (myRows || [])) {
+    const oppId = row.opponent_id;
+    if (!oppId) continue;
+    const oppName = row.opponent?.display_name || 'Player';
+    const oppEmoji = row.opponent?.avatar_emoji || '🃏';
+    if (!map.has(oppId)) map.set(oppId, { id: oppId, name: oppName, emoji: oppEmoji, balance: 0, rowIds: [] });
+    const entry = map.get(oppId);
+    entry.balance += row.amount;
     entry.rowIds.push(row.id);
-    if (oppName !== 'Unknown') { entry.name = oppName; entry.emoji = oppEmoji; }
-  }
-  // Resolve names for rows where opponent wasn't joined (because the row is the opponent's record of ME).
-  // We need to look up users for those.
-  const unresolvedIds = Array.from(map.values()).filter(e => e.name === 'Unknown').map(e => e.id);
-  if (unresolvedIds.length) {
-    try {
-      const { data } = await sb.from('users').select('id, display_name, avatar_emoji').in('id', unresolvedIds);
-      (data || []).forEach(u => {
-        if (map.has(u.id)) {
-          map.get(u.id).name = u.display_name || 'Player';
-          map.get(u.id).emoji = u.avatar_emoji || '🃏';
-        }
-      });
-    } catch(e) {}
   }
   return Array.from(map.values()).filter(e => Math.abs(e.balance) > 0.005);
 }
