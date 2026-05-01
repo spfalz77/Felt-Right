@@ -1280,11 +1280,36 @@ function evalBest(hole, comm, variant) {
   if (variant === 'omaha') return evalBestOmaha(hole, comm);
   // Default: Hold'em — best 5 of any 7 (2 hole + 5 community)
   const all = [...hole, ...comm];
-  const combos = choose5(all);
+  // Tag each card with its source so we can identify it after picking
+  const tagged = all.map((c, i) => ({
+    ...c,
+    _idx: i,
+    _src: i < hole.length ? 'hole' : 'comm',
+    _srcIdx: i < hole.length ? i : i - hole.length,
+  }));
   let best = null;
-  for (const c of combos) {
-    const h = score5(c);
-    if (!best || cmpScore(h, best) > 0) best = h;
+  let bestCards = null;
+  // Iterate all C(7,5) = 21 combinations
+  const n = tagged.length;
+  for (let a = 0; a < n - 4; a++) {
+    for (let b = a + 1; b < n - 3; b++) {
+      for (let c = b + 1; c < n - 2; c++) {
+        for (let d = c + 1; d < n - 1; d++) {
+          for (let e = d + 1; e < n; e++) {
+            const five = [tagged[a], tagged[b], tagged[c], tagged[d], tagged[e]];
+            const score = score5(five);
+            if (!best || cmpScore(score, best) > 0) {
+              best = score;
+              bestCards = five;
+            }
+          }
+        }
+      }
+    }
+  }
+  if (best) {
+    best.usedHoleIdx = bestCards.filter(c => c._src === 'hole').map(c => c._srcIdx);
+    best.usedCommIdx = bestCards.filter(c => c._src === 'comm').map(c => c._srcIdx);
   }
   return best;
 }
@@ -1297,20 +1322,28 @@ function evalBestOmaha(hole, comm) {
     return evalBest(hole, comm); // hold'em mode
   }
   let best = null;
-  // Iterate over all pairs of hole cards
+  let usedHole = null;
+  let usedComm = null;
   for (let h1 = 0; h1 < hole.length; h1++) {
     for (let h2 = h1 + 1; h2 < hole.length; h2++) {
-      // Iterate over all triples of community cards
       for (let c1 = 0; c1 < comm.length; c1++) {
         for (let c2 = c1 + 1; c2 < comm.length; c2++) {
           for (let c3 = c2 + 1; c3 < comm.length; c3++) {
             const five = [hole[h1], hole[h2], comm[c1], comm[c2], comm[c3]];
             const score = score5(five);
-            if (!best || cmpScore(score, best) > 0) best = score;
+            if (!best || cmpScore(score, best) > 0) {
+              best = score;
+              usedHole = [h1, h2];
+              usedComm = [c1, c2, c3];
+            }
           }
         }
       }
     }
+  }
+  if (best) {
+    best.usedHoleIdx = usedHole;
+    best.usedCommIdx = usedComm;
   }
   return best;
 }
@@ -5498,29 +5531,58 @@ function doShowdown() {
       ${showPlayers.map(p => {
         const won = totalWon(p.id);
         const hand = handMap[p.id];
-        const cardEls = p.hand.map(c => {
+        const usedHole = new Set(hand?.usedHoleIdx || []);
+        const usedComm = new Set(hand?.usedCommIdx || []);
+
+        // Render hole cards: dim ones NOT used in the winning combination
+        const holeCardEls = p.hand.map((c, i) => {
           const red = isRed(c);
-          return `<div class="card showdown-card ${red?'red':'black'}">
+          const used = usedHole.has(i);
+          return `<div class="card showdown-card ${red?'red':'black'}" style="opacity:${used?'1':'0.3'};
+            ${used && won>0?'box-shadow:0 0 0 1.5px var(--gold);':''}">
             <div class="card-top"><div class="card-rank">${c.rank}</div><div class="card-suit">${c.suit}</div></div>
             <div class="card-center">${c.suit}</div>
             <div class="card-bot"><div class="card-rank">${c.rank}</div><div class="card-suit">${c.suit}</div></div>
           </div>`;
         }).join('');
+
+        // Render community cards used (dim un-used ones)
+        const commCardEls = G.community.map((c, i) => {
+          const red = isRed(c);
+          const used = usedComm.has(i);
+          return `<div class="card showdown-card ${red?'red':'black'}" style="opacity:${used?'1':'0.25'};
+            ${used && won>0?'box-shadow:0 0 0 1.5px var(--gold);':''}">
+            <div class="card-top"><div class="card-rank">${c.rank}</div><div class="card-suit">${c.suit}</div></div>
+            <div class="card-center">${c.suit}</div>
+            <div class="card-bot"><div class="card-rank">${c.rank}</div><div class="card-suit">${c.suit}</div></div>
+          </div>`;
+        }).join('');
+
         return `
-        <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;
+        <div style="display:flex;flex-direction:column;gap:6px;padding:10px 12px;
           background:${won>0?'rgba(212,168,67,0.18)':'rgba(255,255,255,0.04)'};
           border:1.5px solid ${won>0?'var(--gold)':'transparent'};
           border-radius:10px;width:100%;max-width:340px;margin-bottom:6px">
-          <div class="avatar sm">${p.emoji||p.name[0]}</div>
-          <div style="flex:1;min-width:0">
-            <div style="font-weight:600;font-size:0.85rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.name}</div>
-            <div style="display:flex;gap:4px;margin:3px 0">${cardEls}</div>
-            <div style="font-size:0.7rem;color:${won>0?'var(--gold)':'var(--text-dim)'};font-style:italic">${hand.name}</div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <div class="avatar sm">${p.emoji||p.name[0]}</div>
+            <div style="font-weight:600;font-size:0.88rem;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.name}</div>
+            ${won > 0 ? `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:1px">
+              <span style="font-family:'Bebas Neue',sans-serif;color:var(--gold);font-size:1.25rem;line-height:1">+${won.toLocaleString()}</span>
+              <span style="font-size:0.55rem;color:var(--gold-dim);letter-spacing:0.1em;text-transform:uppercase">chips</span>
+            </div>` : ''}
           </div>
-          ${won > 0 ? `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">
-            <span style="font-family:'Bebas Neue',sans-serif;color:var(--gold);font-size:1.3rem;line-height:1">+${won.toLocaleString()}</span>
-            <span style="font-size:0.6rem;color:var(--gold-dim);letter-spacing:0.1em;text-transform:uppercase">chips</span>
-          </div>` : ''}
+          <div style="font-family:'Bebas Neue',sans-serif;color:${won>0?'var(--gold-pale)':'var(--text)'};
+            font-size:1rem;letter-spacing:0.08em">${hand.name}</div>
+          <div>
+            <div style="font-size:0.6rem;color:var(--text-dim);letter-spacing:0.1em;
+              text-transform:uppercase;margin-bottom:3px">Hole</div>
+            <div style="display:flex;gap:4px">${holeCardEls}</div>
+          </div>
+          <div>
+            <div style="font-size:0.6rem;color:var(--text-dim);letter-spacing:0.1em;
+              text-transform:uppercase;margin-bottom:3px">Board</div>
+            <div style="display:flex;gap:4px">${commCardEls}</div>
+          </div>
         </div>`;
       }).join('')}
       <div style="font-size:0.78rem;color:var(--text-dim);margin-top:8px">Next hand in 4s…</div>
