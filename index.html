@@ -3702,6 +3702,22 @@ function guestSubscribeToGame(gameId) {
         commitHandStats();
       }
 
+      // Detect "I won by everyone folding" for guests (host runs this in doShowdown directly)
+      if (!amHost && G.stage === 'showdown' && prevStage !== 'showdown') {
+        const stillIn = G.players.filter(p => !p.folded && !p.eliminated);
+        if (stillIn.length === 1 && stillIn[0].id === me.id) {
+          const myP = G.players.find(p => p.id === me.id);
+          if (myP && myP.hand?.length && !myP.hand.some(c => c.hidden)) {
+            // Single winner = me, I have actual cards (not hidden placeholders)
+            // → show muck-or-show overlay
+            const winAmt = (myP.chips || 0) - (prevMyChips || 0);
+            if (winAmt > 0) {
+              setTimeout(() => showMuckOrShow(myP, winAmt), 200);
+            }
+          }
+        }
+      }
+
       if (G.handNumber !== prevHandNumber) {
         _autoAction = null;
         const autoBar = document.getElementById('auto-action-bar');
@@ -5408,13 +5424,15 @@ function doShowdown() {
           <div class="showdown-result ${iWon?'win':'lose'}">${winner.name} Wins</div>
           <div class="showdown-hand" style="color:var(--text-dim)">Everyone else folded</div>
           <div class="winner-pot">+${winAmt} chips</div>
-          <div style="font-size:0.75rem;color:var(--text-dim);margin-top:10px">Next hand in 4s…</div>
-          ${myFolded ? `<button class="btn btn-ghost btn-sm" onclick="showMyFoldedCards()" style="margin-top:8px">Show My Cards</button>` : ''}
+          ${myFolded ? `<button class="btn btn-ghost btn-sm" onclick="showMyFoldedCards()" style="margin-top:6px">Show My Cards</button>` : ''}
+          <button class="btn btn-primary btn-sm" onclick="dismissShowdown()"
+            style="margin-top:8px;min-width:140px">Got It</button>
+          <div style="font-size:0.7rem;color:var(--text-dim);margin-top:6px">Next hand in 6s…</div>
         </div>`;
     }
     syncGameState();
-    // Auto-advance after 4 seconds (host schedules, guests follow via state)
-    if (amHost) scheduleAutoDeal(4000);
+    // Auto-advance after 6 seconds (host schedules, guests follow via state)
+    if (amHost) scheduleAutoDeal(6000);
     commitHandStats();
     return;
   }
@@ -5585,11 +5603,13 @@ function doShowdown() {
           </div>
         </div>`;
       }).join('')}
-      <div style="font-size:0.78rem;color:var(--text-dim);margin-top:8px">Next hand in 4s…</div>
+      <button class="btn btn-primary btn-sm" onclick="dismissShowdown()"
+        style="margin-top:8px;min-width:160px">Got It</button>
+      <div style="font-size:0.72rem;color:var(--text-dim);margin-top:4px">Next hand in 6s…</div>
     </div>`;
 
   syncGameState();
-  if (amHost) scheduleAutoDeal(4000);
+  if (amHost) scheduleAutoDeal(6000);
   commitHandStats();
 }
 
@@ -5625,42 +5645,58 @@ function showMyFoldedCards() {
 
 function showMuckOrShow(winner, winAmt) {
   const myPlayer = G.players.find(p => p.id === me.id);
-  const [c1, c2] = myPlayer.hand;
+  const handCards = myPlayer.hand || [];
+  const variant = G.variant || 'holdem';
+  const isOmaha = variant === 'omaha';
 
   const overlay = document.getElementById('showdown-overlay');
   overlay.style.display = 'flex';
+
+  // Build large playing-card visuals for each hole card
+  const cardEls = handCards.map((c, i) => {
+    const red = isRed(c);
+    return `
+      <div onclick="toggleShowCard(${i})" id="show-card-${i}"
+        class="card lg ${red?'red':'black'}"
+        style="cursor:pointer;transition:all 0.18s;user-select:none;
+          border:3px solid var(--border);box-sizing:content-box">
+        <div class="card-top"><div class="card-rank">${c.rank}</div><div class="card-suit">${c.suit}</div></div>
+        <div class="card-center">${c.suit}</div>
+        <div class="card-bot"><div class="card-rank">${c.rank}</div><div class="card-suit">${c.suit}</div></div>
+      </div>`;
+  }).join('');
+
   overlay.innerHTML = `
     <div class="showdown-bar">
-      <div class="showdown-result win">You Win!</div>
-      <div class="winner-pot" style="margin-bottom:4px">+${winAmt} chips — everyone folded</div>
-      <div style="font-size:0.8rem;color:var(--text-dim);margin-bottom:12px">Show your cards?</div>
-      <div style="display:flex;gap:10px;margin-bottom:14px">
-        ${[c1, c2].map((c, i) => `
-          <div onclick="toggleShowCard(${i})" id="show-card-${i}"
-            style="cursor:pointer;border-radius:8px;padding:4px 8px;border:2px solid var(--border);
-              background:var(--cream);color:${isRed(c)?'var(--red)':'#111'};font-weight:700;font-size:1rem;
-              transition:all 0.15s;user-select:none">
-            ${c.rank}${c.suit}
-          </div>`).join('')}
+      <div class="showdown-result win" style="font-size:1.6rem">You Win!</div>
+      <div class="winner-pot" style="margin-bottom:4px">+${winAmt.toLocaleString()} chips — everyone folded</div>
+      <div style="font-size:0.85rem;color:var(--text-dim);margin-bottom:14px;text-align:center;line-height:1.4">
+        Tap cards to ${isOmaha ? 'select which to reveal' : 'select which to show'}
       </div>
-      <div style="display:flex;gap:8px;">
-        <button class="btn btn-primary btn-sm" onclick="showSelectedCards()">Show Selected</button>
+      <div style="display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap;justify-content:center;max-width:100%">
+        ${cardEls}
       </div>
-      <div style="font-size:0.72rem;color:var(--text-dim);margin-top:10px">Auto-deal in 4s</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center">
+        <button class="btn btn-primary btn-sm" onclick="showSelectedCards()" style="min-width:140px">Show Selected</button>
+        <button class="btn btn-ghost btn-sm" onclick="dismissShowdown()" style="min-width:120px">Muck (Hide)</button>
+      </div>
+      <div style="font-size:0.72rem;color:var(--text-dim);margin-top:14px">Auto-deal in 6s</div>
     </div>`;
 
   // Track which cards are selected to show
-  window._showCardSelection = [false, false];
-  scheduleAutoDeal(4000);
+  window._showCardSelection = handCards.map(() => false);
+  scheduleAutoDeal(6000);
 }
 
 function toggleShowCard(idx) {
+  if (!window._showCardSelection) return;
   window._showCardSelection[idx] = !window._showCardSelection[idx];
   const el = document.getElementById(`show-card-${idx}`);
   if (el) {
-    el.style.borderColor = window._showCardSelection[idx] ? 'var(--gold)' : 'var(--border)';
-    el.style.boxShadow = window._showCardSelection[idx] ? '0 0 0 2px rgba(212,168,67,0.3)' : 'none';
-    el.style.transform = window._showCardSelection[idx] ? 'translateY(-3px)' : 'none';
+    const selected = window._showCardSelection[idx];
+    el.style.borderColor = selected ? 'var(--gold)' : 'var(--border)';
+    el.style.boxShadow = selected ? '0 0 0 3px rgba(212,168,67,0.35), 0 4px 14px rgba(0,0,0,0.4)' : '0 3px 10px rgba(0,0,0,0.5)';
+    el.style.transform = selected ? 'translateY(-4px)' : 'none';
   }
 }
 
@@ -5702,6 +5738,19 @@ function scheduleAutoDeal(delayMs = 4000) {
 
 function cancelAutoDeal() {
   if (_autoDealTimer) { clearTimeout(_autoDealTimer); _autoDealTimer = null; }
+}
+
+// "Got it" button on the showdown overlay.
+// Host: cancel auto-deal and advance to next hand immediately.
+// Guest: hide my own overlay; the host will sync the next hand state when ready.
+function dismissShowdown() {
+  const overlay = document.getElementById('showdown-overlay');
+  if (overlay) overlay.style.display = 'none';
+
+  if (amHost || me.id === 'demo') {
+    cancelAutoDeal();
+    nextHand();
+  }
 }
 
 function nextHand() {
@@ -6139,12 +6188,31 @@ function toggleAdminBar() {
 async function archiveMyGames() {
   if (me.id === 'demo') { toast('Not available in demo'); return; }
   try {
+    let archivedCount = 0;
+
+    // 1. Mark stale lobbies (older than 1hr) as finished
     const cutoff = new Date(Date.now() - 60 * 60 * 1000).toISOString();
     const { data: stale } = await sb.from('games')
       .select('id').eq('host_id', me.id).eq('status', 'lobby').lt('created_at', cutoff);
-    if (!stale?.length) { toast('No old lobbies to archive'); return; }
-    for (const g of stale) await sb.from('games').update({ status: 'finished' }).eq('id', g.id);
-    toast(`Archived ${stale.length} old ${stale.length === 1 ? 'lobby' : 'lobbies'}`);
+    if (stale?.length) {
+      for (const g of stale) await sb.from('games').update({ status: 'finished' }).eq('id', g.id);
+      archivedCount += stale.length;
+    }
+
+    // 2. Remove my game_players row for any finished games — these will no longer appear
+    //    in my home screen since loadGames joins through game_players
+    const finishedIds = myGames.filter(g => g.status === 'finished').map(g => g.id);
+    if (finishedIds.length) {
+      const { error: delErr } = await sb.from('game_players')
+        .delete()
+        .eq('user_id', me.id)
+        .in('game_id', finishedIds);
+      if (delErr) console.warn('archive delete error:', delErr);
+      else archivedCount += finishedIds.length;
+    }
+
+    if (!archivedCount) { toast('Nothing to archive'); return; }
+    toast(`Archived ${archivedCount} game${archivedCount === 1 ? '' : 's'}`);
     await loadGames();
   } catch(e) { toast('Archive failed: ' + e.message); }
 }
@@ -6285,14 +6353,46 @@ async function sendChatMessage(text) {
   if (!trimmed) return { error: 'empty' };
   if (trimmed.length > 500) return { error: 'too long' };
 
-  const { error } = await sb.from('game_messages').insert({
+  // Optimistic append so the sender sees their message instantly,
+  // even before the realtime echo arrives. Use a synthetic id; if the realtime
+  // event comes through later with a matching server id, the dedupe in
+  // subscribeToChatForGame won't see it as a duplicate (different id) — that's
+  // OK because by then we'll have replaced our local copy below.
+  const optimisticMsg = {
+    id: 'local-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+    sender_id: me.id,
+    sender_name: me.display_name || 'Player',
+    sender_emoji: me.avatar_emoji || '🃏',
+    text: trimmed,
+    created_at: new Date().toISOString(),
+    _optimistic: true,
+  };
+  _chatMessages.push(optimisticMsg);
+  _chatListeners.forEach(cb => cb({ type: 'new', message: optimisticMsg, unread: 0 }));
+
+  const { data, error } = await sb.from('game_messages').insert({
     game_id: gameId,
     sender_id: me.id,
     sender_name: me.display_name || 'Player',
     sender_emoji: me.avatar_emoji || '🃏',
     text: trimmed,
-  });
-  return { error };
+  }).select().single();
+
+  if (error) {
+    // Remove the optimistic message on failure
+    const idx = _chatMessages.findIndex(m => m.id === optimisticMsg.id);
+    if (idx >= 0) _chatMessages.splice(idx, 1);
+    _chatListeners.forEach(cb => cb({ type: 'history', messages: _chatMessages }));
+    return { error };
+  }
+
+  // Replace the optimistic local copy with the real DB row to prevent a duplicate
+  // when the realtime echo arrives.
+  if (data) {
+    const idx = _chatMessages.findIndex(m => m.id === optimisticMsg.id);
+    if (idx >= 0) _chatMessages[idx] = data;
+  }
+  return { error: null };
 }
 
 function markChatRead() {
@@ -6325,6 +6425,8 @@ function toggleChatPanel() {
   }
 }
 
+let _chatPanelUnsub = null;
+
 function openChatPanel() {
   const panel = document.getElementById('chat-panel');
   const backdrop = document.getElementById('chat-backdrop');
@@ -6340,6 +6442,20 @@ function openChatPanel() {
   renderChatMessages();
   markChatRead();
   updateChatBadge();
+
+  // Subscribe to chat events so the panel re-renders when new messages arrive
+  if (_chatPanelUnsub) _chatPanelUnsub();
+  _chatPanelUnsub = onChatEvent(evt => {
+    renderChatMessages();
+    if (evt.type === 'new') {
+      // Mark read since we're viewing
+      markChatRead();
+      updateChatBadge();
+      // Auto-scroll to bottom
+      const list = document.getElementById('chat-messages');
+      if (list) list.scrollTop = list.scrollHeight;
+    }
+  });
 
   // Scroll to bottom
   setTimeout(() => {
@@ -6358,6 +6474,8 @@ function closeChatPanel() {
   const backdrop = document.getElementById('chat-backdrop');
   if (!panel || !backdrop) return;
   panel.style.transform = 'translateY(100%)';
+  // Unsubscribe from chat events
+  if (_chatPanelUnsub) { _chatPanelUnsub(); _chatPanelUnsub = null; }
   setTimeout(() => {
     panel.style.display = 'none';
     backdrop.style.display = 'none';
