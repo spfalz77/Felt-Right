@@ -5710,27 +5710,49 @@ function toggleShowCard(idx) {
 
 function showSelectedCards() {
   const myPlayer = G.players.find(p => p.id === me.id);
-  const sel = window._showCardSelection || [false, false];
-  const shown = myPlayer.hand.filter((_, i) => sel[i]);
+  const sel = window._showCardSelection || [];
+  const shown = (myPlayer?.hand || []).filter((_, i) => sel[i]);
 
-  if (!shown.length) { nextHand(); return; }
+  // Nothing selected = same as Muck. Just dismiss locally.
+  if (!shown.length) {
+    dismissShowdown();
+    return;
+  }
 
+  // Publish reveal so all players see the chosen cards.
+  // Update locally so the muck/show overlay shows them immediately.
+  if (!G.revealedHands) G.revealedHands = {};
+  G.revealedHands[me.id] = shown;
+
+  if (amHost) {
+    renderGame();
+    syncGameState();
+  } else if (sb && currentGameId && me.id !== 'demo') {
+    sb.from('player_actions').insert({
+      game_id: currentGameId,
+      player_id: me.id,
+      action: 'reveal',
+      amount: null,
+      created_at: new Date().toISOString(),
+    }).then(() => {});
+  }
+
+  // Update the muck/show overlay UI to confirm what was shown
   const overlay = document.getElementById('showdown-overlay');
-  const bar = overlay.querySelector('.showdown-bar');
+  const bar = overlay?.querySelector('.showdown-bar');
   if (bar) {
     const cardPips = shown.map(c =>
-      `<span style="font-size:1.2rem;font-weight:700;color:${isRed(c)?'var(--red)':'#eee'}">${c.rank}${c.suit}</span>`
+      `<span style="font-size:1.4rem;font-weight:700;color:${isRed(c)?'var(--red)':'#eee'}">${c.rank}${c.suit}</span>`
     ).join('  ');
     bar.innerHTML = `
-      <div class="showdown-result win">You Win!</div>
-      <div style="font-size:1.3rem;margin:8px 0">${cardPips}</div>
+      <div class="showdown-result win" style="font-size:1.5rem">You Win!</div>
+      <div style="font-size:1.4rem;margin:8px 0;letter-spacing:0.1em">${cardPips}</div>
       <div style="font-size:0.78rem;color:var(--text-dim);font-style:italic;margin-bottom:14px">
-        ${shown.length === 2 ? 'Showing both cards' : 'Showing one card'}
+        Showing ${shown.length === 1 ? 'one card' : `${shown.length} cards`}
       </div>
-      <div style="font-size:0.72rem;color:var(--text-dim)">Auto-deal in 4s…</div>`;
+      <button class="btn btn-primary btn-sm" onclick="dismissShowdown()" style="min-width:140px">Got It</button>
+      <div style="font-size:0.72rem;color:var(--text-dim);margin-top:6px">Auto-deal in 6s…</div>`;
   }
-  // Reschedule auto-deal since user interacted with show selection
-  if (amHost) scheduleAutoDeal(4000);
 }
 
 let _autoDealTimer = null;
@@ -5765,6 +5787,11 @@ function nextHand() {
   cancelAutoDeal();
   document.getElementById('showdown-overlay').style.display = 'none';
   document.getElementById('elim-overlay').style.display = 'none';
+
+  // Only host (or demo mode acting as host) can deal a new hand. Guests must wait
+  // for the host's state push. Calling dealNewHand on a guest would corrupt local state
+  // (resetting deck, hand counter, etc.) without ever syncing to the server.
+  if (!amHost && me.id !== 'demo') return;
 
   const remaining = G.players.filter(p => !p.eliminated && p.chips > 0);
   if (remaining.length <= 1) { endTournament(); return; }
