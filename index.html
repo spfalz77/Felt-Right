@@ -2251,6 +2251,10 @@ async function rejoinActiveGame(gameId, gameRef) {
     showScreen('game');
     screenStack = ['home', 'game'];
     startBlindTimer();
+    // Re-subscribe to chat (loads history + listens for new messages)
+    subscribeToChatForGame(gameId);
+    startNudgeListener(gameId);
+    startPresence(gameId);
 
     if (amHost) {
       // Host's local G was wiped by rejoin — fetch own private cards so we see our hand
@@ -4044,8 +4048,12 @@ function renderGame() {
       const reveal = revealAtShowdown || revealFromReveal;
       if (reveal && c && c.rank) {
         const red = isRed(c);
-        return `<div class="card sm ${red?'red':'black'}">
-          <div style="font-size:0.55rem;font-weight:700;line-height:1;padding:1px 2px;color:${red?'var(--red)':'#111'}">${c.rank}${c.suit}</div>
+        // For player-chose-to-show reveals, render full card visual at showdown size
+        // (38x54 instead of tiny 28x42 text-only)
+        return `<div class="card showdown-card ${red?'red':'black'}">
+          <div class="card-top"><div class="card-rank">${c.rank}</div><div class="card-suit">${c.suit}</div></div>
+          <div class="card-center">${c.suit}</div>
+          <div class="card-bot"><div class="card-rank">${c.rank}</div><div class="card-suit">${c.suit}</div></div>
         </div>`;
       } else {
         return `<div class="card sm back"></div>`;
@@ -6289,7 +6297,32 @@ window.addEventListener('load', () => {
   init();
 });
 
-// When the tab becomes visible again (screen unlock / refocus), re-sync state
+// When the tab becomes visible again (screen unlock / refocus), re-sync state.
+// WebSocket subscriptions can drop while the tab is hidden, leaving the user out
+// of date. Re-fetching history catches anything missed.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  // Re-fetch chat history if we're in a game/lobby (real-time may have missed messages)
+  const gameId = currentGameId || currentLobbyId || _chatCurrentGameId;
+  if (gameId && sb && me?.id !== 'demo') {
+    loadChatHistory(gameId);
+    // Force the realtime channel to re-establish if it was dropped
+    if (_chatSubscription) {
+      try {
+        _chatSubscription.unsubscribe();
+      } catch(e) {}
+      _chatSubscription = null;
+      _chatCurrentGameId = null;
+      subscribeToChatForGame(gameId);
+    }
+  }
+  // Re-fetch game state for guests so we don't sit on stale state after returning
+  if (currentGameId && !amHost && sb && me?.id !== 'demo') {
+    sb.from('games').select('state').eq('id', currentGameId).maybeSingle().then(({ data }) => {
+      if (data?.state) { G = data.state; renderGame(); }
+    }).catch(() => {});
+  }
+});
 // ════════════════════════════════════════════════════════════════════════════
 // CHAT (backend only - UI comes later)
 // ════════════════════════════════════════════════════════════════════════════
@@ -6309,34 +6342,50 @@ function subscribeToChatForGame(gameId) {
   _chatUnreadCount = 0;
 
   // Load recent history
-  sb.from('game_messages')
-    .select('id, sender_id, sender_name, sender_emoji, text, created_at')
-    .eq('game_id', gameId)
-    .order('created_at', { ascending: true })
-    .limit(200)
-    .then(({ data }) => {
-      if (data) {
-        _chatMessages = data;
-        _chatListeners.forEach(cb => cb({ type: 'history', messages: data }));
-      }
-    });
+  loadChatHistory(gameId);
 
-  // Subscribe to new messages
   _chatSubscription = sb.channel(`chat:${gameId}`)
     .on('postgres_changes', {
-      event: 'INSERT',
-      schema: 'public',
-      table: 'game_messages',
+      event: 'INSERT', schema: 'public', table: 'game_messages',
       filter: `game_id=eq.${gameId}`,
     }, payload => {
       const msg = payload.new;
-      // Avoid dupes if we already have this one from the history load
+      // Skip our own messages (already added optimistically) AND any duplicate
       if (_chatMessages.find(m => m.id === msg.id)) return;
+      // Replace any optimistic message that matches our text/sender
+      if (msg.sender_id === me.id) {
+        const optIdx = _chatMessages.findIndex(m => m._optimistic && m.sender_id === me.id && m.text === msg.text);
+        if (optIdx >= 0) {
+          _chatMessages[optIdx] = msg;
+          _chatListeners.forEach(cb => cb({ type: 'history', messages: _chatMessages }));
+          return;
+        }
+      }
       _chatMessages.push(msg);
-      if (msg.sender_id !== me.id) _chatUnreadCount++;
+      // If it's not our own and chat panel isn't open, increment unread
+      if (msg.sender_id !== me.id) {
+        const panelOpen = document.getElementById('chat-panel')?.style.display === 'flex';
+        if (!panelOpen) _chatUnreadCount++;
+      }
       _chatListeners.forEach(cb => cb({ type: 'new', message: msg, unread: _chatUnreadCount }));
     })
     .subscribe();
+}
+
+// Separate so we can call it again on visibility-change to catch any messages we missed while hidden
+async function loadChatHistory(gameId) {
+  if (!sb || !gameId) return;
+  try {
+    const { data } = await sb.from('game_messages')
+      .select('id, sender_id, sender_name, sender_emoji, text, created_at')
+      .eq('game_id', gameId)
+      .order('created_at', { ascending: true })
+      .limit(200);
+    if (data) {
+      _chatMessages = data;
+      _chatListeners.forEach(cb => cb({ type: 'history', messages: data }));
+    }
+  } catch(e) { console.warn('loadChatHistory:', e); }
 }
 
 function unsubscribeFromChat() {
