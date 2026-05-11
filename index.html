@@ -884,6 +884,16 @@ window.__dbgLogs = [];
             font-size:0.7rem;padding:3px 8px;border-radius:4px;cursor:pointer">
             ⏸ Pause
           </button>
+          <button id="host-endgame-btn" onclick="openCashOutModal()" style="display:none;
+            background:none;border:1px solid var(--gold-dim);color:var(--gold);
+            font-size:0.7rem;padding:3px 8px;border-radius:4px;cursor:pointer">
+            💵 End
+          </button>
+          <button id="hand-history-btn" onclick="openHandHistory()" style="display:none;
+            background:none;border:1px solid var(--gold-dim);color:var(--gold);
+            font-size:0.7rem;padding:3px 8px;border-radius:4px;cursor:pointer">
+            📜
+          </button>
           <button id="chat-btn" onclick="toggleChatPanel()" style="position:relative;
             background:none;border:1px solid var(--gold-dim);color:var(--gold);
             font-size:0.85rem;padding:3px 10px;border-radius:4px;cursor:pointer;line-height:1">
@@ -1060,6 +1070,39 @@ window.__dbgLogs = [];
 </div>
 
 <!-- ─── MODALS ─────────────────────────────────────────────────────────────── -->
+
+<!-- Hand history modal (home games) -->
+<div class="modal-backdrop" id="modal-hand-history" onclick="closeModal('modal-hand-history')">
+  <div class="modal-sheet" onclick="event.stopPropagation()" style="max-height:75vh;overflow-y:auto">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Hand History</div>
+    <div id="hand-history-list" style="font-size:0.85rem"></div>
+    <button class="btn btn-ghost btn-full" onclick="closeModal('modal-hand-history')" style="margin-top:14px">Close</button>
+  </div>
+</div>
+
+<!-- Home game cash-out modal -->
+<div class="modal-backdrop" id="modal-cashout" onclick="closeModal('modal-cashout')">
+  <div class="modal-sheet" onclick="event.stopPropagation()" style="max-height:80vh;overflow-y:auto">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Cash Out</div>
+    <div style="font-size:0.85rem;color:var(--text-dim);margin-bottom:14px;line-height:1.4">
+      Each player's stack at the end of the game is what they cash out for. Confirm the amounts below — these will be recorded to your friends ledger.
+    </div>
+    <div id="cashout-list"></div>
+    <div style="font-size:0.75rem;color:var(--text-dim);margin-top:12px;padding:10px;
+      background:var(--surface2);border-radius:6px;line-height:1.5">
+      <strong>Pool:</strong> <span id="cashout-pool">—</span><br>
+      <strong>Sum of cash-outs:</strong> <span id="cashout-sum">—</span><br>
+      <span id="cashout-balance-msg" style="color:var(--gold)"></span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px">
+      <button class="btn btn-ghost" onclick="closeModal('modal-cashout')">Cancel</button>
+      <button class="btn btn-primary" id="cashout-confirm-btn" onclick="confirmCashOut()">End Game</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-backdrop" id="modal-create-game" onclick="closeModal('modal-create-game')">
   <div class="modal-sheet" onclick="event.stopPropagation()">
     <div class="modal-handle"></div>
@@ -1077,10 +1120,10 @@ window.__dbgLogs = [];
           <div style="font-family:'Bebas Neue',sans-serif;font-size:1rem;letter-spacing:0.08em">Tournament</div>
           <div style="font-size:0.7rem;color:var(--text-dim);margin-top:2px">Sit & Go · single winner</div>
         </button>
-        <button id="format-home" onclick="selectGameFormat('home')" type="button" disabled
-          class="format-btn" style="opacity:0.45;cursor:not-allowed">
+        <button id="format-home" onclick="selectGameFormat('home')" type="button"
+          class="format-btn">
           <div style="font-family:'Bebas Neue',sans-serif;font-size:1rem;letter-spacing:0.08em">Home Game</div>
-          <div style="font-size:0.7rem;color:var(--text-dim);margin-top:2px">Coming soon</div>
+          <div style="font-size:0.7rem;color:var(--text-dim);margin-top:2px">Cash · ¢ chips</div>
         </button>
       </div>
     </div>
@@ -1144,8 +1187,66 @@ let BLIND_LEVELS = [
 ];
 let blindDurationSeconds = DEFAULT_BLIND_DURATION;
 let gameBuyIn = 20; // Default $20 buy-in
-let gameFormat = 'tournament'; // 'tournament' | 'home' (home not implemented yet)
+let gameFormat = 'tournament'; // 'tournament' | 'home'
 let gameVariant = 'holdem';    // for tournament: 'holdem' | 'omaha'
+
+// Home games play in CENTS (not chips). Stack of $20 = 2000¢.
+// Default home-game blinds: $0.05 / $0.10 (5¢ / 10¢ in our integer units)
+const HOME_GAME_BLINDS = { small: 5, big: 10 };
+// Chip denominations in cents. UI can show stack as combinations of these,
+// but the engine just uses integer cents internally.
+const HOME_CHIP_DENOMS = [5, 10, 25, 100]; // 5¢, 10¢, 25¢, $1
+// In a home game, blinds don't escalate (cash game), so use a single fixed level.
+const HOME_BLIND_LEVELS = [{ level: 1, small: HOME_GAME_BLINDS.small, big: HOME_GAME_BLINDS.big }];
+
+// Format configuration table — single source of truth for format-level rules.
+const FORMATS = {
+  tournament: {
+    name: 'Tournament',
+    startingChips: 1500,
+    blindsEscalate: true,
+    chopAllowed: true,
+    dealerChoiceVariant: false,
+    moneyMode: false, // chips are abstract
+  },
+  home: {
+    name: 'Home Game',
+    startingChips: 2000, // $20 = 2000¢ at 1¢ resolution (matches buy-in default)
+    blindsEscalate: false,
+    chopAllowed: false,
+    dealerChoiceVariant: true,
+    moneyMode: true, // chips represent cents
+  },
+};
+
+function getFormatConfig() {
+  return FORMATS[G?.format || gameFormat] || FORMATS.tournament;
+}
+
+// Format a chip count for display. In tournament mode, returns "1,500".
+// In home (money) mode, returns "$20.00" (chips represent cents).
+function formatChips(chipCount) {
+  if (chipCount == null) return '—';
+  if (getFormatConfig().moneyMode) {
+    // Chip count is in cents. Render as dollars with 2 decimals.
+    const dollars = chipCount / 100;
+    if (Math.abs(dollars) >= 10) return '$' + dollars.toFixed(2);
+    return '$' + dollars.toFixed(2);
+  }
+  return chipCount.toLocaleString();
+}
+
+// Compact version for tiny labels (opponent badges). Drops zero-cent decimals.
+function formatChipsCompact(chipCount) {
+  if (chipCount == null) return '—';
+  if (getFormatConfig().moneyMode) {
+    const dollars = chipCount / 100;
+    // Show cents if non-zero, else just $X
+    if (chipCount % 100 === 0) return '$' + Math.floor(dollars);
+    return '$' + dollars.toFixed(2);
+  }
+  return chipCount.toLocaleString();
+}
 
 // Variant configuration table — single source of truth for cards-per-hand etc.
 const VARIANTS = {
@@ -1154,12 +1255,28 @@ const VARIANTS = {
     short: 'HOLDEM',
     holeCards: 2,
     description: '2 hole cards · best 5 of 7',
+    style: 'community',     // engine flow style
+    homeOnly: false,
   },
   omaha: {
     name: 'Omaha',
     short: 'OMAHA',
     holeCards: 4,
     description: '4 hole cards · must use exactly 2',
+    style: 'community',
+    homeOnly: false,
+  },
+  guts3: {
+    name: '3-Card Guts',
+    short: 'GUTS',
+    holeCards: 3,
+    description: '3 cards · in/out · match half pot',
+    style: 'guts',          // declaration-based, no betting rounds
+    homeOnly: true,         // only available in home games
+    ante: 10,               // 10¢ ante per hand
+    rebuyOnEveryoneOut: 10, // add 10¢ if everyone goes out, redeal
+    decisionTimerSec: 20,
+    matchPotFraction: 0.5,  // losing "in" players match HALF the pot
   },
 };
 
@@ -1278,6 +1395,7 @@ function score5(cards) {
 function evalBest(hole, comm, variant) {
   // Route to variant-specific evaluation
   if (variant === 'omaha') return evalBestOmaha(hole, comm);
+  if (variant === 'guts3') return evalBest3Card(hole);
   // Default: Hold'em — best 5 of any 7 (2 hole + 5 community)
   const all = [...hole, ...comm];
   // Tag each card with its source so we can identify it after picking
@@ -1352,6 +1470,60 @@ function cmpScore(a, b) {
   if (a.rank !== b.rank) return a.rank - b.rank;
   for (let i = 0; i < a.tieVals.length; i++) if (a.tieVals[i] !== b.tieVals[i]) return a.tieVals[i] - b.tieVals[i];
   return 0;
+}
+
+// ── 3-CARD HAND EVALUATION (for Guts) ────────────────────────────────────────
+// House rankings (high to low):
+//   5: Three of a kind
+//   4: Straight (3 sequential ranks)
+//   3: Flush (all same suit)
+//   2: Pair
+//   1: High card
+// Note: A straight beats a flush in this house rule (unusual but per rules).
+// Returns { rank, name, tieVals, usedHoleIdx }
+function evalBest3Card(hole) {
+  if (!hole || hole.length !== 3) return null;
+  // Map ranks to numeric values. A=14, K=13, ..., 2=2. A can also be low for A-2-3.
+  const rankMap = { '2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,'J':11,'Q':12,'K':13,'A':14 };
+  const vals = hole.map(c => rankMap[c.rank]);
+  const suits = hole.map(c => c.suit);
+  const sortedVals = [...vals].sort((a,b) => b-a); // high to low
+
+  const allSameSuit = suits[0] === suits[1] && suits[1] === suits[2];
+
+  // Check straight (3 consecutive, A high or A low)
+  const sortedAsc = [...vals].sort((a,b) => a-b);
+  let isStraight = (sortedAsc[1] === sortedAsc[0]+1 && sortedAsc[2] === sortedAsc[1]+1);
+  // Ace-low straight: A-2-3 → vals [14,2,3]
+  const isWheel = sortedAsc[0]===2 && sortedAsc[1]===3 && sortedAsc[2]===14;
+  if (isWheel) isStraight = true;
+
+  // Count rank frequencies
+  const counts = {};
+  vals.forEach(v => counts[v] = (counts[v]||0) + 1);
+  const countVals = Object.values(counts).sort((a,b)=>b-a);
+
+  // Three of a kind
+  if (countVals[0] === 3) {
+    return { rank: 5, name: `Three ${vals[0]}s`, tieVals: [vals[0]], usedHoleIdx: [0,1,2] };
+  }
+  // Straight (beats flush per house rule)
+  if (isStraight) {
+    const topCard = isWheel ? 3 : sortedAsc[2]; // wheel: 3 is top, otherwise highest
+    return { rank: 4, name: 'Straight', tieVals: [topCard], usedHoleIdx: [0,1,2] };
+  }
+  // Flush
+  if (allSameSuit) {
+    return { rank: 3, name: 'Flush', tieVals: sortedVals, usedHoleIdx: [0,1,2] };
+  }
+  // Pair
+  if (countVals[0] === 2) {
+    const pairVal = parseInt(Object.keys(counts).find(k => counts[k]===2));
+    const kicker = parseInt(Object.keys(counts).find(k => counts[k]===1));
+    return { rank: 2, name: `Pair of ${pairVal}s`, tieVals: [pairVal, kicker], usedHoleIdx: [0,1,2] };
+  }
+  // High card
+  return { rank: 1, name: `${sortedVals[0]} high`, tieVals: sortedVals, usedHoleIdx: [0,1,2] };
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -2092,9 +2264,15 @@ function selectGameFormat(format) {
   gameFormat = format;
   document.getElementById('format-tournament')?.classList.toggle('format-selected', format === 'tournament');
   document.getElementById('format-home')?.classList.toggle('format-selected', format === 'home');
-  // Show/hide variant selection based on format (home games have different variants later)
+  // Show/hide variant selection based on format (home game uses dealer's choice)
   const variantGroup = document.getElementById('variant-selection-group');
   if (variantGroup) variantGroup.style.display = format === 'tournament' ? 'block' : 'none';
+  // Swap default blind structure to match format
+  if (format === 'home') {
+    BLIND_LEVELS = HOME_BLIND_LEVELS.map(l => ({ ...l }));
+  } else {
+    BLIND_LEVELS = DEFAULT_BLIND_LEVELS.map(l => ({ ...l }));
+  }
   updateCreateGameSummary();
 }
 
@@ -2112,15 +2290,19 @@ function updateCreateGameSummary() {
   if (gameFormat === 'tournament') {
     el.innerHTML = `<strong style="color:var(--text)">Sit & Go · ${variantName}</strong><br>1500 starting chips · Moderate blinds`;
   } else {
-    el.innerHTML = `<strong style="color:var(--text)">Home Game</strong><br>Coming soon`;
+    el.innerHTML = `<strong style="color:var(--text)">Home Game</strong><br>$20 buy-in · ¢/¢/$ chips · Dealer's choice each hand`;
   }
 }
 
 function updateLobbyVariantBadge() {
   const el = document.getElementById('lobby-variant-badge');
   if (!el) return;
-  const cfg = VARIANTS[gameVariant] || VARIANTS.holdem;
-  el.textContent = cfg.short + ' · ' + cfg.description;
+  if (gameFormat === 'home') {
+    el.textContent = `HOME GAME · $${gameBuyIn} · DEALER'S CHOICE`;
+  } else {
+    const cfg = VARIANTS[gameVariant] || VARIANTS.holdem;
+    el.textContent = cfg.short + ' · ' + cfg.description;
+  }
 }
 
 // ── LOBBY HOST MIGRATION ──────────────────────────────────────────────────────
@@ -2779,12 +2961,17 @@ function startGame() {
     return;
   }
 
-  // Build player array
+  // Build player array. Starting chips depends on format (tournament=1500 abstract chips,
+  // home=2000¢ representing $20 buy-in)
+  const startingChips = (FORMATS[gameFormat] || FORMATS.tournament).startingChips;
   const players = playerSource.map((lp, i) => ({
     id: lp.user?.id || lp.id || `p${i}`,
     name: lp.user?.display_name || `Player ${i+1}`,
     emoji: lp.user?.avatar_emoji || '🃏',
-    chips: STARTING_CHIPS,
+    chips: startingChips,
+    // Track total dollar buy-in (in cents) so re-buys can compound for cash-out math.
+    // Only meaningful in home games but harmless in tournaments.
+    totalBuyInCents: gameFormat === 'home' ? startingChips : 0,
     hand: [],
     bet: 0,
     totalBet: 0,
@@ -2794,6 +2981,7 @@ function startGame() {
     seatIndex: i,
     isDealer: false,
     eliminated: false,
+    broke: false,
   }));
 
   // Random dealer
@@ -3352,10 +3540,45 @@ function hostListenForActions(gameId) {
       event: 'INSERT', schema: 'public', table: 'player_actions',
       filter: `game_id=eq.${gameId}`,
     }, payload => {
-      const { player_id, action, amount } = payload.new;
+      const { player_id, action, amount, target_id } = payload.new;
+      // pick_variant is from the dealer during home-game dealer's choice — bypass turn check
+      if (action === 'pick_variant') {
+        if (G && G.dealerId === player_id && G.pendingDealerChoice) {
+          G.variant = target_id || 'holdem';
+          G.pendingDealerChoice = false;
+          syncGameState();
+          proceedToDeal();
+        }
+        return;
+      }
+      // Home-game re-buy: add chips, track buy-in, mark not broke
+      if (action === 'rebuy') {
+        if (G && getFormatConfig().moneyMode) {
+          applyRebuy(player_id, amount || ((gameBuyIn || 0) * 100));
+        }
+        return;
+      }
+      // Home-game sit out: player declined to re-buy
+      if (action === 'sit_out') {
+        if (G) {
+          const p = G.players.find(pl => pl.id === player_id);
+          if (p) {
+            p.eliminated = true;
+            p.broke = false;
+            syncGameState();
+            renderGame();
+          }
+        }
+        return;
+      }
       // Social/non-turn actions bypass the turn filter
       const SOCIAL_ACTIONS = ['chop_offer', 'chop_accept', 'chop_decline', 'chop_cancel', 'nudge', 'pause_request'];
       if (SOCIAL_ACTIONS.includes(action)) {
+        applyRemoteAction(player_id, action, amount);
+        return;
+      }
+      // 'reveal' bypasses turn filter as well (can happen any time after fold)
+      if (action === 'reveal') {
         applyRemoteAction(player_id, action, amount);
         return;
       }
@@ -3669,7 +3892,12 @@ function guestSubscribeToGame(gameId) {
             }
           }
         }
-        showTournamentOverlay(winner);
+        // Show appropriate end overlay based on format
+        if (G.cashOuts && getFormatConfig().moneyMode) {
+          showHomeGameEnd();
+        } else {
+          showTournamentOverlay(winner);
+        }
         return;
       }
 
@@ -3740,6 +3968,17 @@ function guestSubscribeToGame(gameId) {
       applyMyPrivateHand();
       renderGame();
 
+      // Dealer's choice (home game): show picker overlay if waiting on a dealer pick
+      if (G.pendingDealerChoice) {
+        showDealerChoice();
+      }
+
+      // Re-buy prompt: am I broke in a home game?
+      const me_player = G.players?.find(p => p.id === me.id);
+      if (me_player && me_player.broke && !me_player.eliminated && getFormatConfig().moneyMode) {
+        showRebuyOverlay();
+      }
+
       if (G.paused) {
         showPauseOverlay();
       } else {
@@ -3791,8 +4030,115 @@ function pushTurnNotification() {
 function dealNewHand() {
   const activePlayers = G.players.filter(p => !p.eliminated && p.chips > 0);
   if (activePlayers.length < 2) { endTournament(); return; }
-  // No more auto chop popup — players can use the Chop button in the action bar
+
+  // Home game: dealer picks variant before dealing.
+  // We pre-rotate the dealer here so the dealer-of-this-hand can be identified,
+  // then pause for variant selection. proceedToDeal will run after the choice.
+  if (getFormatConfig().dealerChoiceVariant && !G.pendingDealerChoice) {
+    rotateDealer();
+    G.pendingDealerChoice = true;
+    G.handNumber = (G.handNumber || 0) + 1;
+    syncGameState();
+    showDealerChoice();
+    return;
+  }
+
   proceedToDeal();
+}
+
+// Rotate the dealer to the next eligible player. Sets G.dealerId and player.isDealer.
+function rotateDealer() {
+  const eligible = G.players.filter(p => !p.eliminated && p.chips > 0);
+  G.players.forEach(p => p.isDealer = false);
+  let newDealerEligIdx;
+  if (!G.dealerId || (G.handNumber || 0) === 0) {
+    newDealerEligIdx = Math.floor(Math.random() * eligible.length);
+  } else {
+    const prevIdx = eligible.findIndex(p => p.id === G.dealerId);
+    newDealerEligIdx = (prevIdx + 1) % eligible.length;
+  }
+  const dealer = eligible[newDealerEligIdx];
+  dealer.isDealer = true;
+  G.dealerId = dealer.id;
+}
+
+// Show variant picker to the dealer, banner to others, while dealer's choice is pending.
+function showDealerChoice() {
+  const dealerId = G.dealerId;
+  const isDealer = dealerId === me.id || (me.id === 'demo' && amHost);
+  const dealerPlayer = G.players.find(p => p.id === dealerId);
+  const dealerName = dealerPlayer?.name || 'Dealer';
+  const dealerEmoji = dealerPlayer?.emoji || '🃏';
+
+  const overlay = document.getElementById('showdown-overlay');
+  if (!overlay) return;
+  overlay.style.display = 'flex';
+
+  if (isDealer) {
+    overlay.innerHTML = `
+      <div class="showdown-bar" style="max-width:380px">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:1.6rem;letter-spacing:0.1em;
+          color:var(--gold);margin-bottom:6px">DEALER'S CHOICE</div>
+        <div style="font-size:0.85rem;color:var(--text-dim);margin-bottom:14px">
+          You're dealing. Pick the variant for this hand.
+        </div>
+        <div style="display:grid;grid-template-columns:1fr;gap:8px;width:100%">
+          <button onclick="dealerPickedVariant('holdem')" class="format-btn"
+            style="padding:14px 12px;cursor:pointer;text-align:left">
+            <div style="font-family:'Bebas Neue',sans-serif;font-size:1.05rem;letter-spacing:0.08em">Hold'em</div>
+            <div style="font-size:0.68rem;color:var(--text-dim);margin-top:2px">2 hole cards · standard betting</div>
+          </button>
+          <button onclick="dealerPickedVariant('omaha')" class="format-btn"
+            style="padding:14px 12px;cursor:pointer;text-align:left">
+            <div style="font-family:'Bebas Neue',sans-serif;font-size:1.05rem;letter-spacing:0.08em">Omaha</div>
+            <div style="font-size:0.68rem;color:var(--text-dim);margin-top:2px">4 hole cards · use exactly 2</div>
+          </button>
+          <button onclick="dealerPickedVariant('guts3')" class="format-btn"
+            style="padding:14px 12px;cursor:pointer;text-align:left">
+            <div style="font-family:'Bebas Neue',sans-serif;font-size:1.05rem;letter-spacing:0.08em">3-Card Guts</div>
+            <div style="font-size:0.68rem;color:var(--text-dim);margin-top:2px">In/out · match half pot · 10¢ ante</div>
+          </button>
+        </div>
+      </div>`;
+  } else {
+    overlay.innerHTML = `
+      <div class="showdown-bar">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:1.4rem;letter-spacing:0.1em;
+          color:var(--gold);margin-bottom:6px">DEALER'S CHOICE</div>
+        <div style="font-size:1.1rem;margin-bottom:8px">${dealerEmoji} ${dealerName}</div>
+        <div style="font-size:0.85rem;color:var(--text-dim)">Choosing the variant…</div>
+      </div>`;
+  }
+}
+
+// Called when dealer picks variant. Clears the pending flag and starts the deal.
+function dealerPickedVariant(variant) {
+  if (!G) return;
+  if (G.dealerId !== me.id && !(me.id === 'demo' && amHost)) return;
+  G.variant = variant;
+  G.pendingDealerChoice = false;
+
+  // Hide the variant picker overlay
+  const overlay = document.getElementById('showdown-overlay');
+  if (overlay) overlay.style.display = 'none';
+
+  if (amHost || me.id === 'demo') {
+    // Host can proceed directly
+    syncGameState();
+    proceedToDeal();
+  } else {
+    // Guest dealer: submit choice to host via player_actions
+    if (sb && currentGameId) {
+      sb.from('player_actions').insert({
+        game_id: currentGameId,
+        player_id: me.id,
+        action: 'pick_variant',
+        amount: null,
+        target_id: variant, // re-use target_id field to carry the variant string
+        created_at: new Date().toISOString(),
+      }).then(() => {});
+    }
+  }
 }
 
 function proceedToDeal() {
@@ -3807,7 +4153,12 @@ function proceedToDeal() {
     _statsThisHand.hand_played = true;
   }
 
-  G.handNumber++;
+  // Home games with dealer's choice already rotated the dealer + bumped handNumber
+  // before showing the variant picker. Skip those steps here.
+  const dealerChoiceFormat = getFormatConfig().dealerChoiceVariant;
+  if (!dealerChoiceFormat) {
+    G.handNumber++;
+  }
   G.stage = 'preflop';
   G.community = [];
   G.pot = 0;
@@ -3829,19 +4180,32 @@ function proceedToDeal() {
     if (p.eliminated || p.chips <= 0) p.folded = true;
   });
 
-  // Rotate dealer — if prev dealer busted, findIndex returns -1 → (0 % n) = next player
-  const eligible = G.players.filter(p => !p.eliminated && p.chips > 0);
-  G.players.forEach(p => p.isDealer = false);
-  let newDealerEligIdx;
-  if (G.handNumber === 1) {
-    newDealerEligIdx = Math.floor(Math.random() * eligible.length);
-  } else {
-    const prevIdx = eligible.findIndex(p => p.id === G.dealerId);
-    newDealerEligIdx = (prevIdx + 1) % eligible.length;
+  if (!dealerChoiceFormat) {
+    // Rotate dealer — if prev dealer busted, findIndex returns -1 → (0 % n) = next player
+    const eligible = G.players.filter(p => !p.eliminated && p.chips > 0);
+    G.players.forEach(p => p.isDealer = false);
+    let newDealerEligIdx;
+    if (G.handNumber === 1) {
+      newDealerEligIdx = Math.floor(Math.random() * eligible.length);
+    } else {
+      const prevIdx = eligible.findIndex(p => p.id === G.dealerId);
+      newDealerEligIdx = (prevIdx + 1) % eligible.length;
+    }
+    const dealer = eligible[newDealerEligIdx];
+    dealer.isDealer = true;
+    G.dealerId = dealer.id;
   }
-  const dealer = eligible[newDealerEligIdx];
-  dealer.isDealer = true;
-  G.dealerId = dealer.id;
+
+  // Log this hand's variant + dealer in the event history (used by the history panel)
+  if (!G.handHistory) G.handHistory = [];
+  const dealerP = G.players.find(p => p.id === G.dealerId);
+  G.handHistory.push({
+    hand: G.handNumber,
+    variant: G.variant || 'holdem',
+    dealerName: dealerP?.name || '?',
+    dealerEmoji: dealerP?.emoji || '🃏',
+  });
+  if (G.handHistory.length > 200) G.handHistory.shift();
 
   // Deal hole cards to each active player (2 for Hold'em, 4 for Omaha)
   const numHoleCards = (VARIANTS[G.variant] || VARIANTS.holdem).holeCards;
@@ -3972,21 +4336,42 @@ function renderGame() {
     }
   }
 
+  // Show/hide host End Home Game button (host only, home game format only)
+  const endBtn = document.getElementById('host-endgame-btn');
+  if (endBtn) {
+    endBtn.style.display = (amHost && !G?.paused && !G?.tournamentOver && getFormatConfig().moneyMode) ? 'inline-block' : 'none';
+  }
+
+  // History button is available to all players in home games
+  const histBtn = document.getElementById('hand-history-btn');
+  if (histBtn) {
+    histBtn.style.display = (getFormatConfig().moneyMode && !G?.tournamentOver) ? 'inline-block' : 'none';
+  }
+
+  // Re-buy prompt: in a home game, if I'm broke, offer to re-buy
+  const meBroke = G?.players?.find(p => p.id === me.id);
+  if (meBroke && meBroke.broke && !meBroke.eliminated && getFormatConfig().moneyMode) {
+    const elimOverlay = document.getElementById('elim-overlay');
+    if (elimOverlay && elimOverlay.style.display !== 'flex') {
+      showRebuyOverlay();
+    }
+  }
+
   const blinds = getBlinds(getCurrentBlindLevel());
   document.getElementById('blind-info').innerHTML =
-    `<span class="pos-badge sb" style="font-size:0.5rem;width:16px;height:16px">SB</span> ${blinds.small} &nbsp;` +
-    `<span class="pos-badge bb" style="font-size:0.5rem;width:16px;height:16px">BB</span> ${blinds.big}`;
+    `<span class="pos-badge sb" style="font-size:0.5rem;width:16px;height:16px">SB</span> ${formatChipsCompact(blinds.small)} &nbsp;` +
+    `<span class="pos-badge bb" style="font-size:0.5rem;width:16px;height:16px">BB</span> ${formatChipsCompact(blinds.big)}`;
   document.getElementById('hand-num').textContent = `Hand #${G.handNumber}`;
   // Pot display — show side pots if any player is all-in
   const allInPlayers = G.players.filter(p => p.allIn && !p.eliminated);
   if (allInPlayers.length > 0 && G.stage !== 'showdown') {
     const previewPots = buildSidePots(G.players.filter(p => !p.eliminated));
     const potText = previewPots.length > 1
-      ? previewPots.map((p, i) => `${i===0?'Main':'Side'}: ${p.amount}`).join(' · ')
-      : `POT: ${G.pot}`;
+      ? previewPots.map((p, i) => `${i===0?'Main':'Side'}: ${formatChipsCompact(p.amount)}`).join(' · ')
+      : `POT: ${formatChips(G.pot)}`;
     document.getElementById('pot-display').textContent = potText;
   } else {
-    document.getElementById('pot-display').textContent = `POT: ${G.pot}`;
+    document.getElementById('pot-display').textContent = `POT: ${formatChips(G.pot)}`;
   }
 
   const stages = { preflop:'PRE-FLOP', flop:'FLOP', turn:'TURN', river:'RIVER', showdown:'SHOWDOWN' };
@@ -4006,12 +4391,12 @@ function renderGame() {
     });
   }
   if (myPlayer) {
-    document.getElementById('my-chips').textContent = myPlayer.chips.toLocaleString();
+    document.getElementById('my-chips').textContent = formatChips(myPlayer.chips);
     const myBetChip = document.getElementById('my-bet-chip');
     if (myBetChip) {
       if (myPlayer.bet > 0) {
         myBetChip.style.display = 'inline-flex';
-        document.getElementById('my-bet-amt').textContent = myPlayer.bet.toLocaleString();
+        document.getElementById('my-bet-amt').textContent = formatChipsCompact(myPlayer.bet);
       } else {
         myBetChip.style.display = 'none';
       }
@@ -4070,9 +4455,9 @@ function renderGame() {
         ${badges ? `<div style="position:absolute;bottom:-6px;right:-6px;display:flex;gap:2px">${badges}</div>` : ''}
       </div>
       <div class="name">${p.name}</div>
-      <div class="chips-count">${p.chips.toLocaleString()}</div>
+      <div class="chips-count">${formatChipsCompact(p.chips)}</div>
       ${p.bet > 0 ? `<div class="bet-chip-front" title="In front: ${p.bet}">
-        <span class="chip-icon">●</span> ${p.bet.toLocaleString()}
+        <span class="chip-icon">●</span> ${formatChipsCompact(p.bet)}
       </div>` : ''}
       ${p.disconnected ? `<div class="action-bubble" style="color:var(--text-dim);font-size:0.6rem">📡 Away</div>`
         : p.allIn ? `<div class="action-bubble bet" style="background:rgba(231,76,60,0.25);color:#e74c3c;border:1px solid rgba(231,76,60,0.3)">All-In</div>`
@@ -4195,17 +4580,22 @@ function renderActionBar() {
 
   const myTurn = isMyTurn();
 
-  // ── SLIDER LOGIC (item 3) ──
+  // ── SLIDER LOGIC ──
   // Slider is ALWAYS active so any player can prep a bet during others' turns.
-  // Slider min auto-adjusts as betting progresses:
-  //   - At the start of a new turn (or when minRaise increases due to a raise from
-  //     someone else), if the current slider value is < minRaise, bump it up to minRaise.
-  //   - Player can decrease only down to minRaise, never below.
+  // - At the start of a NEW turn (or when minRaise increases due to a raise from
+  //   someone else), reset the slider to minRaise — the lowest legal bet.
+  // - Otherwise preserve player's previous slider position.
   const prevSlider = document.getElementById('bet-slider');
   const prevValue = prevSlider ? parseInt(prevSlider.value) : null;
+  const turnKey = `${G.handNumber}:${G.stage}:${G.actionIndex}`;
+  const newTurn = _sliderTurnKey !== turnKey;
+  _sliderTurnKey = turnKey;
 
   let nextValue;
   if (prevValue === null || isNaN(prevValue)) {
+    nextValue = minRaise;
+  } else if (newTurn) {
+    // New turn: reset to minRaise (the lowest legal bet)
     nextValue = minRaise;
   } else if (prevValue < minRaise) {
     // Auto-bump up to legal minimum (someone bet/raised in front of us)
@@ -4221,9 +4611,11 @@ function renderActionBar() {
     const sl = document.getElementById('bet-slider');
     sl.min = minRaise;
     sl.max = maxBet;
-    sl.step = 5;
+    // Step depends on format: tournaments use 5-chip increments, home games use 1¢
+    // (the engine works in cents so step=1 means every penny)
+    sl.step = getFormatConfig().moneyMode ? 1 : 5;
     sl.value = nextValue;
-    sl.disabled = false; // ITEM 2: always active, even when not my turn
+    sl.disabled = false;
     updateBetLabel();
   } else {
     slider.style.display = 'none';
@@ -4239,20 +4631,20 @@ function renderActionBar() {
     <button class="btn btn-danger" onclick="playerAction('fold')" ${disabledAttr}>Fold</button>
     ${canCheck
       ? `<button class="btn btn-surface" onclick="playerAction('check')" ${disabledAttr}>Check</button>`
-      : `<button class="btn btn-surface" onclick="playerAction('call')" ${disabledAttr}>Call<br><span style="font-size:0.72rem;opacity:0.8">${callAmt}</span></button>`}
+      : `<button class="btn btn-surface" onclick="playerAction('call')" ${disabledAttr}>Call<br><span style="font-size:0.72rem;opacity:0.8">${formatChipsCompact(callAmt)}</span></button>`}
     <button class="btn btn-surface" onclick="playerAction('twobb')" ${twoBBOk && myTurn?'':'disabled'}
-      style="color:var(--gold)">2× BB<br><span style="font-size:0.72rem;opacity:0.8">${twoBB}</span></button>
+      style="color:var(--gold)">2× BB<br><span style="font-size:0.72rem;opacity:0.8">${formatChipsCompact(twoBB)}</span></button>
     <button class="btn btn-surface" onclick="playerAction('threebb')" ${threeBBOk && myTurn?'':'disabled'}
-      style="color:var(--gold)">3× BB<br><span style="font-size:0.72rem;opacity:0.8">${threeBB}</span></button>
+      style="color:var(--gold)">3× BB<br><span style="font-size:0.72rem;opacity:0.8">${formatChipsCompact(threeBB)}</span></button>
     <button class="btn btn-surface" onclick="playerAction('pot')" ${potOk && myTurn?'':'disabled'}
-      style="color:var(--gold)">Pot<br><span style="font-size:0.72rem;opacity:0.8">${potBet}</span></button>
+      style="color:var(--gold)">Pot<br><span style="font-size:0.72rem;opacity:0.8">${formatChipsCompact(potBet)}</span></button>
     <button class="btn btn-surface" onclick="playerAction('allin')" ${allInOk && myTurn?'':'disabled'}
-      style="color:var(--red-light);font-weight:700">ALL IN<br><span style="font-size:0.72rem;opacity:0.8">${allInBet}</span></button>
+      style="color:var(--red-light);font-weight:700">ALL IN<br><span style="font-size:0.72rem;opacity:0.8">${formatChipsCompact(allInBet)}</span></button>
     <button class="btn btn-primary btn-full" onclick="playerAction('raise')" ${!canRaise || !myTurn?'disabled':''}
       style="grid-column:1/-1">
-      Place Bet · ${canRaise ? nextValue : '—'}
+      Place Bet · ${canRaise ? formatChipsCompact(nextValue) : '—'}
     </button>
-    ${isHeadsUp && myTurn ? `<button class="btn btn-surface btn-full" onclick="offerChopShortcut()"
+    ${isHeadsUp && myTurn && getFormatConfig().chopAllowed ? `<button class="btn btn-surface btn-full" onclick="offerChopShortcut()"
       style="color:var(--gold-pale);margin-top:4px;font-size:0.8rem">🤝 Offer Chop</button>` : ''}
     ${!myTurn ? `<button onclick="leaveGameSitOut()" style="grid-column:1/-1;background:none;
       border:1px solid rgba(192,57,43,0.4);color:var(--red-light);font-size:0.72rem;
@@ -4277,12 +4669,13 @@ function snapTo5(n) { return Math.round(n / 5) * 5 || 5; }
 function updateBetLabel() {
   const sl = document.getElementById('bet-slider');
   const lbl = document.getElementById('bet-amount-label');
-  if (sl && lbl) lbl.textContent = sl.value;
+  if (sl && lbl) lbl.textContent = formatChipsCompact(parseInt(sl.value) || 0);
   // Also update the Raise button label live
   const raiseBtn = document.querySelector('#action-bar .btn-primary');
   if (raiseBtn) {
-    const span = raiseBtn.querySelector('span');
-    if (span) span.textContent = sl?.value || '';
+    const amt = sl ? formatChipsCompact(parseInt(sl.value) || 0) : '';
+    // Rebuild the label so live update keeps both the prefix and amount
+    raiseBtn.innerHTML = `Place Bet · ${amt}`;
   }
 }
 
@@ -5408,11 +5801,17 @@ function doShowdown() {
     }
 
     let newElim = false;
+    const isHomeGame = getFormatConfig().moneyMode;
     G.players.forEach(p => {
       if (!p.eliminated && p.chips <= 0) {
-        p.eliminated = true;
-        G.finalPlacements.unshift({ name: p.name, emoji: p.emoji });
-        newElim = true;
+        if (isHomeGame) {
+          // Home game: mark broke but don't eliminate. Player can re-buy.
+          p.broke = true;
+        } else {
+          p.eliminated = true;
+          G.finalPlacements.unshift({ name: p.name, emoji: p.emoji });
+          newElim = true;
+        }
       }
     });
     if (newElim) G.chopOffered = false;
@@ -5431,7 +5830,7 @@ function doShowdown() {
           <div class="avatar" style="font-size:1.4rem">${winner.emoji}</div>
           <div class="showdown-result ${iWon?'win':'lose'}">${winner.name} Wins</div>
           <div class="showdown-hand" style="color:var(--text-dim)">Everyone else folded</div>
-          <div class="winner-pot">+${winAmt} chips</div>
+          <div class="winner-pot">+${formatChipsCompact(winAmt)}${getFormatConfig().moneyMode?'':' chips'}</div>
           ${myFolded ? `<button class="btn btn-ghost btn-sm" onclick="showMyFoldedCards()" style="margin-top:6px">Show My Cards</button>` : ''}
           <button class="btn btn-primary btn-sm" onclick="dismissShowdown()"
             style="margin-top:8px;min-width:140px">Got It</button>
@@ -5520,13 +5919,18 @@ function doShowdown() {
     }
   }
 
-  // Eliminate busted players
+  // Mark busted players (home: broke + can re-buy; tournament: eliminated)
   let newElimSD = false;
+  const isHomeGameSD = getFormatConfig().moneyMode;
   G.players.forEach(p => {
     if (!p.eliminated && p.chips <= 0) {
-      p.eliminated = true;
-      G.finalPlacements.unshift({ name: p.name, emoji: p.emoji });
-      newElimSD = true;
+      if (isHomeGameSD) {
+        p.broke = true;
+      } else {
+        p.eliminated = true;
+        G.finalPlacements.unshift({ name: p.name, emoji: p.emoji });
+        newElimSD = true;
+      }
     }
   });
   if (newElimSD) G.chopOffered = false;
@@ -5593,7 +5997,7 @@ function doShowdown() {
             <div class="avatar sm">${p.emoji||p.name[0]}</div>
             <div style="font-weight:600;font-size:0.88rem;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.name}</div>
             ${won > 0 ? `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:1px">
-              <span style="font-family:'Bebas Neue',sans-serif;color:var(--gold);font-size:1.25rem;line-height:1">+${won.toLocaleString()}</span>
+              <span style="font-family:'Bebas Neue',sans-serif;color:var(--gold);font-size:1.25rem;line-height:1">+${formatChipsCompact(won)}</span>
               <span style="font-size:0.55rem;color:var(--gold-dim);letter-spacing:0.1em;text-transform:uppercase">chips</span>
             </div>` : ''}
           </div>
@@ -5677,7 +6081,7 @@ function showMuckOrShow(winner, winAmt) {
   overlay.innerHTML = `
     <div class="showdown-bar">
       <div class="showdown-result win" style="font-size:1.6rem">You Win!</div>
-      <div class="winner-pot" style="margin-bottom:4px">+${winAmt.toLocaleString()} chips — everyone folded</div>
+      <div class="winner-pot" style="margin-bottom:4px">+${formatChipsCompact(winAmt)}${getFormatConfig().moneyMode?'':' chips'} — everyone folded</div>
       <div style="font-size:0.85rem;color:var(--text-dim);margin-bottom:14px;text-align:center;line-height:1.4">
         Tap cards to ${isOmaha ? 'select which to reveal' : 'select which to show'}
       </div>
@@ -5755,6 +6159,369 @@ function showSelectedCards() {
   }
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// HOME GAME — RE-BUY FLOW
+// ════════════════════════════════════════════════════════════════════════════
+// When a player runs out of chips in a home game, they can buy more chips.
+// Each re-buy increases their total buy-in (tracked in p.totalBuyInCents) which
+// matters at cash-out time: net P/L = (final stack) − (total buy-ins).
+
+function showRebuyOverlay() {
+  if (!G || !getFormatConfig().moneyMode) return;
+  const myPlayer = G.players.find(p => p.id === me.id);
+  if (!myPlayer || !myPlayer.broke) return;
+  if (myPlayer.eliminated) return; // already done with this player
+
+  const buyInCents = (gameBuyIn || 0) * 100;
+  const totalSoFar = (myPlayer.totalBuyInCents || buyInCents) / 100;
+
+  const overlay = document.getElementById('elim-overlay');
+  overlay.style.display = 'flex';
+  overlay.innerHTML = `
+    <div class="elim-banner" style="text-align:center">
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:2rem;color:var(--gold);
+        letter-spacing:0.1em;margin-bottom:6px">OUT OF CHIPS</div>
+      <div style="font-size:0.9rem;color:var(--text-dim);margin-bottom:14px;line-height:1.4">
+        You're at $0. Want to re-buy and keep playing?
+      </div>
+      <div style="background:rgba(212,168,67,0.08);border:1px solid var(--gold-dim);
+        border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:0.78rem;line-height:1.4">
+        Re-buy: <strong style="color:var(--gold)">$${gameBuyIn}</strong> → $${gameBuyIn} in chips<br>
+        Your total buy-in so far: <strong>$${totalSoFar.toFixed(2)}</strong>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <button class="btn btn-ghost" onclick="declineRebuy()">Sit Out</button>
+        <button class="btn btn-primary" onclick="requestRebuy()">Re-Buy $${gameBuyIn}</button>
+      </div>
+    </div>`;
+}
+
+function requestRebuy() {
+  const myPlayer = G?.players.find(p => p.id === me.id);
+  if (!myPlayer || !myPlayer.broke) return;
+  const buyInCents = (gameBuyIn || 0) * 100;
+  if (!buyInCents) { toast('No buy-in amount set'); return; }
+
+  if (amHost || me.id === 'demo') {
+    // Host applies directly
+    applyRebuy(me.id, buyInCents);
+  } else if (sb && currentGameId) {
+    // Guest submits via player_actions
+    sb.from('player_actions').insert({
+      game_id: currentGameId,
+      player_id: me.id,
+      action: 'rebuy',
+      amount: buyInCents,
+      created_at: new Date().toISOString(),
+    }).then(() => {});
+    // Optimistically close the overlay so the user gets feedback
+    document.getElementById('elim-overlay').style.display = 'none';
+    toast('Re-buy requested…');
+  }
+}
+
+function declineRebuy() {
+  const myPlayer = G?.players.find(p => p.id === me.id);
+  if (!myPlayer) return;
+
+  if (amHost || me.id === 'demo') {
+    myPlayer.eliminated = true;
+    myPlayer.broke = false;
+    syncGameState();
+  } else if (sb && currentGameId) {
+    sb.from('player_actions').insert({
+      game_id: currentGameId,
+      player_id: me.id,
+      action: 'sit_out',
+      amount: null,
+      created_at: new Date().toISOString(),
+    }).then(() => {});
+  }
+  document.getElementById('elim-overlay').style.display = 'none';
+}
+
+// Host-side: apply a rebuy by adding chips to the player and incrementing their
+// running total buy-in. Marks them not-broke.
+function applyRebuy(playerId, addCents) {
+  const p = G?.players.find(pl => pl.id === playerId);
+  if (!p) return;
+  p.chips = (p.chips || 0) + addCents;
+  p.totalBuyInCents = (p.totalBuyInCents || ((gameBuyIn || 0) * 100)) + addCents;
+  p.broke = false;
+  p.eliminated = false;
+  // Log to variant/event history for everyone to see
+  if (!G.eventLog) G.eventLog = [];
+  G.eventLog.push({ kind: 'rebuy', playerId, playerName: p.name, amount: addCents, hand: G.handNumber });
+  syncGameState();
+  renderGame();
+  toast(`${p.name} re-bought for $${(addCents/100).toFixed(2)}`);
+}
+
+function openHandHistory() {
+  const list = document.getElementById('hand-history-list');
+  if (!list) return;
+  const history = G?.handHistory || [];
+  const events = G?.eventLog || [];
+
+  if (!history.length && !events.length) {
+    list.innerHTML = `<div style="color:var(--text-dim);font-style:italic;text-align:center;padding:20px 0">No hands played yet.</div>`;
+  } else {
+    // Build combined chronological view: hands + re-buy events
+    const combined = [];
+    history.forEach(h => combined.push({ type: 'hand', hand: h.hand, ...h }));
+    events.forEach(e => combined.push({ type: 'event', ...e }));
+    combined.sort((a, b) => (a.hand || 0) - (b.hand || 0));
+
+    list.innerHTML = combined.reverse().map(item => {
+      if (item.type === 'hand') {
+        const variantName = (VARIANTS[item.variant] || VARIANTS.holdem).short;
+        return `
+          <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;
+            background:var(--surface);border:1px solid var(--border);border-radius:6px;margin-bottom:4px">
+            <div style="font-family:'Bebas Neue',sans-serif;color:var(--gold-pale);
+              min-width:40px;text-align:center;letter-spacing:0.05em">#${item.hand}</div>
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:600;font-size:0.85rem">${variantName}</div>
+              <div style="font-size:0.7rem;color:var(--text-dim)">
+                Dealer: ${item.dealerEmoji} ${item.dealerName}
+              </div>
+            </div>
+          </div>`;
+      } else if (item.kind === 'rebuy') {
+        return `
+          <div style="display:flex;align-items:center;gap:10px;padding:6px 12px;
+            background:rgba(212,168,67,0.06);border-left:2px solid var(--gold);border-radius:4px;margin-bottom:4px">
+            <div style="font-size:0.78rem;color:var(--gold-pale)">
+              💵 ${item.playerName} re-bought $${(item.amount/100).toFixed(2)}${item.hand ? ' (after hand #' + item.hand + ')' : ''}
+            </div>
+          </div>`;
+      }
+      return '';
+    }).join('');
+  }
+
+  document.getElementById('modal-hand-history').style.display = 'flex';
+}
+// ════════════════════════════════════════════════════════════════════════════
+// HOME GAME — CASH OUT FLOW
+// ════════════════════════════════════════════════════════════════════════════
+// At end of a home game, each player's chip stack converts back to dollars.
+// Net P/L per player = (current stack in cents) − (total buy-ins in cents).
+// Pairwise pool/ledger entries are recorded so the friends ledger updates.
+
+let _cashOutState = null;
+
+function openCashOutModal() {
+  if (!G || !amHost) return;
+  if (!getFormatConfig().moneyMode) {
+    toast('Cash out only applies to home games');
+    return;
+  }
+  // Build participants from current G.players. Each player's effective buy-in is the
+  // sum of their original buy-in plus any re-buys (tracked in p.totalBuyInCents).
+  const defaultBuyInCents = (gameBuyIn || 0) * 100;
+  _cashOutState = {
+    players: G.players.map(p => ({
+      id: p.id,
+      name: p.name,
+      emoji: p.emoji,
+      stackCents: p.chips || 0,
+      buyInCents: p.totalBuyInCents || defaultBuyInCents,
+    })),
+  };
+  renderCashOutModal();
+  document.getElementById('modal-cashout').style.display = 'flex';
+}
+
+function renderCashOutModal() {
+  const list = document.getElementById('cashout-list');
+  if (!list || !_cashOutState) return;
+  list.innerHTML = _cashOutState.players.map((p, i) => `
+    <div style="display:flex;align-items:center;gap:10px;padding:10px;
+      background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:6px">
+      <div class="avatar sm">${p.emoji}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600;font-size:0.88rem">${p.name}</div>
+        <div style="font-size:0.7rem;color:var(--text-dim)">Bought in: $${(p.buyInCents/100).toFixed(2)}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:4px">
+        <span style="color:var(--gold)">$</span>
+        <input type="number" min="0" step="0.05" value="${(p.stackCents/100).toFixed(2)}"
+          oninput="updateCashOut(${i}, this.value)"
+          style="width:72px;background:var(--surface2);border:1px solid var(--border);
+            color:var(--gold);border-radius:6px;padding:6px 6px;font-size:0.9rem;
+            font-family:'Bebas Neue',sans-serif;letter-spacing:0.04em;text-align:right">
+      </div>
+    </div>`).join('');
+  updateCashOutTotals();
+}
+
+function updateCashOut(idx, value) {
+  if (!_cashOutState) return;
+  const dollars = Math.max(0, parseFloat(value) || 0);
+  _cashOutState.players[idx].stackCents = Math.round(dollars * 100);
+  updateCashOutTotals();
+}
+
+function updateCashOutTotals() {
+  const players = _cashOutState?.players || [];
+  const poolCents = players.reduce((s, p) => s + p.buyInCents, 0);
+  const sumCents  = players.reduce((s, p) => s + p.stackCents, 0);
+  document.getElementById('cashout-pool').textContent = '$' + (poolCents/100).toFixed(2);
+  document.getElementById('cashout-sum').textContent  = '$' + (sumCents/100).toFixed(2);
+  const msg = document.getElementById('cashout-balance-msg');
+  const btn = document.getElementById('cashout-confirm-btn');
+  if (poolCents === sumCents) {
+    msg.textContent = '✓ Cash-outs balance the pool';
+    msg.style.color = 'var(--gold)';
+    if (btn) btn.disabled = false;
+  } else {
+    const diff = (sumCents - poolCents) / 100;
+    msg.textContent = diff > 0 ? `⚠ Cash-outs exceed pool by $${diff.toFixed(2)}` : `⚠ Pool exceeds cash-outs by $${Math.abs(diff).toFixed(2)} (some chips lost?)`;
+    msg.style.color = 'var(--red-light)';
+    if (btn) btn.disabled = false; // Still allow — host may have a reason
+  }
+}
+
+async function confirmCashOut() {
+  if (!_cashOutState || !amHost) return;
+  const players = _cashOutState.players;
+  // Build a placements-like array sorted by net P/L (highest = 1st place)
+  const withNet = players.map(p => ({
+    ...p,
+    netCents: p.stackCents - p.buyInCents,
+  })).sort((a, b) => b.netCents - a.netCents);
+
+  // Save net P/L into G state so guests can also record their own ledger entries
+  G.cashOuts = withNet.map((p, i) => ({
+    id: p.id, name: p.name, emoji: p.emoji,
+    stackCents: p.stackCents, buyInCents: p.buyInCents, netCents: p.netCents,
+    placement: i + 1,
+  }));
+  G.finalPlacements = G.cashOuts.map(p => ({ name: p.name, emoji: p.emoji, netCents: p.netCents }));
+  G.tournamentOver = true;
+  G.stage = 'finished';
+  syncGameState();
+
+  if (sb && currentGameId) {
+    sb.from('games').update({ status: 'finished' }).eq('id', currentGameId).then(() => {});
+  }
+  closeModal('modal-cashout');
+  showHomeGameEnd();
+}
+
+function showHomeGameEnd() {
+  const overlay = document.getElementById('tourney-overlay');
+  if (!overlay) return;
+  overlay.style.display = 'flex';
+  const cashOuts = G.cashOuts || [];
+  const ledgerKey = `fr_ledger_recorded_${currentGameId}`;
+  const alreadyRecorded = sessionStorage.getItem(ledgerKey);
+  const ledgerBtnHtml = (gameBuyIn > 0 && me.id !== 'demo' && !alreadyRecorded) ? `
+    <button id="record-ledger-btn" onclick="onRecordHomeGameLedger()" style="background:none;
+      border:1px solid var(--gold-dim);color:var(--gold);
+      font-size:0.85rem;padding:10px 18px;border-radius:8px;cursor:pointer;margin-top:10px;font-weight:600">
+      📒 Record to Friends Ledger
+    </button>` : (alreadyRecorded ? `
+    <div style="font-size:0.78rem;color:var(--gold-pale);margin-top:8px;font-style:italic">
+      ✓ Recorded to ledger
+    </div>` : '');
+
+  overlay.innerHTML = `
+    <div class="tourney-result">
+      <div class="trophy">💵</div>
+      <div class="tourney-title">Game Over</div>
+      <div class="tourney-sub" style="margin-bottom:14px">Home Game · Cash Out</div>
+      <div class="final-places">
+        ${cashOuts.map((p, i) => {
+          const net = p.netCents / 100;
+          const netStr = (net >= 0 ? '+' : '−') + '$' + Math.abs(net).toFixed(2);
+          const color = net > 0 ? 'var(--gold)' : net < 0 ? 'var(--red-light)' : 'var(--text-dim)';
+          return `<div class="place-row">
+            <div class="place-medal">${i+1}.</div>
+            <div class="place-name">${p.emoji} ${p.name}</div>
+            <div style="font-family:'Bebas Neue',sans-serif;color:${color};font-size:1.1rem;margin-left:auto">
+              ${netStr}
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+      ${ledgerBtnHtml}
+      <button class="btn btn-primary" onclick="goHome()" style="margin-top:14px">Back to Home</button>
+    </div>`;
+}
+
+// Each player records their OWN net rows against winners (for losses) or losers (for wins).
+// Same pairwise distribution as recordGameToLedger but driven by net P/L per player.
+async function onRecordHomeGameLedger() {
+  const btn = document.getElementById('record-ledger-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Recording…'; }
+  const cashOuts = G.cashOuts || [];
+  if (!cashOuts.length) { toast('No cash-out data'); return; }
+
+  // Winners (positive net) and losers (negative net)
+  const winners = cashOuts.filter(p => p.netCents > 0);
+  const losers  = cashOuts.filter(p => p.netCents < 0);
+  const totalWinnings = winners.reduce((s, p) => s + p.netCents, 0);
+  if (totalWinnings <= 0) {
+    sessionStorage.setItem(`fr_ledger_recorded_${currentGameId}`, '1');
+    if (btn) btn.outerHTML = `<div style="font-size:0.78rem;color:var(--gold-pale);margin-top:8px;font-style:italic">✓ Nothing to record</div>`;
+    return;
+  }
+
+  // Each loser pays each winner in proportion to winner's share of total winnings.
+  const rows = [];
+  for (const w of winners) {
+    for (const l of losers) {
+      if (!w.id || !l.id || w.id === 'demo' || l.id === 'demo') continue;
+      // l owes w: (w.netCents / totalWinnings) * |l.netCents|
+      const oweCents = Math.round((w.netCents / totalWinnings) * Math.abs(l.netCents));
+      const oweDollars = oweCents / 100;
+      if (oweDollars <= 0) continue;
+      // I record my own perspective
+      if (w.id === me.id) {
+        rows.push({
+          game_id: currentGameId,
+          user_id: w.id,
+          opponent_id: l.id,
+          amount: oweDollars,
+          kind: 'game',
+          note: 'Home game cash-out',
+        });
+      }
+      if (l.id === me.id) {
+        rows.push({
+          game_id: currentGameId,
+          user_id: l.id,
+          opponent_id: w.id,
+          amount: -oweDollars,
+          kind: 'game',
+          note: 'Home game cash-out',
+        });
+      }
+    }
+  }
+  if (!rows.length) {
+    sessionStorage.setItem(`fr_ledger_recorded_${currentGameId}`, '1');
+    if (btn) btn.outerHTML = `<div style="font-size:0.78rem;color:var(--gold-pale);margin-top:8px;font-style:italic">✓ Nothing to record (broke even)</div>`;
+    return;
+  }
+  try {
+    const { error } = await sb.from('payout_ledger').insert(rows);
+    if (error) {
+      toast('Could not record: ' + error.message);
+      if (btn) { btn.disabled = false; btn.textContent = '📒 Record to Friends Ledger'; }
+      return;
+    }
+    sessionStorage.setItem(`fr_ledger_recorded_${currentGameId}`, '1');
+    if (btn) btn.outerHTML = `<div style="font-size:0.78rem;color:var(--gold-pale);margin-top:8px;font-style:italic">✓ Recorded to ledger</div>`;
+    toast('Recorded to ledger');
+  } catch(e) {
+    toast('Failed: ' + (e.message || e));
+    if (btn) { btn.disabled = false; btn.textContent = '📒 Record to Friends Ledger'; }
+  }
+}
+
 let _autoDealTimer = null;
 
 function scheduleAutoDeal(delayMs = 4000) {
@@ -5794,11 +6561,17 @@ function nextHand() {
   if (!amHost && me.id !== 'demo') return;
 
   const remaining = G.players.filter(p => !p.eliminated && p.chips > 0);
-  if (remaining.length <= 1) { endTournament(); return; }
+  // Tournament-style only: auto-end when 1 player left. Home games run until host calls End.
+  if (!getFormatConfig().moneyMode && remaining.length <= 1) { endTournament(); return; }
+  // Home game: if only 1 player has chips, just skip the deal but don't end
+  if (getFormatConfig().moneyMode && remaining.length < 2) {
+    toast('Not enough players with chips. Host: tap End to cash out.');
+    return;
+  }
 
-  // Check if I'm eliminated
+  // Check if I'm eliminated (tournament only)
   const myPlayer = G.players.find(p => p.id === me.id);
-  if (myPlayer?.eliminated) {
+  if (myPlayer?.eliminated && !getFormatConfig().moneyMode) {
     showEliminated();
     return;
   }
