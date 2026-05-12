@@ -832,27 +832,62 @@ window.__dbgLogs = [];
                 font-family:'Bebas Neue',sans-serif;letter-spacing:0.04em;text-align:right">
           </div>
         </div>
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-          <div style="font-size:0.78rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.1em">Blind Structure</div>
-          <button class="btn btn-ghost btn-sm" onclick="addBlindLevel()">+ Add Level</button>
+        <!-- Tournament-style multi-level blind editor (hidden in home games) -->
+        <div id="tournament-blinds-section">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <div style="font-size:0.78rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.1em">Blind Structure</div>
+            <button class="btn btn-ghost btn-sm" onclick="addBlindLevel()">+ Add Level</button>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+            <div style="font-size:0.78rem;color:var(--text-dim)">Minutes per level</div>
+            <input class="blind-input" id="blind-duration-input" type="number" min="1" max="60" value="10"
+              oninput="blindDurationSeconds = Math.max(1, parseInt(this.value)||10) * 60"
+              style="width:52px">
+          </div>
+          <div style="overflow-x:auto">
+            <table class="blind-table">
+              <thead>
+                <tr>
+                  <th>Lvl</th><th>Small</th><th>Big</th><th></th>
+                </tr>
+              </thead>
+              <tbody id="blind-editor-body"></tbody>
+            </table>
+          </div>
+          <button class="btn btn-ghost btn-full btn-sm" onclick="resetBlinds()" style="margin-top:8px">Reset to Default</button>
         </div>
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-          <div style="font-size:0.78rem;color:var(--text-dim)">Minutes per level</div>
-          <input class="blind-input" id="blind-duration-input" type="number" min="1" max="60" value="10"
-            oninput="blindDurationSeconds = Math.max(1, parseInt(this.value)||10) * 60"
-            style="width:52px">
+
+        <!-- Home-game blinds editor (simple SB/BB in cents) -->
+        <div id="home-blinds-section" style="display:none">
+          <div style="font-size:0.78rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px">Blinds (¢)</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px">
+            <div>
+              <div style="font-size:0.7rem;color:var(--text-dim);margin-bottom:4px">Small Blind</div>
+              <div style="display:flex;align-items:center;gap:4px">
+                <span style="color:var(--gold)">¢</span>
+                <input id="home-sb-input" type="number" min="1" step="1" value="5"
+                  oninput="onHomeBlindChange()"
+                  style="flex:1;background:var(--surface2);border:1px solid var(--border);
+                    color:var(--gold);border-radius:6px;padding:6px 8px;font-size:0.95rem;
+                    font-family:'Bebas Neue',sans-serif;letter-spacing:0.04em;text-align:right">
+              </div>
+            </div>
+            <div>
+              <div style="font-size:0.7rem;color:var(--text-dim);margin-bottom:4px">Big Blind</div>
+              <div style="display:flex;align-items:center;gap:4px">
+                <span style="color:var(--gold)">¢</span>
+                <input id="home-bb-input" type="number" min="1" step="1" value="10"
+                  oninput="onHomeBlindChange()"
+                  style="flex:1;background:var(--surface2);border:1px solid var(--border);
+                    color:var(--gold);border-radius:6px;padding:6px 8px;font-size:0.95rem;
+                    font-family:'Bebas Neue',sans-serif;letter-spacing:0.04em;text-align:right">
+              </div>
+            </div>
+          </div>
+          <div style="font-size:0.7rem;color:var(--text-dim);font-style:italic;line-height:1.4">
+            Blinds stay fixed throughout the game · No level timer
+          </div>
         </div>
-        <div style="overflow-x:auto">
-          <table class="blind-table">
-            <thead>
-              <tr>
-                <th>Lvl</th><th>Small</th><th>Big</th><th></th>
-              </tr>
-            </thead>
-            <tbody id="blind-editor-body"></tbody>
-          </table>
-        </div>
-        <button class="btn btn-ghost btn-full btn-sm" onclick="resetBlinds()" style="margin-top:8px">Reset to Default</button>
       </div>
 
       <button class="btn btn-primary btn-full" id="lobby-start-btn" onclick="startGame()" style="display:none">
@@ -1271,12 +1306,11 @@ const VARIANTS = {
     short: 'GUTS',
     holeCards: 3,
     description: '3 cards · in/out · match full pot',
-    style: 'guts',          // declaration-based, no betting rounds
-    homeOnly: true,         // only available in home games
-    ante: 10,               // 10¢ ante per hand
-    rebuyOnEveryoneOut: 10, // add 10¢ if everyone goes out, redeal
+    style: 'guts',
+    homeOnly: true,
+    // ante and re-deal ante always equal the BB (resolved at runtime via getBlinds())
     decisionTimerSec: 20,
-    matchPotFraction: 1.0,  // losing "in" players match the FULL pot
+    matchPotFraction: 1.0,
   },
 };
 
@@ -2273,6 +2307,7 @@ function selectGameFormat(format) {
   } else {
     BLIND_LEVELS = DEFAULT_BLIND_LEVELS.map(l => ({ ...l }));
   }
+  toggleBlindEditorSection();
   updateCreateGameSummary();
 }
 
@@ -2534,7 +2569,7 @@ async function openLobby(gameId) {
 
   // Load buy_in_amount + game format/variant from DB
   if (sb && me.id !== 'demo') {
-    sb.from('games').select('buy_in_amount, game_format, game_variant').eq('id', gameId).single().then(({ data }) => {
+    sb.from('games').select('buy_in_amount, game_format, game_variant, blind_config').eq('id', gameId).single().then(({ data }) => {
       if (data?.buy_in_amount !== undefined && data?.buy_in_amount !== null) {
         gameBuyIn = data.buy_in_amount;
       } else {
@@ -2542,11 +2577,23 @@ async function openLobby(gameId) {
       }
       if (data?.game_format) gameFormat = data.game_format;
       if (data?.game_variant) gameVariant = data.game_variant;
+      // Load home-game blinds from DB if present
+      if (data?.blind_config?.levels?.[0] && gameFormat === 'home') {
+        const lvl = data.blind_config.levels[0];
+        const sbI = document.getElementById('home-sb-input');
+        const bbI = document.getElementById('home-bb-input');
+        if (sbI) sbI.value = lvl.small;
+        if (bbI) bbI.value = lvl.big;
+        BLIND_LEVELS = [{ level: 1, small: lvl.small, big: lvl.big }];
+      }
       const inp = document.getElementById('buy-in-input');
       if (inp) inp.value = gameBuyIn;
       updatePayoutPreview();
       updateLobbyVariantBadge();
+      toggleBlindEditorSection();
     });
+  } else {
+    toggleBlindEditorSection();
   }
 
   // Render friend invite list — all joined players can invite
@@ -3113,6 +3160,43 @@ function onBuyInChanged(value) {
   }
 }
 
+// Toggle the tournament-style vs home-style blind editor based on selected format.
+// Tournament shows multi-level + timer. Home shows just SB/BB (no escalation, no timer).
+function toggleBlindEditorSection() {
+  const tournamentEd = document.getElementById('tournament-blinds-section');
+  const homeEd = document.getElementById('home-blinds-section');
+  if (!tournamentEd || !homeEd) return;
+  if (gameFormat === 'home') {
+    tournamentEd.style.display = 'none';
+    homeEd.style.display = 'block';
+    // Sync the inputs to current BLIND_LEVELS[0]
+    const sbI = document.getElementById('home-sb-input');
+    const bbI = document.getElementById('home-bb-input');
+    if (sbI && BLIND_LEVELS[0]) sbI.value = BLIND_LEVELS[0].small;
+    if (bbI && BLIND_LEVELS[0]) bbI.value = BLIND_LEVELS[0].big;
+  } else {
+    tournamentEd.style.display = 'block';
+    homeEd.style.display = 'none';
+  }
+}
+
+let _homeBlindSaveTimer = null;
+function onHomeBlindChange() {
+  const sbI = document.getElementById('home-sb-input');
+  const bbI = document.getElementById('home-bb-input');
+  const sb_val = Math.max(1, parseInt(sbI?.value) || 5);
+  const bb_val = Math.max(sb_val, parseInt(bbI?.value) || 10);
+  BLIND_LEVELS = [{ level: 1, small: sb_val, big: bb_val }];
+  if (sb && currentLobbyId && me.id !== 'demo') {
+    clearTimeout(_homeBlindSaveTimer);
+    _homeBlindSaveTimer = setTimeout(() => {
+      sb.from('games').update({
+        blind_config: { levels: BLIND_LEVELS, duration: blindDurationSeconds },
+      }).eq('id', currentLobbyId).then(() => {});
+    }, 600);
+  }
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // BLIND LEVEL TIMER (time-based, runs during the game)
 // ════════════════════════════════════════════════════════════════════════════
@@ -3122,9 +3206,15 @@ let _currentBlindLevel  = 0;
 
 function startBlindTimer() {
   stopBlindTimer();
+  // Home games don't escalate blinds — no timer needed
+  if (getFormatConfig() && !getFormatConfig().blindsEscalate) {
+    // Just paint a static display
+    updateBlindTimerDisplay();
+    return;
+  }
   _currentBlindLevel = 0;
   _blindLevelStartTime = Date.now();
-  updateBlindTimerDisplay(); // paint immediately at 100%
+  updateBlindTimerDisplay();
   _blindTimerInterval = setInterval(tickBlindTimer, 1000);
 }
 
@@ -4303,7 +4393,8 @@ function proceedToDeal() {
   // Guts games: post ante, enter simultaneous decision phase (no betting rounds)
   const vCfg = VARIANTS[G.variant] || VARIANTS.holdem;
   if (vCfg.style === 'guts') {
-    postAntes(vCfg.ante || 10);
+    const anteAmount = blinds.big; // ante always equals the BB
+    postAntes(anteAmount);
     G.stage = 'guts_decision';
     G.gutsDecisions = {};
     G.gutsResults = null;
@@ -4570,12 +4661,14 @@ function resolveGuts() {
   const ins  = eligible.filter(p => G.gutsDecisions[p.id] === 'in');
   const vCfg = VARIANTS[G.variant];
 
-  // Case A: NOBODY in — add another ante from everyone, redeal, decide again
+  // Case A: NOBODY in — add another ante (= BB) from everyone, redeal, decide again
   if (ins.length === 0) {
-    const extraAnte = vCfg.rebuyOnEveryoneOut || vCfg.ante;
-    postAntes(extraAnte);
+    const blinds = getBlinds(getCurrentBlindLevel());
+    postAntes(blinds.big);
     G.gutsDecisions = {};
     G.gutsRollCount = (G.gutsRollCount || 0) + 1;
+    // Bump handNumber so all players' clients re-fetch their private cards
+    G.handNumber = (G.handNumber || 0) + 1;
     G.deck = makeDeck();
     G.players.forEach(p => {
       if (!p.eliminated && !p.broke) {
@@ -4584,8 +4677,14 @@ function resolveGuts() {
       }
     });
     writeGutsPrivateHands();
+    // Reload host's own private hand cache so own cards update visually
+    const myP = G.players.find(p => p.id === me.id);
+    if (myP && myP.hand?.length) {
+      _myPrivateHand = { handNumber: G.handNumber, cards: myP.hand };
+    }
     G.gutsDeadlineMs = Date.now() + ((vCfg.decisionTimerSec || 20) * 1000);
     syncGameState();
+    renderGame();
     showGutsDecision();
     return;
   }
@@ -4670,8 +4769,9 @@ function continueGutsProgression() {
   // CRITICAL: do NOT set pendingDealerChoice — dealer stays as-is for the whole
   // progression. variant stays guts3.
   G.handNumber = (G.handNumber || 0) + 1;
-  G.pendingDealerChoice = false; // explicitly ensure dealer choice DOES NOT fire
-  postAntes(vCfg.ante || 10);
+  G.pendingDealerChoice = false;
+  const blinds = getBlinds(getCurrentBlindLevel());
+  postAntes(blinds.big); // ante always equals BB
   G.gutsDecisions = {};
   G.gutsRollCount = (G.gutsRollCount || 0) + 1;
   G.gutsResults = null;
@@ -4684,9 +4784,15 @@ function continueGutsProgression() {
     }
   });
   writeGutsPrivateHands();
+  // Reload host's own private hand cache so own cards update visually
+  const myP = G.players.find(p => p.id === me.id);
+  if (myP && myP.hand?.length) {
+    _myPrivateHand = { handNumber: G.handNumber, cards: myP.hand };
+  }
   G.gutsDeadlineMs = Date.now() + ((vCfg.decisionTimerSec || 20) * 1000);
   G.stage = 'guts_decision';
   syncGameState();
+  renderGame();
   showGutsDecision();
 
   // Reset the deadline checker
@@ -4877,6 +4983,12 @@ function renderGame() {
   const histBtn = document.getElementById('hand-history-btn');
   if (histBtn) {
     histBtn.style.display = (getFormatConfig().moneyMode && !G?.tournamentOver) ? 'inline-block' : 'none';
+  }
+
+  // Hide blind level timer in home games (blinds are fixed, no escalation)
+  const blindRow = document.getElementById('blind-timer-row');
+  if (blindRow) {
+    blindRow.style.display = getFormatConfig().blindsEscalate ? 'flex' : 'none';
   }
 
   // Re-buy prompt: in a home game, if I'm broke, offer to re-buy
