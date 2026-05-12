@@ -3974,6 +3974,15 @@ function guestSubscribeToGame(gameId) {
         }
       }
 
+      // Also re-fetch private hand if we entered a play stage (preflop/guts_decision)
+      // from a non-play stage (dealer pick) — handNumber may not have changed but
+      // the host just dealt cards and wrote new private_hands rows.
+      const isPlayStage = ['preflop', 'guts_decision'].includes(G.stage);
+      const wasPlayStage = ['preflop', 'guts_decision'].includes(prevStage);
+      if (isPlayStage && !wasPlayStage && G.handNumber > 0) {
+        fetchMyPrivateHand(gameId, G.handNumber);
+      }
+
       applyMyPrivateHand();
       renderGame();
 
@@ -4360,114 +4369,124 @@ function postAntes(anteCents) {
 // 3-CARD GUTS — DECISION + REVEAL
 // ════════════════════════════════════════════════════════════════════════════
 let _gutsTimerInterval = null;
+let _gutsLastRenderKey = null;
 
 function showGutsDecision() {
   if (!G || G.stage !== 'guts_decision') return;
-  const overlay = document.getElementById('showdown-overlay');
-  if (!overlay) return;
 
   const eligible = G.players.filter(p => !p.eliminated && !p.broke);
   const decisions = G.gutsDecisions || {};
   const myDecision = decisions[me.id];
-
-  // Calculate time remaining
-  const msLeft = Math.max(0, (G.gutsDeadlineMs || 0) - Date.now());
-  const secLeft = Math.ceil(msLeft / 1000);
-
-  // Pot display
-  const potStr = formatChipsCompact(G.pot || 0);
-
-  // Locked-in indicator: how many decided / how many total
   const decidedCount = eligible.filter(p => decisions[p.id]).length;
   const totalCount = eligible.length;
 
-  // Player chips list
-  const playerChips = eligible.map(p => {
-    const choice = decisions[p.id];
-    const isMe = p.id === me.id;
-    const locked = !!choice;
-    return `
-      <div style="display:flex;align-items:center;gap:6px;padding:4px 8px;
-        background:${locked?'rgba(212,168,67,0.15)':'rgba(255,255,255,0.05)'};
-        border-radius:12px;font-size:0.75rem;${isMe?'outline:1px solid var(--gold)':''}">
-        <span>${p.emoji}</span>
-        <span style="font-weight:${isMe?600:400}">${p.name}</span>
-        ${locked ? '<span style="color:var(--gold);font-size:0.7rem">✓</span>' : '<span style="color:var(--text-dim);font-size:0.65rem">…</span>'}
-      </div>`;
-  }).join('');
+  // Build a render key so we only fully re-render the action area when the
+  // state changes (decisions, total, my choice). Timer just updates the seconds.
+  const renderKey = `${myDecision||'_'}|${decidedCount}/${totalCount}|${G.gutsRollCount||0}`;
+  const sliderRow = document.getElementById('bet-slider-row');
+  const autoBar = document.getElementById('auto-action-bar');
+  const actionBar = document.getElementById('action-bar');
+  if (sliderRow) sliderRow.style.display = 'none';
+  if (autoBar) autoBar.innerHTML = '';
 
-  overlay.style.display = 'flex';
-  overlay.dataset.kind = 'guts-decision';
+  // Make sure any leftover overlay is hidden
+  const overlay = document.getElementById('showdown-overlay');
+  if (overlay && overlay.dataset.kind !== 'guts-reveal') overlay.style.display = 'none';
 
-  if (myDecision) {
-    // I've already chosen — show locked state + waiting
-    overlay.innerHTML = `
-      <div class="showdown-bar" style="max-width:380px;text-align:center">
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:1.6rem;letter-spacing:0.1em;
-          color:var(--gold);margin-bottom:6px">3-CARD GUTS</div>
-        <div style="font-size:0.85rem;color:var(--text-dim);margin-bottom:8px">Pot: ${potStr}</div>
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:1.4rem;
-          color:${myDecision==='in'?'var(--gold)':'var(--text-dim)'};
-          letter-spacing:0.1em;margin-bottom:14px">
-          You chose: ${myDecision === 'in' ? '🔥 GUTS' : '👋 NO GUTS'}
-        </div>
-        <div style="font-size:0.85rem;color:var(--text-dim);margin-bottom:10px">
-          Waiting for others… ${decidedCount}/${totalCount} decided
-        </div>
-        <div style="display:flex;flex-wrap:wrap;gap:4px;justify-content:center;margin-bottom:10px">${playerChips}</div>
-        <div style="font-family:'Bebas Neue',sans-serif;color:${secLeft<5?'var(--red-light)':'var(--text-dim)'};
-          letter-spacing:0.05em">⏱ ${secLeft}s</div>
-      </div>`;
+  if (!actionBar) return;
+
+  if (_gutsLastRenderKey === renderKey) {
+    // Just refresh the timer text without rebuilding
+    updateGutsTimerOnly();
   } else {
-    // Show Guts / No Guts choice
-    overlay.innerHTML = `
-      <div class="showdown-bar" style="max-width:380px;text-align:center">
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:1.6rem;letter-spacing:0.1em;
-          color:var(--gold);margin-bottom:6px">3-CARD GUTS</div>
-        <div style="font-size:0.85rem;color:var(--text-dim);margin-bottom:14px">
-          Pot: <strong style="color:var(--gold)">${potStr}</strong>
-          ${G.gutsRollCount ? ` · Roll #${G.gutsRollCount+1}` : ''}
-        </div>
-        <div style="font-size:0.78rem;color:var(--text-dim);margin-bottom:14px;line-height:1.5">
-          In = match HALF the pot if you lose<br>Out = forfeit ante, watch this hand
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
-          <button onclick="gutsDecide('out')" class="btn btn-ghost"
-            style="padding:18px;font-family:'Bebas Neue',sans-serif;font-size:1.1rem;letter-spacing:0.1em">
-            👋 No Guts
-          </button>
-          <button onclick="gutsDecide('in')" class="btn btn-primary"
-            style="padding:18px;font-family:'Bebas Neue',sans-serif;font-size:1.1rem;letter-spacing:0.1em">
-            🔥 Guts
-          </button>
-        </div>
-        <div style="display:flex;flex-wrap:wrap;gap:4px;justify-content:center;margin-bottom:10px">${playerChips}</div>
-        <div style="font-family:'Bebas Neue',sans-serif;color:${secLeft<5?'var(--red-light)':'var(--gold-pale)'};
-          letter-spacing:0.05em;font-size:1.1rem">⏱ ${secLeft}s${secLeft<=0?' — auto-OUT applied':''}</div>
-      </div>`;
+    _gutsLastRenderKey = renderKey;
+    const potStr = formatChipsCompact(G.pot || 0);
+    const playerChips = eligible.map(p => {
+      const choice = decisions[p.id];
+      const isMe = p.id === me.id;
+      const locked = !!choice;
+      return `
+        <div style="display:inline-flex;align-items:center;gap:4px;padding:3px 7px;
+          background:${locked?'rgba(212,168,67,0.15)':'rgba(255,255,255,0.05)'};
+          border-radius:10px;font-size:0.7rem;
+          ${isMe?'outline:1px solid var(--gold)':''}">
+          <span style="font-size:0.85rem">${p.emoji}</span>
+          <span style="font-weight:${isMe?600:400}">${p.name}</span>
+          ${locked ? '<span style="color:var(--gold);font-size:0.65rem">✓</span>' : ''}
+        </div>`;
+    }).join('');
+
+    if (myDecision) {
+      actionBar.innerHTML = `
+        <div style="grid-column:1/-1;text-align:center;padding:8px">
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:1.1rem;
+            color:${myDecision==='in'?'var(--gold)':'var(--text-dim)'};letter-spacing:0.1em">
+            You chose: ${myDecision === 'in' ? '🔥 GUTS' : '👋 NO GUTS'}
+          </div>
+          <div style="font-size:0.72rem;color:var(--text-dim);margin-top:4px">
+            Waiting for others… ${decidedCount}/${totalCount} decided
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:4px;justify-content:center;margin-top:6px">${playerChips}</div>
+          <div id="guts-timer-text" style="font-family:'Bebas Neue',sans-serif;
+            color:var(--gold-pale);margin-top:6px;font-size:0.95rem">⏱ —</div>
+        </div>`;
+    } else {
+      actionBar.innerHTML = `
+        <div style="grid-column:1/-1;padding:6px 8px">
+          <div style="text-align:center;font-size:0.7rem;color:var(--text-dim);margin-bottom:4px">
+            POT: <strong style="color:var(--gold)">${potStr}</strong>
+            ${G.gutsRollCount ? ' · Roll #' + (G.gutsRollCount+1) : ''}
+            · In = match HALF on loss
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <button onclick="gutsDecide('out')" class="btn btn-ghost"
+              style="padding:14px;font-family:'Bebas Neue',sans-serif;
+                font-size:1rem;letter-spacing:0.1em">👋 No Guts</button>
+            <button onclick="gutsDecide('in')" class="btn btn-primary"
+              style="padding:14px;font-family:'Bebas Neue',sans-serif;
+                font-size:1rem;letter-spacing:0.1em">🔥 Guts</button>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:4px;justify-content:center;margin-top:6px">${playerChips}</div>
+          <div id="guts-timer-text" style="font-family:'Bebas Neue',sans-serif;
+            color:var(--gold-pale);text-align:center;margin-top:4px;font-size:0.9rem">⏱ —</div>
+        </div>`;
+    }
+    updateGutsTimerOnly();
   }
 
-  // Start ticking timer (one interval, refreshes the UI every second)
+  // Single tick interval — only manipulates the timer text element
   if (!_gutsTimerInterval) {
     _gutsTimerInterval = setInterval(() => {
       if (!G || G.stage !== 'guts_decision') {
         clearInterval(_gutsTimerInterval);
         _gutsTimerInterval = null;
+        _gutsLastRenderKey = null;
         return;
       }
-      // Apply auto-out for ME if timer expired and I haven't decided
+      // Apply auto-out for ME if expired
       const myD = G.gutsDecisions?.[me.id];
       if (!myD && Date.now() >= (G.gutsDeadlineMs || 0)) {
         gutsDecide('out');
-      } else {
-        showGutsDecision(); // refresh display
+        return;
       }
+      updateGutsTimerOnly();
     }, 1000);
   }
 }
 
+function updateGutsTimerOnly() {
+  const el = document.getElementById('guts-timer-text');
+  if (!el || !G) return;
+  const msLeft = Math.max(0, (G.gutsDeadlineMs || 0) - Date.now());
+  const secLeft = Math.ceil(msLeft / 1000);
+  el.style.color = secLeft < 5 ? 'var(--red-light)' : 'var(--gold-pale)';
+  el.textContent = '⏱ ' + secLeft + 's';
+}
+
 function hideGutsDecision() {
   if (_gutsTimerInterval) { clearInterval(_gutsTimerInterval); _gutsTimerInterval = null; }
+  _gutsLastRenderKey = null;
+  // Don't blow away the whole action bar — renderGame will rebuild it
   const overlay = document.getElementById('showdown-overlay');
   if (overlay && overlay.dataset.kind === 'guts-decision') {
     overlay.style.display = 'none';
@@ -4996,6 +5015,13 @@ function makeCardEl(card, hidden, lg, animKey) {
 function renderActionBar() {
   const bar = document.getElementById('action-bar');
   const slider = document.getElementById('bet-slider-row');
+
+  // Guts decision stage uses its own action-bar content (managed by showGutsDecision)
+  if (G.stage === 'guts_decision') {
+    if (slider) slider.style.display = 'none';
+    showGutsDecision();
+    return;
+  }
 
   const myPlayer = G.players.find(p => p.id === me.id);
   if (!myPlayer || myPlayer.eliminated) {
