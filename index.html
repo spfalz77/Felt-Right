@@ -1270,7 +1270,7 @@ const VARIANTS = {
     name: '3-Card Guts',
     short: 'GUTS',
     holeCards: 3,
-    description: '3 cards · in/out · match half pot',
+    description: '3 cards · in/out · match full pot',
     style: 'guts',          // declaration-based, no betting rounds
     homeOnly: true,         // only available in home games
     ante: 10,               // 10¢ ante per hand
@@ -4071,6 +4071,14 @@ function dealNewHand() {
   const activePlayers = G.players.filter(p => !p.eliminated && p.chips > 0);
   if (activePlayers.length < 2) { endTournament(); return; }
 
+  // SAFETY: if we're in the middle of a Guts progression, route to continuation
+  // instead of starting a fresh hand. Progression only ends when one player
+  // declared "in" alone (gutsResults.progressionEnded === true).
+  if (G.variant === 'guts3' && G.gutsResults && G.gutsResults.progressionEnded === false) {
+    if (amHost || me.id === 'demo') continueGutsProgression();
+    return;
+  }
+
   // Home game: dealer picks variant before dealing.
   // We pre-rotate the dealer here so the dealer-of-this-hand can be identified,
   // then pause for variant selection. proceedToDeal will run after the choice.
@@ -4137,7 +4145,7 @@ function showDealerChoice() {
           <button onclick="dealerPickedVariant('guts3')" class="format-btn"
             style="padding:14px 12px;cursor:pointer;text-align:left">
             <div style="font-family:'Bebas Neue',sans-serif;font-size:1.05rem;letter-spacing:0.08em">3-Card Guts</div>
-            <div style="font-size:0.68rem;color:var(--text-dim);margin-top:2px">In/out · match half pot · 10¢ ante</div>
+            <div style="font-size:0.68rem;color:var(--text-dim);margin-top:2px">In/out · match full pot · 10¢ ante</div>
           </button>
         </div>
       </div>`;
@@ -4436,7 +4444,7 @@ function showGutsDecision() {
           <div style="text-align:center;font-size:0.7rem;color:var(--text-dim);margin-bottom:4px">
             POT: <strong style="color:var(--gold)">${potStr}</strong>
             ${G.gutsRollCount ? ' · Roll #' + (G.gutsRollCount+1) : ''}
-            · In = match HALF on loss
+            · In = match FULL pot on loss
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
             <button onclick="gutsDecide('out')" class="btn btn-ghost"
@@ -4658,6 +4666,11 @@ function continueGutsProgression() {
   if (!G || G.variant !== 'guts3') return;
   const vCfg = VARIANTS[G.variant];
 
+  // Bump handNumber so guests treat this as a new deal and re-fetch private cards.
+  // CRITICAL: do NOT set pendingDealerChoice — dealer stays as-is for the whole
+  // progression. variant stays guts3.
+  G.handNumber = (G.handNumber || 0) + 1;
+  G.pendingDealerChoice = false; // explicitly ensure dealer choice DOES NOT fire
   postAntes(vCfg.ante || 10);
   G.gutsDecisions = {};
   G.gutsRollCount = (G.gutsRollCount || 0) + 1;
@@ -4754,7 +4767,7 @@ function showGutsReveal() {
     if (r.losers && r.losers.length) {
       bodyHtml += `<div style="margin-top:8px;padding:8px 10px;background:rgba(231,76,60,0.08);
         border:1px solid rgba(231,76,60,0.3);border-radius:8px;font-size:0.78rem">
-        <div style="color:var(--red-light);font-weight:600;margin-bottom:4px">Match half pot:</div>
+        <div style="color:var(--red-light);font-weight:600;margin-bottom:4px">Match full pot:</div>
         ${r.losers.map(l => `
           <div style="display:flex;justify-content:space-between;font-size:0.75rem;color:var(--text-dim)">
             <span>${l.emoji} ${l.name}</span>
