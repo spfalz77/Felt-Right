@@ -3544,10 +3544,19 @@ function hostListenForActions(gameId) {
       // pick_variant is from the dealer during home-game dealer's choice — bypass turn check
       if (action === 'pick_variant') {
         if (G && G.dealerId === player_id && G.pendingDealerChoice) {
-          G.variant = target_id || 'holdem';
+          // Variant is encoded in `amount`: 1=holdem, 2=omaha, 3=guts3
+          const variantMap = { 1: 'holdem', 2: 'omaha', 3: 'guts3' };
+          G.variant = variantMap[amount] || 'holdem';
           G.pendingDealerChoice = false;
           syncGameState();
           proceedToDeal();
+        }
+        return;
+      }
+      // Guts decisions
+      if (action === 'guts_in' || action === 'guts_out') {
+        if (G && G.stage === 'guts_decision') {
+          applyGutsDecision(player_id, action === 'guts_in' ? 'in' : 'out');
         }
         return;
       }
@@ -3968,9 +3977,31 @@ function guestSubscribeToGame(gameId) {
       applyMyPrivateHand();
       renderGame();
 
-      // Dealer's choice (home game): show picker overlay if waiting on a dealer pick
+      // Dealer's choice (home game): show picker overlay if waiting on a dealer pick,
+      // hide it once the dealer has chosen
       if (G.pendingDealerChoice) {
         showDealerChoice();
+      } else {
+        const sd = document.getElementById('showdown-overlay');
+        if (sd && sd.dataset.kind === 'dealer-choice') {
+          sd.style.display = 'none';
+          sd.dataset.kind = '';
+        }
+      }
+
+      // Guts decision stage
+      if (G.stage === 'guts_decision' && G.variant === 'guts3') {
+        showGutsDecision();
+      } else {
+        hideGutsDecision();
+      }
+
+      // Guts reveal — driven by G.gutsResults being present
+      if (G.stage === 'showdown' && G.variant === 'guts3' && G.gutsResults) {
+        const sd = document.getElementById('showdown-overlay');
+        if (!sd || sd.dataset.kind !== 'guts-reveal') {
+          showGutsReveal();
+        }
       }
 
       // Re-buy prompt: am I broke in a home game?
@@ -4073,6 +4104,7 @@ function showDealerChoice() {
   const overlay = document.getElementById('showdown-overlay');
   if (!overlay) return;
   overlay.style.display = 'flex';
+  overlay.dataset.kind = 'dealer-choice';
 
   if (isDealer) {
     overlay.innerHTML = `
@@ -4127,16 +4159,24 @@ function dealerPickedVariant(variant) {
     syncGameState();
     proceedToDeal();
   } else {
-    // Guest dealer: submit choice to host via player_actions
+    // Guest dealer: submit choice to host via player_actions.
+    // Variant encoded in `amount`: 1=holdem, 2=omaha, 3=guts3 (target_id is a UUID column).
+    const variantCode = { holdem: 1, omaha: 2, guts3: 3 }[variant] || 1;
     if (sb && currentGameId) {
       sb.from('player_actions').insert({
         game_id: currentGameId,
         player_id: me.id,
         action: 'pick_variant',
-        amount: null,
-        target_id: variant, // re-use target_id field to carry the variant string
+        amount: variantCode,
         created_at: new Date().toISOString(),
-      }).then(() => {});
+      }).then(({ error }) => {
+        if (error) {
+          toast('Could not submit variant choice');
+          // Restore the picker so dealer can retry
+          G.pendingDealerChoice = true;
+          showDealerChoice();
+        }
+      });
     }
   }
 }
@@ -4180,9 +4220,11 @@ function proceedToDeal() {
     if (p.eliminated || p.chips <= 0) p.folded = true;
   });
 
+  // Compute eligible players list once (used for dealer rotation and seat positioning)
+  const eligible = G.players.filter(p => !p.eliminated && p.chips > 0);
+
   if (!dealerChoiceFormat) {
     // Rotate dealer — if prev dealer busted, findIndex returns -1 → (0 % n) = next player
-    const eligible = G.players.filter(p => !p.eliminated && p.chips > 0);
     G.players.forEach(p => p.isDealer = false);
     let newDealerEligIdx;
     if (G.handNumber === 1) {
@@ -4239,6 +4281,36 @@ function proceedToDeal() {
     }
   }
 
+  // ── BRANCH ON VARIANT STYLE ──
+  // Community games (Hold'em, Omaha): post blinds, enter preflop betting
+  // Guts games: post ante, enter simultaneous decision phase (no betting rounds)
+  const vCfg = VARIANTS[G.variant] || VARIANTS.holdem;
+  if (vCfg.style === 'guts') {
+    postAntes(vCfg.ante || 10);
+    G.stage = 'guts_decision';
+    G.gutsDecisions = {};
+    G.gutsResults = null;
+    G.gutsRollCount = 0;
+    G.gutsDeadlineMs = Date.now() + ((vCfg.decisionTimerSec || 20) * 1000);
+    G.actionIndex = -1;
+    renderGame();
+    syncGameState();
+    showGutsDecision();
+    // Host-only: tick every second to enforce deadline (auto-out any non-deciders)
+    if (amHost || me.id === 'demo') {
+      if (window._gutsHostInterval) clearInterval(window._gutsHostInterval);
+      window._gutsHostInterval = setInterval(() => {
+        if (!G || G.stage !== 'guts_decision') {
+          clearInterval(window._gutsHostInterval);
+          window._gutsHostInterval = null;
+          return;
+        }
+        gutsDeadlineCheck();
+      }, 1000);
+    }
+    return;
+  }
+
   // Post blinds — heads-up: dealer = SB
   G.currentBet = blinds.big;
   const dealerPos = G.players.findIndex(p => p.id === G.dealerId);
@@ -4265,6 +4337,388 @@ function proceedToDeal() {
   renderGame();
   syncGameState(); // push new hand state to guests
   if (!isMyTurn()) setTimeout(runCpuTurn, 1000);
+}
+
+function postAntes(anteCents) {
+  G.currentBet = 0;
+  // Carry-over from previous Guts hand (losers' match-pot money)
+  if (G.gutsCarryPot) {
+    G.pot = (G.pot || 0) + G.gutsCarryPot;
+    G.gutsCarryPot = 0;
+  }
+  G.players.forEach(p => {
+    if (p.folded || p.eliminated) return;
+    const paid = Math.min(anteCents, p.chips);
+    p.chips -= paid;
+    p.totalBet += paid;
+    G.pot += paid;
+    if (p.chips === 0) { p.allIn = true; p.broke = true; }
+  });
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 3-CARD GUTS — DECISION + REVEAL
+// ════════════════════════════════════════════════════════════════════════════
+let _gutsTimerInterval = null;
+
+function showGutsDecision() {
+  if (!G || G.stage !== 'guts_decision') return;
+  const overlay = document.getElementById('showdown-overlay');
+  if (!overlay) return;
+
+  const eligible = G.players.filter(p => !p.eliminated && !p.broke);
+  const decisions = G.gutsDecisions || {};
+  const myDecision = decisions[me.id];
+
+  // Calculate time remaining
+  const msLeft = Math.max(0, (G.gutsDeadlineMs || 0) - Date.now());
+  const secLeft = Math.ceil(msLeft / 1000);
+
+  // Pot display
+  const potStr = formatChipsCompact(G.pot || 0);
+
+  // Locked-in indicator: how many decided / how many total
+  const decidedCount = eligible.filter(p => decisions[p.id]).length;
+  const totalCount = eligible.length;
+
+  // Player chips list
+  const playerChips = eligible.map(p => {
+    const choice = decisions[p.id];
+    const isMe = p.id === me.id;
+    const locked = !!choice;
+    return `
+      <div style="display:flex;align-items:center;gap:6px;padding:4px 8px;
+        background:${locked?'rgba(212,168,67,0.15)':'rgba(255,255,255,0.05)'};
+        border-radius:12px;font-size:0.75rem;${isMe?'outline:1px solid var(--gold)':''}">
+        <span>${p.emoji}</span>
+        <span style="font-weight:${isMe?600:400}">${p.name}</span>
+        ${locked ? '<span style="color:var(--gold);font-size:0.7rem">✓</span>' : '<span style="color:var(--text-dim);font-size:0.65rem">…</span>'}
+      </div>`;
+  }).join('');
+
+  overlay.style.display = 'flex';
+  overlay.dataset.kind = 'guts-decision';
+
+  if (myDecision) {
+    // I've already chosen — show locked state + waiting
+    overlay.innerHTML = `
+      <div class="showdown-bar" style="max-width:380px;text-align:center">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:1.6rem;letter-spacing:0.1em;
+          color:var(--gold);margin-bottom:6px">3-CARD GUTS</div>
+        <div style="font-size:0.85rem;color:var(--text-dim);margin-bottom:8px">Pot: ${potStr}</div>
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:1.4rem;
+          color:${myDecision==='in'?'var(--gold)':'var(--text-dim)'};
+          letter-spacing:0.1em;margin-bottom:14px">
+          You chose: ${myDecision === 'in' ? '🔥 GUTS' : '👋 NO GUTS'}
+        </div>
+        <div style="font-size:0.85rem;color:var(--text-dim);margin-bottom:10px">
+          Waiting for others… ${decidedCount}/${totalCount} decided
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px;justify-content:center;margin-bottom:10px">${playerChips}</div>
+        <div style="font-family:'Bebas Neue',sans-serif;color:${secLeft<5?'var(--red-light)':'var(--text-dim)'};
+          letter-spacing:0.05em">⏱ ${secLeft}s</div>
+      </div>`;
+  } else {
+    // Show Guts / No Guts choice
+    overlay.innerHTML = `
+      <div class="showdown-bar" style="max-width:380px;text-align:center">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:1.6rem;letter-spacing:0.1em;
+          color:var(--gold);margin-bottom:6px">3-CARD GUTS</div>
+        <div style="font-size:0.85rem;color:var(--text-dim);margin-bottom:14px">
+          Pot: <strong style="color:var(--gold)">${potStr}</strong>
+          ${G.gutsRollCount ? ` · Roll #${G.gutsRollCount+1}` : ''}
+        </div>
+        <div style="font-size:0.78rem;color:var(--text-dim);margin-bottom:14px;line-height:1.5">
+          In = match HALF the pot if you lose<br>Out = forfeit ante, watch this hand
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
+          <button onclick="gutsDecide('out')" class="btn btn-ghost"
+            style="padding:18px;font-family:'Bebas Neue',sans-serif;font-size:1.1rem;letter-spacing:0.1em">
+            👋 No Guts
+          </button>
+          <button onclick="gutsDecide('in')" class="btn btn-primary"
+            style="padding:18px;font-family:'Bebas Neue',sans-serif;font-size:1.1rem;letter-spacing:0.1em">
+            🔥 Guts
+          </button>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px;justify-content:center;margin-bottom:10px">${playerChips}</div>
+        <div style="font-family:'Bebas Neue',sans-serif;color:${secLeft<5?'var(--red-light)':'var(--gold-pale)'};
+          letter-spacing:0.05em;font-size:1.1rem">⏱ ${secLeft}s${secLeft<=0?' — auto-OUT applied':''}</div>
+      </div>`;
+  }
+
+  // Start ticking timer (one interval, refreshes the UI every second)
+  if (!_gutsTimerInterval) {
+    _gutsTimerInterval = setInterval(() => {
+      if (!G || G.stage !== 'guts_decision') {
+        clearInterval(_gutsTimerInterval);
+        _gutsTimerInterval = null;
+        return;
+      }
+      // Apply auto-out for ME if timer expired and I haven't decided
+      const myD = G.gutsDecisions?.[me.id];
+      if (!myD && Date.now() >= (G.gutsDeadlineMs || 0)) {
+        gutsDecide('out');
+      } else {
+        showGutsDecision(); // refresh display
+      }
+    }, 1000);
+  }
+}
+
+function hideGutsDecision() {
+  if (_gutsTimerInterval) { clearInterval(_gutsTimerInterval); _gutsTimerInterval = null; }
+  const overlay = document.getElementById('showdown-overlay');
+  if (overlay && overlay.dataset.kind === 'guts-decision') {
+    overlay.style.display = 'none';
+    overlay.dataset.kind = '';
+  }
+}
+
+// Player declares "in" or "out"
+function gutsDecide(choice) {
+  if (!G || G.stage !== 'guts_decision') return;
+  if (G.gutsDecisions?.[me.id]) return; // already chose, can't change
+  const myPlayer = G.players.find(p => p.id === me.id);
+  if (!myPlayer || myPlayer.eliminated || myPlayer.broke) return;
+
+  if (amHost || me.id === 'demo') {
+    applyGutsDecision(me.id, choice);
+  } else {
+    // Guest: submit via player_actions. action='guts_in' or 'guts_out'
+    if (sb && currentGameId) {
+      sb.from('player_actions').insert({
+        game_id: currentGameId,
+        player_id: me.id,
+        action: choice === 'in' ? 'guts_in' : 'guts_out',
+        amount: null,
+        created_at: new Date().toISOString(),
+      }).then(() => {});
+    }
+    // Optimistically update local UI
+    if (!G.gutsDecisions) G.gutsDecisions = {};
+    G.gutsDecisions[me.id] = choice;
+    showGutsDecision();
+  }
+}
+
+// Host-side: record a player's decision. When all eligible players have decided
+// (or deadline passes), trigger reveal.
+function applyGutsDecision(playerId, choice) {
+  if (!G || G.stage !== 'guts_decision') return;
+  if (!G.gutsDecisions) G.gutsDecisions = {};
+  if (G.gutsDecisions[playerId]) return; // can't change
+  G.gutsDecisions[playerId] = choice;
+
+  const eligible = G.players.filter(p => !p.eliminated && !p.broke);
+  const allDecided = eligible.every(p => G.gutsDecisions[p.id]);
+
+  if (allDecided) {
+    resolveGuts();
+  } else {
+    syncGameState();
+    showGutsDecision();
+  }
+}
+
+// Host-side: also schedule a deadline check so unanswered players auto-out
+function gutsDeadlineCheck() {
+  if (!G || G.stage !== 'guts_decision') return;
+  if (Date.now() < (G.gutsDeadlineMs || 0)) return;
+  const eligible = G.players.filter(p => !p.eliminated && !p.broke);
+  let anyAutoOut = false;
+  for (const p of eligible) {
+    if (!G.gutsDecisions[p.id]) {
+      G.gutsDecisions[p.id] = 'out';
+      anyAutoOut = true;
+    }
+  }
+  if (anyAutoOut) resolveGuts();
+}
+
+// Determine winner & apply scoring after everyone has decided.
+function resolveGuts() {
+  if (!G || G.stage !== 'guts_decision') return;
+  const eligible = G.players.filter(p => !p.eliminated && !p.broke);
+  const ins  = eligible.filter(p => G.gutsDecisions[p.id] === 'in');
+  const outs = eligible.filter(p => G.gutsDecisions[p.id] === 'out');
+
+  // Case A: NOBODY in — add another ante from everyone, redeal
+  if (ins.length === 0) {
+    const vCfg = VARIANTS[G.variant];
+    const extraAnte = vCfg.rebuyOnEveryoneOut || vCfg.ante;
+    postAntes(extraAnte);
+    G.gutsDecisions = {};
+    G.gutsRollCount = (G.gutsRollCount || 0) + 1;
+    // Reshuffle and deal fresh hands
+    G.deck = makeDeck();
+    G.players.forEach(p => {
+      if (!p.eliminated && !p.broke) {
+        p.hand = [];
+        for (let i = 0; i < 3; i++) p.hand.push(G.deck.pop());
+      }
+    });
+    // Write new private hands
+    writeGutsPrivateHands();
+    G.gutsDeadlineMs = Date.now() + ((vCfg.decisionTimerSec || 20) * 1000);
+    syncGameState();
+    showGutsDecision();
+    return;
+  }
+
+  // Case B: Exactly one IN — they win the pot uncontested, no match penalty
+  if (ins.length === 1) {
+    const winner = ins[0];
+    winner.chips += G.pot;
+    G.pot = 0;
+    G.gutsResults = {
+      winnerId: winner.id,
+      winnerName: winner.name,
+      winnerEmoji: winner.emoji,
+      winAmount: winner.lastWin = G.pot, // pre-collection amount
+      losers: [],
+      uncontested: true,
+    };
+    G.stage = 'showdown';
+    hideGutsDecision();
+    syncGameState();
+    showGutsReveal();
+    return;
+  }
+
+  // Case C: Multiple INs — reveal, compare, best hand wins.
+  // Losing INs each match HALF the pot. That money seeds the NEXT hand's pot.
+  const handScores = ins.map(p => ({ p, score: evalBest3Card(p.hand) }));
+  handScores.sort((a, b) => cmpScore(b.score, a.score)); // best first
+  const winner = handScores[0].p;
+  const losers = handScores.slice(1).map(h => h.p);
+
+  const potBeforeMatch = G.pot;
+  const matchAmount = Math.round(potBeforeMatch * 0.5); // match half
+
+  // Winner takes the current pot
+  winner.chips += potBeforeMatch;
+  G.pot = 0;
+
+  // Losers each match — paid into the NEXT pot (carries over)
+  let carryOver = 0;
+  const loserPayments = [];
+  for (const l of losers) {
+    const owed = Math.min(matchAmount, l.chips);
+    l.chips -= owed;
+    if (l.chips <= 0) l.broke = true;
+    carryOver += owed;
+    loserPayments.push({ id: l.id, name: l.name, emoji: l.emoji, paid: owed, owedFull: matchAmount });
+  }
+  G.gutsCarryPot = (G.gutsCarryPot || 0) + carryOver;
+
+  G.gutsResults = {
+    winnerId: winner.id,
+    winnerName: winner.name,
+    winnerEmoji: winner.emoji,
+    winAmount: potBeforeMatch,
+    losers: loserPayments,
+    handScores: handScores.map(h => ({
+      id: h.p.id, name: h.p.name, emoji: h.p.emoji, hand: h.p.hand, score: h.score
+    })),
+    carryToNext: carryOver,
+    uncontested: false,
+  };
+  G.stage = 'showdown';
+  hideGutsDecision();
+  syncGameState();
+  showGutsReveal();
+}
+
+function writeGutsPrivateHands() {
+  if (!sb || !currentGameId || me.id === 'demo') return;
+  const handNum = G.handNumber;
+  const rows = G.players
+    .filter(p => !p.eliminated && !p.broke && p.hand?.length)
+    .map(p => ({ game_id: currentGameId, hand_number: handNum, player_id: p.id, cards: p.hand }));
+  (async () => {
+    try {
+      await sb.from('private_hands').delete().eq('game_id', currentGameId).eq('hand_number', handNum);
+      await sb.from('private_hands').insert(rows);
+    } catch(e) { console.warn('guts private_hands:', e); }
+  })();
+}
+
+function showGutsReveal() {
+  const r = G.gutsResults;
+  if (!r) return;
+  const overlay = document.getElementById('showdown-overlay');
+  if (!overlay) return;
+  overlay.style.display = 'flex';
+  overlay.dataset.kind = 'guts-reveal';
+
+  const winnerLine = `
+    <div style="font-family:'Bebas Neue',sans-serif;font-size:1.6rem;
+      color:var(--gold);letter-spacing:0.1em;margin-bottom:4px">
+      ${r.winnerEmoji} ${r.winnerName} WINS
+    </div>
+    <div style="color:var(--gold-pale);font-size:0.95rem;margin-bottom:14px">
+      +${formatChipsCompact(r.winAmount)}
+    </div>`;
+
+  let bodyHtml = '';
+  if (r.uncontested) {
+    bodyHtml = `<div style="color:var(--text-dim);font-style:italic;font-size:0.85rem;margin-bottom:14px">
+      Only player in — won uncontested
+    </div>`;
+  } else {
+    const cardCols = (cards) => cards.map(c => {
+      const red = isRed(c);
+      return `<div class="card showdown-card ${red?'red':'black'}" style="display:inline-block;margin:0 2px">
+        <div class="card-top"><div class="card-rank">${c.rank}</div><div class="card-suit">${c.suit}</div></div>
+        <div class="card-center">${c.suit}</div>
+        <div class="card-bot"><div class="card-rank">${c.rank}</div><div class="card-suit">${c.suit}</div></div>
+      </div>`;
+    }).join('');
+    bodyHtml = (r.handScores || []).map(h => {
+      const isWinner = h.id === r.winnerId;
+      return `
+        <div style="padding:8px 10px;margin-bottom:6px;border-radius:8px;
+          background:${isWinner?'rgba(212,168,67,0.15)':'rgba(255,255,255,0.04)'};
+          border:1px solid ${isWinner?'var(--gold)':'transparent'}">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+            <span>${h.emoji}</span>
+            <span style="font-weight:600;font-size:0.85rem">${h.name}</span>
+            <span style="margin-left:auto;font-family:'Bebas Neue',sans-serif;
+              color:${isWinner?'var(--gold)':'var(--text-dim)'};font-size:0.85rem">${h.score?.name||'—'}</span>
+          </div>
+          <div>${cardCols(h.hand)}</div>
+        </div>`;
+    }).join('');
+
+    if (r.losers && r.losers.length) {
+      bodyHtml += `<div style="margin-top:8px;padding:8px 10px;background:rgba(231,76,60,0.08);
+        border:1px solid rgba(231,76,60,0.3);border-radius:8px;font-size:0.78rem">
+        <div style="color:var(--red-light);font-weight:600;margin-bottom:4px">Match half pot:</div>
+        ${r.losers.map(l => `
+          <div style="display:flex;justify-content:space-between;font-size:0.75rem;color:var(--text-dim)">
+            <span>${l.emoji} ${l.name}</span>
+            <span>−${formatChipsCompact(l.paid)}${l.paid < l.owedFull ? ' (short)' : ''}</span>
+          </div>`).join('')}
+      </div>`;
+      if (r.carryToNext > 0) {
+        bodyHtml += `<div style="margin-top:6px;font-size:0.75rem;color:var(--gold-pale);text-align:center">
+          ${formatChipsCompact(r.carryToNext)} carries to next pot
+        </div>`;
+      }
+    }
+  }
+
+  overlay.innerHTML = `
+    <div class="showdown-bar" style="max-width:400px;max-height:80vh;overflow-y:auto">
+      ${winnerLine}
+      ${bodyHtml}
+      <button class="btn btn-primary btn-sm" onclick="dismissShowdown()"
+        style="margin-top:12px;min-width:140px">Got It</button>
+      <div style="font-size:0.72rem;color:var(--text-dim);margin-top:4px">Next hand in 6s…</div>
+    </div>`;
+
+  if (amHost || me.id === 'demo') scheduleAutoDeal(6000);
 }
 
 function postBlind(idx, amount) {
