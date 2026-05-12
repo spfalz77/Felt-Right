@@ -1276,7 +1276,7 @@ const VARIANTS = {
     ante: 10,               // 10¢ ante per hand
     rebuyOnEveryoneOut: 10, // add 10¢ if everyone goes out, redeal
     decisionTimerSec: 20,
-    matchPotFraction: 0.5,  // losing "in" players match HALF the pot
+    matchPotFraction: 1.0,  // losing "in" players match the FULL pot
   },
 };
 
@@ -4560,16 +4560,14 @@ function resolveGuts() {
   if (!G || G.stage !== 'guts_decision') return;
   const eligible = G.players.filter(p => !p.eliminated && !p.broke);
   const ins  = eligible.filter(p => G.gutsDecisions[p.id] === 'in');
-  const outs = eligible.filter(p => G.gutsDecisions[p.id] === 'out');
+  const vCfg = VARIANTS[G.variant];
 
-  // Case A: NOBODY in — add another ante from everyone, redeal
+  // Case A: NOBODY in — add another ante from everyone, redeal, decide again
   if (ins.length === 0) {
-    const vCfg = VARIANTS[G.variant];
     const extraAnte = vCfg.rebuyOnEveryoneOut || vCfg.ante;
     postAntes(extraAnte);
     G.gutsDecisions = {};
     G.gutsRollCount = (G.gutsRollCount || 0) + 1;
-    // Reshuffle and deal fresh hands
     G.deck = makeDeck();
     G.players.forEach(p => {
       if (!p.eliminated && !p.broke) {
@@ -4577,7 +4575,6 @@ function resolveGuts() {
         for (let i = 0; i < 3; i++) p.hand.push(G.deck.pop());
       }
     });
-    // Write new private hands
     writeGutsPrivateHands();
     G.gutsDeadlineMs = Date.now() + ((vCfg.decisionTimerSec || 20) * 1000);
     syncGameState();
@@ -4585,18 +4582,20 @@ function resolveGuts() {
     return;
   }
 
-  // Case B: Exactly one IN — they win the pot uncontested, no match penalty
+  // Case B: Exactly one IN — they win the pot uncontested. Progression ENDS.
   if (ins.length === 1) {
     const winner = ins[0];
-    winner.chips += G.pot;
+    const winAmount = G.pot;
+    winner.chips += winAmount;
     G.pot = 0;
     G.gutsResults = {
       winnerId: winner.id,
       winnerName: winner.name,
       winnerEmoji: winner.emoji,
-      winAmount: winner.lastWin = G.pot, // pre-collection amount
+      winAmount,
       losers: [],
       uncontested: true,
+      progressionEnded: true,
     };
     G.stage = 'showdown';
     hideGutsDecision();
@@ -4606,20 +4605,22 @@ function resolveGuts() {
   }
 
   // Case C: Multiple INs — reveal, compare, best hand wins.
-  // Losing INs each match HALF the pot. That money seeds the NEXT hand's pot.
+  // Losing INs each MATCH the FULL pot. Money goes into the NEXT round's pot.
+  // Then the progression CONTINUES: everyone antes again, redeal, decide again.
   const handScores = ins.map(p => ({ p, score: evalBest3Card(p.hand) }));
-  handScores.sort((a, b) => cmpScore(b.score, a.score)); // best first
+  handScores.sort((a, b) => cmpScore(b.score, a.score));
   const winner = handScores[0].p;
   const losers = handScores.slice(1).map(h => h.p);
 
   const potBeforeMatch = G.pot;
-  const matchAmount = Math.round(potBeforeMatch * 0.5); // match half
+  const matchFraction = vCfg.matchPotFraction || 1.0;
+  const matchAmount = Math.round(potBeforeMatch * matchFraction);
 
   // Winner takes the current pot
   winner.chips += potBeforeMatch;
   G.pot = 0;
 
-  // Losers each match — paid into the NEXT pot (carries over)
+  // Losers each match — money goes into G.pot directly (seeds the NEXT round)
   let carryOver = 0;
   const loserPayments = [];
   for (const l of losers) {
@@ -4629,7 +4630,7 @@ function resolveGuts() {
     carryOver += owed;
     loserPayments.push({ id: l.id, name: l.name, emoji: l.emoji, paid: owed, owedFull: matchAmount });
   }
-  G.gutsCarryPot = (G.gutsCarryPot || 0) + carryOver;
+  G.pot = carryOver; // carryover IS the new pot
 
   G.gutsResults = {
     winnerId: winner.id,
@@ -4642,11 +4643,51 @@ function resolveGuts() {
     })),
     carryToNext: carryOver,
     uncontested: false,
+    progressionEnded: false, // game continues with another round
   };
   G.stage = 'showdown';
   hideGutsDecision();
   syncGameState();
   showGutsReveal();
+}
+
+// Start the next round of the same progressive Guts hand:
+// every eligible player antes again, dealer reshuffles + deals new cards,
+// decision phase restarts. SAME DEALER stays — progression hasn't ended.
+function continueGutsProgression() {
+  if (!G || G.variant !== 'guts3') return;
+  const vCfg = VARIANTS[G.variant];
+
+  postAntes(vCfg.ante || 10);
+  G.gutsDecisions = {};
+  G.gutsRollCount = (G.gutsRollCount || 0) + 1;
+  G.gutsResults = null;
+  // Reshuffle and deal fresh hands
+  G.deck = makeDeck();
+  G.players.forEach(p => {
+    if (!p.eliminated && !p.broke) {
+      p.hand = [];
+      for (let i = 0; i < 3; i++) p.hand.push(G.deck.pop());
+    }
+  });
+  writeGutsPrivateHands();
+  G.gutsDeadlineMs = Date.now() + ((vCfg.decisionTimerSec || 20) * 1000);
+  G.stage = 'guts_decision';
+  syncGameState();
+  showGutsDecision();
+
+  // Reset the deadline checker
+  if (window._gutsHostInterval) clearInterval(window._gutsHostInterval);
+  if (amHost || me.id === 'demo') {
+    window._gutsHostInterval = setInterval(() => {
+      if (!G || G.stage !== 'guts_decision') {
+        clearInterval(window._gutsHostInterval);
+        window._gutsHostInterval = null;
+        return;
+      }
+      gutsDeadlineCheck();
+    }, 1000);
+  }
 }
 
 function writeGutsPrivateHands() {
@@ -4728,13 +4769,17 @@ function showGutsReveal() {
     }
   }
 
+  const nextLine = r.progressionEnded
+    ? 'Progression complete · next hand in 6s'
+    : 'Progression continues · ante up · next round in 6s';
+
   overlay.innerHTML = `
     <div class="showdown-bar" style="max-width:400px;max-height:80vh;overflow-y:auto">
       ${winnerLine}
       ${bodyHtml}
       <button class="btn btn-primary btn-sm" onclick="dismissShowdown()"
-        style="margin-top:12px;min-width:140px">Got It</button>
-      <div style="font-size:0.72rem;color:var(--text-dim);margin-top:4px">Next hand in 6s…</div>
+        style="margin-top:12px;min-width:140px">${r.progressionEnded ? 'Next Hand' : 'Continue'}</button>
+      <div style="font-size:0.72rem;color:var(--text-dim);margin-top:4px">${nextLine}</div>
     </div>`;
 
   if (amHost || me.id === 'demo') scheduleAutoDeal(6000);
@@ -7026,6 +7071,11 @@ function dismissShowdown() {
 
   if (amHost || me.id === 'demo') {
     cancelAutoDeal();
+    // Guts progression: if there's more to come, continue instead of starting a new hand
+    if (G?.variant === 'guts3' && G?.gutsResults && G.gutsResults.progressionEnded === false) {
+      continueGutsProgression();
+      return;
+    }
     nextHand();
   }
 }
@@ -7034,6 +7084,12 @@ function nextHand() {
   cancelAutoDeal();
   document.getElementById('showdown-overlay').style.display = 'none';
   document.getElementById('elim-overlay').style.display = 'none';
+
+  // Guts progression: if we're not done, continue same dealer/hand
+  if (G?.variant === 'guts3' && G?.gutsResults && G.gutsResults.progressionEnded === false) {
+    if (amHost || me.id === 'demo') continueGutsProgression();
+    return;
+  }
 
   // Only host (or demo mode acting as host) can deal a new hand. Guests must wait
   // for the host's state push. Calling dealNewHand on a guest would corrupt local state
