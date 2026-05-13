@@ -3920,8 +3920,45 @@ function applyRemoteAction(playerId, action, amount) {
 }
 
 // ── GUEST: receive state updates from host ────────────────────────────────────
+let _guestStatePoller = null;
+
 function guestSubscribeToGame(gameId) {
   if (gameSubscription) gameSubscription.unsubscribe();
+
+  // Fallback poller: every 8 seconds, re-fetch state in case the realtime
+  // subscription dropped events (common on mobile when screen sleeps).
+  if (_guestStatePoller) clearInterval(_guestStatePoller);
+  _guestStatePoller = setInterval(async () => {
+    if (!sb || !currentGameId || amHost) {
+      clearInterval(_guestStatePoller); _guestStatePoller = null; return;
+    }
+    try {
+      const { data } = await sb.from('games').select('state, host_id').eq('id', currentGameId).maybeSingle();
+      if (!data?.state) return;
+      const srvHand = data.state.handNumber || 0;
+      const myHand = G?.handNumber || 0;
+      const srvStage = data.state.stage;
+      const myStage = G?.stage;
+      const srvPot = data.state.pot || 0;
+      const myPot = G?.pot || 0;
+      // Apply if anything material changed
+      if (srvHand !== myHand || srvStage !== myStage || srvPot !== myPot) {
+        // Apply state, then refetch private hand if needed
+        G = data.state;
+        applyMyPrivateHand();
+        renderGame();
+        // Re-trigger Guts overlays as needed
+        if (G.stage === 'guts_decision' && G.variant === 'guts3') showGutsDecision();
+        if (G.stage === 'showdown' && G.variant === 'guts3' && G.gutsResults) {
+          const sd = document.getElementById('showdown-overlay');
+          if (!sd || sd.dataset.kind !== 'guts-reveal') showGutsReveal();
+        }
+        if (G.pendingDealerChoice) showDealerChoice();
+        if (G.handNumber > 0) fetchMyPrivateHand(currentGameId, G.handNumber);
+      }
+    } catch(e) { /* silent */ }
+  }, 8000);
+
   gameSubscription = sb.channel(`game-state:${gameId}`)
     .on('postgres_changes', {
       event: 'UPDATE', schema: 'public', table: 'games',
@@ -4033,14 +4070,13 @@ function guestSubscribeToGame(gameId) {
         commitHandStats();
       }
 
-      // Detect "I won by everyone folding" for guests (host runs this in doShowdown directly)
-      if (!amHost && G.stage === 'showdown' && prevStage !== 'showdown') {
+      // Detect "I won by everyone folding" for guests (host runs this in doShowdown directly).
+      // Skip this for Guts — Guts has its own reveal overlay driven by G.gutsResults.
+      if (!amHost && G.stage === 'showdown' && prevStage !== 'showdown' && G.variant !== 'guts3') {
         const stillIn = G.players.filter(p => !p.folded && !p.eliminated);
         if (stillIn.length === 1 && stillIn[0].id === me.id) {
           const myP = G.players.find(p => p.id === me.id);
           if (myP && myP.hand?.length && !myP.hand.some(c => c.hidden)) {
-            // Single winner = me, I have actual cards (not hidden placeholders)
-            // → show muck-or-show overlay
             const winAmt = (myP.chips || 0) - (prevMyChips || 0);
             if (winAmt > 0) {
               setTimeout(() => showMuckOrShow(myP, winAmt), 200);
@@ -7406,6 +7442,7 @@ function goHome() {
   unsubscribeFromChat();
   stopNudgeListener();
   clearInterval(_lobbyStatusPoller); _lobbyStatusPoller = null;
+  clearInterval(_guestStatePoller); _guestStatePoller = null;
   // Close chat panel if open and clear badge
   const panel = document.getElementById('chat-panel');
   const backdrop = document.getElementById('chat-backdrop');
