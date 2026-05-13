@@ -3638,6 +3638,12 @@ function hostListenForActions(gameId) {
           const variantMap = { 1: 'holdem', 2: 'omaha', 3: 'guts3' };
           G.variant = variantMap[amount] || 'holdem';
           G.pendingDealerChoice = false;
+          // Hide the dealer-choice overlay on the host (it was showing while waiting)
+          const sd = document.getElementById('showdown-overlay');
+          if (sd && sd.dataset.kind === 'dealer-choice') {
+            sd.style.display = 'none';
+            sd.dataset.kind = '';
+          }
           syncGameState();
           proceedToDeal();
         }
@@ -3943,11 +3949,9 @@ function guestSubscribeToGame(gameId) {
       const myPot = G?.pot || 0;
       // Apply if anything material changed
       if (srvHand !== myHand || srvStage !== myStage || srvPot !== myPot) {
-        // Apply state, then refetch private hand if needed
         G = data.state;
         applyMyPrivateHand();
         renderGame();
-        // Re-trigger Guts overlays as needed
         if (G.stage === 'guts_decision' && G.variant === 'guts3') showGutsDecision();
         if (G.stage === 'showdown' && G.variant === 'guts3' && G.gutsResults) {
           const sd = document.getElementById('showdown-overlay');
@@ -3957,7 +3961,7 @@ function guestSubscribeToGame(gameId) {
         if (G.handNumber > 0) fetchMyPrivateHand(currentGameId, G.handNumber);
       }
     } catch(e) { /* silent */ }
-  }, 8000);
+  }, 3000);
 
   gameSubscription = sb.channel(`game-state:${gameId}`)
     .on('postgres_changes', {
@@ -4137,6 +4141,13 @@ function guestSubscribeToGame(gameId) {
         if (!sd || sd.dataset.kind !== 'guts-reveal') {
           showGutsReveal();
         }
+      } else {
+        // Hide leftover guts-reveal overlay when state has moved on
+        const sd = document.getElementById('showdown-overlay');
+        if (sd && sd.dataset.kind === 'guts-reveal') {
+          sd.style.display = 'none';
+          sd.dataset.kind = '';
+        }
       }
 
       // Re-buy prompt: am I broke in a home game?
@@ -4198,20 +4209,27 @@ function dealNewHand() {
   if (activePlayers.length < 2) { endTournament(); return; }
 
   // SAFETY: if we're in the middle of a Guts progression, route to continuation
-  // instead of starting a fresh hand. Progression only ends when one player
-  // declared "in" alone (gutsResults.progressionEnded === true).
+  // instead of starting a fresh hand.
   if (G.variant === 'guts3' && G.gutsResults && G.gutsResults.progressionEnded === false) {
     if (amHost || me.id === 'demo') continueGutsProgression();
     return;
   }
 
+  // Starting a new hand: clear any leftover Guts result from a prior progression
+  // so the guest stops trying to show the old reveal overlay.
+  G.gutsResults = null;
+  G.gutsDecisions = {};
+  G.gutsRollCount = 0;
+  G.stage = 'deal'; // neutral pre-deal stage
+
   // Home game: dealer picks variant before dealing.
-  // We pre-rotate the dealer here so the dealer-of-this-hand can be identified,
-  // then pause for variant selection. proceedToDeal will run after the choice.
   if (getFormatConfig().dealerChoiceVariant && !G.pendingDealerChoice) {
     rotateDealer();
     G.pendingDealerChoice = true;
     G.handNumber = (G.handNumber || 0) + 1;
+    // Clear any leftover overlay before showing dealer choice
+    const sd = document.getElementById('showdown-overlay');
+    if (sd) { sd.style.display = 'none'; sd.dataset.kind = ''; }
     syncGameState();
     showDealerChoice();
     return;
@@ -4937,7 +4955,9 @@ function showGutsReveal() {
       <div style="font-size:0.72rem;color:var(--text-dim);margin-top:4px">${nextLine}</div>
     </div>`;
 
-  if (amHost || me.id === 'demo') scheduleAutoDeal(6000);
+  // Longer auto-deal window for Guts (9s) so guests have time to see reveal
+  // before the next progression round starts. Anyone can hit "Got It" sooner.
+  if (amHost || me.id === 'demo') scheduleAutoDeal(9000);
 }
 
 function postBlind(idx, amount) {
@@ -5297,9 +5317,9 @@ function renderActionBar() {
     const sl = document.getElementById('bet-slider');
     sl.min = minRaise;
     sl.max = maxBet;
-    // Step depends on format: tournaments use 5-chip increments, home games use 1¢
-    // (the engine works in cents so step=1 means every penny)
-    sl.step = getFormatConfig().moneyMode ? 1 : 5;
+    // Step depends on format: both tournament and home use 5-unit increments.
+    // Home games are in cents, smallest chip denomination is 5¢.
+    sl.step = 5;
     sl.value = nextValue;
     sl.disabled = false;
     updateBetLabel();
