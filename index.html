@@ -929,6 +929,11 @@ window.__dbgLogs = [];
             font-size:0.7rem;padding:3px 8px;border-radius:4px;cursor:pointer">
             📜
           </button>
+          <button id="quit-game-btn" onclick="confirmQuitGame()" style="
+            background:none;border:1px solid rgba(231,76,60,0.5);color:#e74c3c;
+            font-size:0.7rem;padding:3px 8px;border-radius:4px;cursor:pointer">
+            🚪 Quit
+          </button>
           <button id="chat-btn" onclick="toggleChatPanel()" style="position:relative;
             background:none;border:1px solid var(--gold-dim);color:var(--gold);
             font-size:0.85rem;padding:3px 10px;border-radius:4px;cursor:pointer;line-height:1">
@@ -1007,6 +1012,7 @@ window.__dbgLogs = [];
       <!-- Overlays -->
       <div id="showdown-overlay" style="display:none"></div>
       <div id="elim-overlay" style="display:none"></div>
+      <div id="break-overlay" style="display:none"></div>
       <div id="tourney-overlay" style="display:none"></div>
     </div>
   </div>
@@ -1179,6 +1185,21 @@ window.__dbgLogs = [];
       </div>
     </div>
 
+    <div class="input-group" id="rebuys-toggle-group">
+      <label style="display:flex;align-items:center;gap:10px;padding:10px 12px;
+        background:var(--surface2);border-radius:8px;cursor:pointer;font-size:0.85rem">
+        <input type="checkbox" id="rebuys-enabled-checkbox"
+          onchange="onRebuysToggle(this.checked)"
+          style="width:18px;height:18px;cursor:pointer;accent-color:var(--gold)">
+        <div style="flex:1">
+          <div style="font-weight:600;color:var(--text)">Allow Rebuys</div>
+          <div style="font-size:0.7rem;color:var(--text-dim);margin-top:2px">
+            ½ buy-in for ½ starting chips · Open until first break (after 4 blind levels)
+          </div>
+        </div>
+      </label>
+    </div>
+
     <div style="background:var(--surface2); border-radius:var(--r-sm); padding:10px 14px; margin-bottom:16px; font-size:0.78rem; color:var(--text-dim); line-height:1.5;">
       <span id="create-game-summary">Sit & Go · Texas Hold'em · 1500 chips</span>
     </div>
@@ -1326,17 +1347,19 @@ function roundUpTo10(amount) {
 
 // Compute how the prize pool is distributed.
 // Returns array of { placement: 1|2|3, amount: $ } or for chops, equal splits.
-function computePayouts(buyIn, totalPlayers, isChop) {
-  const pool = (buyIn || 0) * (totalPlayers || 0);
+function computePayouts(buyIn, totalPlayers, isChop, actualPoolOverride) {
+  // pool = sum of all dollars contributed (buy-ins + rebuys + add-ons).
+  // For tournaments without rebuys, this equals buyIn × totalPlayers.
+  // For tournaments WITH rebuys, the caller passes the actual pool computed
+  // from sum of player totalBuyInCents.
+  const pool = actualPoolOverride != null ? actualPoolOverride : (buyIn || 0) * (totalPlayers || 0);
   if (pool <= 0) return [];
 
   // For 7+ players, 3rd still gets buy-in back even if a chop happens
-  // (3rd was eliminated before the chop, their payout is independent)
   const thirdGetsPayout = totalPlayers >= 7;
   const thirdShare = thirdGetsPayout ? buyIn : 0;
   const topTwoPool = pool - thirdShare;
 
-  // Chop = remaining 2 players split the top-2 pool evenly
   if (isChop) {
     const half = topTwoPool / 2;
     const result = [
@@ -1347,12 +1370,10 @@ function computePayouts(buyIn, totalPlayers, isChop) {
     return result;
   }
 
-  // Winner-take-all for 2-4 players
   if (totalPlayers <= 4) {
     return [{ placement: 1, amount: pool }];
   }
 
-  // 5-6 players: 75/25 split, winner rounded up to $10
   if (totalPlayers <= 6) {
     const winnerShare = roundUpTo10(pool * 0.75);
     const secondShare = pool - winnerShare;
@@ -1362,7 +1383,6 @@ function computePayouts(buyIn, totalPlayers, isChop) {
     ];
   }
 
-  // 7+ players: 3rd gets buy-in back, top 2 split remainder 75/25 (winner rounded up to $10)
   const winnerShare = roundUpTo10(topTwoPool * 0.75);
   const secondShare = topTwoPool - winnerShare;
   return [
@@ -1370,6 +1390,14 @@ function computePayouts(buyIn, totalPlayers, isChop) {
     { placement: 2, amount: secondShare },
     { placement: 3, amount: thirdShare },
   ];
+}
+
+// Helper: compute the actual prize pool from G state (sums all rebuy/add-on contributions).
+// Returns dollars (not cents).
+function actualPrizePool() {
+  if (!G || !G.players) return 0;
+  const totalCents = G.players.reduce((sum, p) => sum + (p.totalBuyInCents || 0), 0);
+  return totalCents / 100;
 }
 
 function getBlinds(levelIndex) {
@@ -2204,22 +2232,32 @@ function renderGamesList() {
 }
 
 function gameCard(g, type) {
-  const badgeClass = type==='active' ? 'badge-green' : type==='invite' ? 'badge-gold' : type==='lobby' ? 'badge-gold' : type==='friend' ? 'badge-green' : type==='friend_lobby' ? 'badge-gold' : 'badge-dim';
-  const badgeText  = type==='active' ? 'ACTIVE' : type==='invite' ? 'INVITED' : type==='lobby' ? 'LOBBY' : type==='friend' ? 'ACTIVE' : type==='friend_lobby' ? 'OPEN' : 'DONE';
-  const btnClass   = type==='active' ? 'btn-primary' : type==='invite' ? 'btn-primary' : type==='friend_lobby' ? 'btn-primary' : type==='friend' ? 'btn-ghost' : 'btn-ghost';
-  const btnText    = type==='active' ? 'Rejoin' : type==='invite' ? 'Join' : type==='friend' ? 'Spectate' : type==='friend_lobby' ? 'Join' : type==='lobby' ? 'Open' : 'View';
+  let badgeClass = type==='active' ? 'badge-green' : type==='invite' ? 'badge-gold' : type==='lobby' ? 'badge-gold' : type==='friend' ? 'badge-green' : type==='friend_lobby' ? 'badge-gold' : 'badge-dim';
+  let badgeText  = type==='active' ? 'ACTIVE' : type==='invite' ? 'INVITED' : type==='lobby' ? 'LOBBY' : type==='friend' ? 'ACTIVE' : type==='friend_lobby' ? 'OPEN' : 'DONE';
+  let btnClass   = type==='active' ? 'btn-primary' : type==='invite' ? 'btn-primary' : type==='friend_lobby' ? 'btn-primary' : type==='friend' ? 'btn-ghost' : 'btn-ghost';
+  let btnText    = type==='active' ? 'Rejoin' : type==='invite' ? 'Join' : type==='friend' ? 'Spectate' : type==='friend_lobby' ? 'Join' : type==='lobby' ? 'Open' : 'View';
   const subLine    = (type==='friend' || type==='friend_lobby') ? `<div style="font-size:0.7rem;color:var(--text-dim)">${g.friend_name}'s game</div>` : '';
 
   // Find my chips in this game from the state if available
   let myChipsHtml = '';
+  let isAway = false;
   if (type === 'active' && g.state?.players) {
     const me_in_game = g.state.players.find(p => p.id === me.id);
     if (me_in_game) {
       const eliminated = me_in_game.eliminated;
+      isAway = me_in_game.awayFromTable && !eliminated;
       myChipsHtml = eliminated
         ? `<div class="game-card-stat"><div class="val" style="color:var(--red-light)">Out</div><div class="lbl">Status</div></div>`
         : `<div class="game-card-stat"><div class="val">${me_in_game.chips.toLocaleString()}</div><div class="lbl">My Chips</div></div>`;
     }
+  }
+  // Override the badge and button for "away" state — the user explicitly left
+  // the table and needs to tap Sit Back Down to rejoin active play.
+  if (isAway) {
+    badgeClass = 'badge-gold';
+    badgeText = 'AWAY';
+    btnText = '🪑 Sit Back Down';
+    btnClass = 'btn-primary';
   }
 
   const timeStamp = type === 'invite'
@@ -2279,6 +2317,11 @@ async function createGame() {
         status: 'lobby',
         game_format: gameFormat,
         game_variant: gameVariant,
+        blind_config: {
+          levels: BLIND_LEVELS,
+          duration: blindDurationSeconds,
+          rebuys_enabled: gameFormat === 'tournament' ? !!gameRebuysEnabled : false,
+        },
       }).select().single();
     if (error) throw error;
     // Host joins their own game immediately with a seat
@@ -2298,16 +2341,23 @@ function selectGameFormat(format) {
   gameFormat = format;
   document.getElementById('format-tournament')?.classList.toggle('format-selected', format === 'tournament');
   document.getElementById('format-home')?.classList.toggle('format-selected', format === 'home');
-  // Show/hide variant selection based on format (home game uses dealer's choice)
   const variantGroup = document.getElementById('variant-selection-group');
   if (variantGroup) variantGroup.style.display = format === 'tournament' ? 'block' : 'none';
-  // Swap default blind structure to match format
+  // Rebuys toggle only relevant for tournaments (home games always allow rebuys)
+  const rebuysGroup = document.getElementById('rebuys-toggle-group');
+  if (rebuysGroup) rebuysGroup.style.display = format === 'tournament' ? 'block' : 'none';
   if (format === 'home') {
     BLIND_LEVELS = HOME_BLIND_LEVELS.map(l => ({ ...l }));
   } else {
     BLIND_LEVELS = DEFAULT_BLIND_LEVELS.map(l => ({ ...l }));
   }
   toggleBlindEditorSection();
+  updateCreateGameSummary();
+}
+
+let gameRebuysEnabled = false;
+function onRebuysToggle(checked) {
+  gameRebuysEnabled = !!checked;
   updateCreateGameSummary();
 }
 
@@ -2323,7 +2373,8 @@ function updateCreateGameSummary() {
   if (!el) return;
   const variantName = (VARIANTS[gameVariant] || VARIANTS.holdem).name;
   if (gameFormat === 'tournament') {
-    el.innerHTML = `<strong style="color:var(--text)">Sit & Go · ${variantName}</strong><br>1500 starting chips · Moderate blinds`;
+    const rebuyTag = gameRebuysEnabled ? ' · Rebuys allowed' : '';
+    el.innerHTML = `<strong style="color:var(--text)">Sit & Go · ${variantName}</strong><br>1500 starting chips · Moderate blinds${rebuyTag}`;
   } else {
     el.innerHTML = `<strong style="color:var(--text)">Home Game</strong><br>$20 buy-in · ¢/¢/$ chips · Dealer's choice each hand`;
   }
@@ -2436,11 +2487,12 @@ async function inviteAllFriends() {
 // ════════════════════════════════════════════════════════════════════════════
 async function rejoinActiveGame(gameId, gameRef) {
   try {
-    // Explicit rejoin clears sit-out flag for this game
+    // Explicit rejoin clears sit-out + away flags for this game
     try {
       let sitOutList = JSON.parse(localStorage.getItem('fr_sitout') || '[]');
       sitOutList = sitOutList.filter(id => id !== gameId);
       localStorage.setItem('fr_sitout', JSON.stringify(sitOutList));
+      localStorage.removeItem(`fr_away_${gameId}`);
     } catch(e) { /* ignore */ }
 
     const { data, error } = await sb.from('games').select('state,host_id,blind_config,buy_in_amount,game_format,game_variant').eq('id', gameId).single();
@@ -2494,6 +2546,27 @@ async function rejoinActiveGame(gameId, gameRef) {
       }
     }
     toast('Rejoined game');
+
+    // If I was previously marked away, send a sit_back action to clear the flag
+    const myP = G?.players?.find(p => p.id === me.id);
+    if (myP?.awayFromTable) {
+      if (amHost) {
+        // Host clears their own flag directly
+        myP.awayFromTable = false;
+        myP.disconnected = false;
+        myP.lastAction = null;
+        syncGameState();
+        renderGame();
+      } else if (sb && currentGameId) {
+        sb.from('player_actions').insert({
+          game_id: currentGameId,
+          player_id: me.id,
+          action: 'sit_back',
+          amount: null,
+          created_at: new Date().toISOString(),
+        }).then(() => {});
+      }
+    }
   } catch(e) { toast('Rejoin failed: ' + e.message); }
 }
 
@@ -2586,11 +2659,20 @@ async function openLobby(gameId) {
         if (bbI) bbI.value = lvl.big;
         BLIND_LEVELS = [{ level: 1, small: lvl.small, big: lvl.big }];
       }
+      // Load rebuys_enabled into the toggle (tournament only)
+      if (gameFormat === 'tournament') {
+        gameRebuysEnabled = !!data?.blind_config?.rebuys_enabled;
+        const cb = document.getElementById('rebuys-enabled-checkbox');
+        if (cb) cb.checked = gameRebuysEnabled;
+      }
       const inp = document.getElementById('buy-in-input');
       if (inp) inp.value = gameBuyIn;
       updatePayoutPreview();
       updateLobbyVariantBadge();
       toggleBlindEditorSection();
+      // Show/hide rebuys toggle based on format
+      const rebuysGroup = document.getElementById('rebuys-toggle-group');
+      if (rebuysGroup) rebuysGroup.style.display = gameFormat === 'tournament' ? 'block' : 'none';
     });
   } else {
     toggleBlindEditorSection();
@@ -3058,17 +3140,25 @@ function startGame() {
     finalPlacements: [],
     format: gameFormat,
     variant: gameVariant,
+    rebuysEnabled: gameFormat === 'tournament' ? !!gameRebuysEnabled : (gameFormat === 'home' ? true : false),
+    rebuyWindowClosed: false, // tournament: flips to true after first break
+    breakActive: false,        // tournament: true during break overlay
+    readyForBreakEnd: [],     // tournament: players who've tapped Ready during break
   };
 
   if (me.id !== 'demo' && sb && currentLobbyId) {
     amHost = true;
-    stopLobbyWatchdog(); // game is starting — no need for inactivity check
+    stopLobbyWatchdog();
     sb.from('games').update({
       status: 'active',
       state: initialState,
       started_at: new Date().toISOString(),
       last_host_seen: new Date().toISOString(),
-      blind_config: { levels: BLIND_LEVELS, duration: blindDurationSeconds },
+      blind_config: {
+        levels: BLIND_LEVELS,
+        duration: blindDurationSeconds,
+        rebuys_enabled: !!gameRebuysEnabled,
+      },
       buy_in_amount: gameBuyIn,
     }).eq('id', currentLobbyId).then(({ error }) => {
       if (error) console.error('startGame UPDATE failed:', error);
@@ -3137,8 +3227,18 @@ function updatePayoutPreview() {
   const el = document.getElementById('payout-preview');
   if (!el) return;
   const playerCount = (lobbyPlayers || []).length;
-  if (playerCount < 2 || gameBuyIn <= 0) {
-    el.textContent = playerCount < 2 ? `$${gameBuyIn * Math.max(playerCount, 1)} pool — need 2+ players` : 'No buy-in';
+  if (gameBuyIn <= 0) {
+    el.textContent = 'No buy-in';
+    return;
+  }
+  // Home game: no fixed payout structure — players cash out at end with their stacks
+  if (gameFormat === 'home') {
+    el.textContent = `$${gameBuyIn} buy-in · cash out when done`;
+    return;
+  }
+  // Tournament: show fixed payout split
+  if (playerCount < 2) {
+    el.textContent = `$${gameBuyIn * Math.max(playerCount, 1)} pool — need 2+ players`;
     return;
   }
   const pool = gameBuyIn * playerCount;
@@ -3225,7 +3325,14 @@ function stopBlindTimer() {
 
 function tickBlindTimer() {
   if (!G) { stopBlindTimer(); return; }
-  if (G.paused) return; // paused by host
+  if (G.paused) return;
+  if (G.breakActive) return;
+  if (isAnyRebuyPending()) {
+    // Freeze: advance the start time by 1s so elapsed stays put
+    _blindLevelStartTime += 1000;
+    updateBlindTimerDisplay();
+    return;
+  }
 
   const elapsed = Math.floor((Date.now() - _blindLevelStartTime) / 1000);
   const remaining = blindDurationSeconds - elapsed;
@@ -3239,9 +3346,239 @@ function tickBlindTimer() {
     if (bi) bi.innerHTML =
       `<span class="pos-badge sb" style="font-size:0.5rem;width:16px;height:16px">SB</span> ${b.small} &nbsp;` +
       `<span class="pos-badge bb" style="font-size:0.5rem;width:16px;height:16px">BB</span> ${b.big}`;
+
+    // First break: trigger after 4 blind levels have completed (about to enter level 5)
+    // Only relevant for tournaments with rebuys enabled
+    if (_currentBlindLevel === 4 && G.rebuysEnabled && !G.rebuyWindowClosed && (amHost || me.id === 'demo')) {
+      triggerFirstBreak();
+    }
   }
 
   updateBlindTimerDisplay();
+}
+
+// Begin the tournament's first break (rebuys close after this break ends)
+function triggerFirstBreak() {
+  if (!G) return;
+  G.breakActive = true;
+  G.breakReady = [];
+  G.breakStartedAt = Date.now();
+  // Cancel any pending auto-deal so the break overlay shows immediately
+  cancelAutoDeal();
+  syncGameState();
+  showBreakOverlay();
+  toast('🛑 First break — players can add on');
+}
+
+// Show the break overlay to all players.
+// Shows: title, "ready" button (per player), add-on button if not yet used,
+// host's "Resume" button (forces end), chat is still accessible behind.
+function showBreakOverlay() {
+  if (!G || !G.breakActive) return;
+  const overlay = document.getElementById('break-overlay');
+  if (!overlay) return;
+
+  const eligible = G.players.filter(p => !p.eliminated);
+  const ready = G.breakReady || [];
+  const readyCount = ready.length;
+  const totalCount = eligible.length;
+  const meReady = ready.includes(me.id);
+  const myP = G.players.find(p => p.id === me.id);
+
+  // Add-on rules: each player can add on once per break, and only if they have
+  // chips already (not currently broke — broke players already get rebuy overlay)
+  const addedOn = (G.breakAddOns || []).includes(me.id);
+  const canAddOn = myP && !myP.eliminated && !myP.broke && !addedOn;
+
+  const tournamentStartingChips = (FORMATS.tournament).startingChips;
+  const addOnCost = Math.floor((gameBuyIn || 0) / 2);
+  const addOnChips = Math.floor(tournamentStartingChips / 2);
+
+  // Player chip rows: emoji + name + ready check
+  const playerRows = eligible.map(p => {
+    const isReady = ready.includes(p.id);
+    const isMe = p.id === me.id;
+    return `
+      <div style="display:flex;align-items:center;gap:6px;padding:5px 10px;
+        background:${isReady ? 'rgba(212,168,67,0.15)' : 'rgba(255,255,255,0.05)'};
+        border-radius:12px;font-size:0.75rem;
+        ${isMe ? 'outline:1px solid var(--gold)' : ''}">
+        <span style="font-size:0.9rem">${p.emoji}</span>
+        <span style="font-weight:${isMe ? 600 : 400}">${p.name}</span>
+        ${isReady ? '<span style="color:var(--gold);font-size:0.7rem">✓ Ready</span>' : '<span style="color:var(--text-dim);font-size:0.65rem">…</span>'}
+      </div>`;
+  }).join('');
+
+  overlay.style.cssText = 'display:flex;position:fixed;inset:0;background:rgba(0,0,0,0.85);' +
+    'z-index:200;justify-content:center;align-items:center;padding:16px';
+  overlay.innerHTML = `
+    <div style="background:var(--surface);border:1px solid var(--gold);border-radius:14px;
+      padding:20px 18px;max-width:400px;width:100%;max-height:85vh;overflow-y:auto;text-align:center">
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:2rem;letter-spacing:0.1em;
+        color:var(--gold);margin-bottom:4px">⏸ BREAK</div>
+      <div style="font-size:0.85rem;color:var(--text-dim);margin-bottom:16px;line-height:1.4">
+        Take a moment. ${G.rebuysEnabled ? 'Rebuys close when this break ends.' : ''}<br>
+        Chat is open below. Tap Ready when you're set.
+      </div>
+
+      ${canAddOn ? `
+        <div style="background:rgba(212,168,67,0.08);border:1px solid var(--gold-dim);
+          border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:0.78rem;line-height:1.5">
+          <strong style="color:var(--gold)">Add-On Available</strong><br>
+          One-time top-up: $${addOnCost} for ${addOnChips.toLocaleString()} chips<br>
+          <button class="btn btn-primary" id="break-addon-btn" onclick="requestAddOn()"
+            style="margin-top:8px">Add-On $${addOnCost}</button>
+        </div>` : addedOn ? `
+        <div style="color:var(--gold-pale);font-size:0.75rem;margin-bottom:14px;font-style:italic">
+          ✓ Add-on used this break
+        </div>` : ''}
+
+      <div style="margin-bottom:14px">
+        ${meReady
+          ? `<div style="font-family:'Bebas Neue',sans-serif;font-size:1.2rem;color:var(--gold);
+              letter-spacing:0.1em">✓ YOU'RE READY</div>`
+          : myP && !myP.eliminated
+            ? `<button class="btn btn-primary btn-full" id="break-ready-btn" onclick="markReadyForBreakEnd()">
+                I'm Ready
+              </button>`
+            : `<div style="color:var(--text-dim);font-style:italic;font-size:0.8rem">
+                You're out — waiting for break to end
+              </div>`}
+      </div>
+
+      <div style="font-size:0.72rem;color:var(--text-dim);margin-bottom:6px">
+        ${readyCount}/${totalCount} ready
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px;justify-content:center;margin-bottom:14px">
+        ${playerRows}
+      </div>
+
+      ${(amHost || me.id === 'demo') ? `
+        <button class="btn btn-ghost btn-sm" onclick="endBreak()" style="margin-top:8px">
+          Resume Game (Host)
+        </button>` : ''}
+    </div>`;
+}
+
+function hideBreakOverlay() {
+  const overlay = document.getElementById('break-overlay');
+  if (overlay) overlay.style.display = 'none';
+}
+
+// Player taps "I'm Ready". Host: apply directly. Guest: submit action.
+function markReadyForBreakEnd() {
+  if (!G || !G.breakActive) return;
+  if (G.breakReady?.includes(me.id)) return;
+
+  if (amHost || me.id === 'demo') {
+    applyBreakReady(me.id);
+  } else if (sb && currentGameId) {
+    sb.from('player_actions').insert({
+      game_id: currentGameId,
+      player_id: me.id,
+      action: 'break_ready',
+      amount: null,
+      created_at: new Date().toISOString(),
+    }).then(({ error }) => {
+      if (error) toast('Could not mark ready');
+    });
+    // Optimistic local update
+    if (!G.breakReady) G.breakReady = [];
+    G.breakReady.push(me.id);
+    showBreakOverlay();
+  }
+}
+
+// Host-side: record a player's ready state. Auto-end break if all ready.
+function applyBreakReady(playerId) {
+  if (!G || !G.breakActive) return;
+  if (!G.breakReady) G.breakReady = [];
+  if (G.breakReady.includes(playerId)) return;
+  G.breakReady.push(playerId);
+  syncGameState();
+  showBreakOverlay();
+  // If all non-eliminated players are ready, host can auto-end
+  const eligible = G.players.filter(p => !p.eliminated);
+  if (G.breakReady.length >= eligible.length) {
+    setTimeout(() => endBreak(), 600);
+  }
+}
+
+// End the break, close the rebuy window, and resume play.
+function endBreak() {
+  if (!G || !G.breakActive) return;
+  if (!amHost && me.id !== 'demo') {
+    toast('Only the host can resume');
+    return;
+  }
+  G.breakActive = false;
+  G.rebuyWindowClosed = true;
+  G.breakReady = [];
+  G.breakAddOns = G.breakAddOns || [];
+  // Restart blind timer at current level (paused while breakActive was true)
+  _blindLevelStartTime = Date.now();
+  syncGameState();
+  hideBreakOverlay();
+  renderGame();
+  toast('▶ Game resumed · Rebuys closed');
+  // If we're between hands, deal the next one
+  if (G.stage === 'showdown' || G.stage === 'finished' || G.stage === 'deal') {
+    setTimeout(() => nextHand(), 800);
+  }
+}
+
+// Player taps Add-On during break. Same chip/cost as rebuy: half buy-in for half chips.
+function requestAddOn() {
+  if (!G || !G.breakActive) return;
+  const myP = G?.players.find(p => p.id === me.id);
+  if (!myP || myP.eliminated || myP.broke) return;
+  if ((G.breakAddOns || []).includes(me.id)) return;
+
+  const tournamentStartingChips = (FORMATS.tournament).startingChips;
+  const addOnCostCents = Math.floor((gameBuyIn || 0) * 100 / 2);
+  const addOnChips = Math.floor(tournamentStartingChips / 2);
+
+  // Disable button immediately
+  const btn = document.getElementById('break-addon-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Adding…'; }
+
+  if (amHost || me.id === 'demo') {
+    applyAddOn(me.id, addOnChips, addOnCostCents);
+  } else if (sb && currentGameId) {
+    sb.from('player_actions').insert({
+      game_id: currentGameId,
+      player_id: me.id,
+      action: 'add_on',
+      amount: addOnChips,
+      created_at: new Date().toISOString(),
+    }).then(({ error }) => {
+      if (error) {
+        toast('Add-on failed');
+        if (btn) { btn.disabled = false; btn.textContent = `Add-On $${addOnCostCents/100}`; }
+      }
+    });
+  }
+}
+
+// Host-side: apply an add-on. Adds chips, tracks the cost, marks player as used.
+function applyAddOn(playerId, addChips, costCents) {
+  const p = G?.players.find(pl => pl.id === playerId);
+  if (!p) return;
+  if (!G.breakAddOns) G.breakAddOns = [];
+  if (G.breakAddOns.includes(playerId)) return; // already used
+  p.chips = (p.chips || 0) + addChips;
+  p.totalBuyInCents = (p.totalBuyInCents || ((gameBuyIn || 0) * 100)) + costCents;
+  G.breakAddOns.push(playerId);
+  if (!G.eventLog) G.eventLog = [];
+  G.eventLog.push({
+    kind: 'addon', playerId, playerName: p.name,
+    amount: costCents, chipsAdded: addChips,
+    hand: G.handNumber,
+  });
+  syncGameState();
+  showBreakOverlay();
+  renderGame();
+  toast(`${p.name} added on (+${addChips.toLocaleString()} chips)`);
 }
 
 function getCurrentBlindLevel() {
@@ -3687,6 +4024,67 @@ function hostListenForActions(gameId) {
         }
         return;
       }
+      // Quit (home game): player cashes out at current stack and leaves
+      if (action === 'quit_cashout') {
+        if (G) {
+          const p = G.players.find(pl => pl.id === player_id);
+          if (p) {
+            p.eliminated = true;
+            p.broke = false;
+            p.lastAction = { type: 'quit', label: 'Quit' };
+            syncGameState();
+            renderGame();
+          }
+        }
+        return;
+      }
+      // Tournament step-away: player has chips but stepped away from table
+      if (action === 'step_away') {
+        if (G) {
+          const p = G.players.find(pl => pl.id === player_id);
+          if (p) {
+            p.awayFromTable = true;
+            p.disconnected = true;
+            p.lastAction = { type: 'away', label: 'Away' };
+            syncGameState();
+            renderGame();
+            // If this player was up, auto-action so the table doesn't wait
+            if (G.players[G.actionIndex]?.id === player_id) {
+              autoActAway(player_id);
+            }
+          }
+        }
+        return;
+      }
+      // Tournament sit-back-down: clear away flag, rejoin play
+      if (action === 'sit_back') {
+        if (G) {
+          const p = G.players.find(pl => pl.id === player_id);
+          if (p) {
+            p.awayFromTable = false;
+            p.disconnected = false;
+            p.lastAction = null;
+            syncGameState();
+            renderGame();
+          }
+        }
+        return;
+      }
+      // Tournament break: player tapped Ready
+      if (action === 'break_ready') {
+        if (G && G.breakActive) applyBreakReady(player_id);
+        return;
+      }
+      // Tournament break: player tapped Add-On
+      if (action === 'add_on') {
+        if (G && G.breakActive) {
+          const tournamentStartingChips = (FORMATS.tournament).startingChips;
+          const addOnCostCents = Math.floor((gameBuyIn || 0) * 100 / 2);
+          const chipAmount = amount || Math.floor(tournamentStartingChips / 2);
+          applyAddOn(player_id, chipAmount, addOnCostCents);
+        }
+        return;
+      }
       // Social/non-turn actions bypass the turn filter
       const SOCIAL_ACTIONS = ['chop_offer', 'chop_accept', 'chop_decline', 'chop_cancel', 'nudge', 'pause_request'];
       if (SOCIAL_ACTIONS.includes(action)) {
@@ -3969,6 +4367,7 @@ function guestSubscribeToGame(gameId) {
           if (!sd || sd.dataset.kind !== 'guts-reveal') showGutsReveal();
         }
         if (G.pendingDealerChoice) showDealerChoice();
+        if (G.breakActive) showBreakOverlay(); else hideBreakOverlay();
         if (G.handNumber > 0) fetchMyPrivateHand(currentGameId, G.handNumber);
       }
     } catch(e) { /* silent */ }
@@ -4127,6 +4526,13 @@ function guestSubscribeToGame(gameId) {
       applyMyPrivateHand();
       renderGame();
 
+      // Tournament first break: show or hide break overlay
+      if (G.breakActive) {
+        showBreakOverlay();
+      } else {
+        hideBreakOverlay();
+      }
+
       // Dealer's choice (home game): show picker overlay if waiting on a dealer pick,
       // hide it once the dealer has chosen
       if (G.pendingDealerChoice) {
@@ -4161,10 +4567,13 @@ function guestSubscribeToGame(gameId) {
         }
       }
 
-      // Re-buy prompt: am I broke in a home game?
+      // Re-buy prompt: am I broke and rebuys are available?
       const me_player = G.players?.find(p => p.id === me.id);
-      if (me_player && me_player.broke && !me_player.eliminated && getFormatConfig().moneyMode) {
-        showRebuyOverlay();
+      if (me_player && me_player.broke && !me_player.eliminated &&
+          (getFormatConfig().moneyMode || (G.rebuysEnabled && !G.rebuyWindowClosed))) {
+        const showdownOverlay = document.getElementById('showdown-overlay');
+        const showdownVisible = showdownOverlay && showdownOverlay.style.display !== 'none';
+        if (!showdownVisible) showRebuyOverlay();
       }
 
       if (G.paused) {
@@ -5058,11 +5467,16 @@ function renderGame() {
     blindRow.style.display = getFormatConfig().blindsEscalate ? 'flex' : 'none';
   }
 
-  // Re-buy prompt: in a home game, if I'm broke, offer to re-buy
+  // Re-buy prompt: in any money game with a broke player, offer rebuy.
+  // BUT suppress while a showdown overlay or other modal is showing so the player
+  // can ack the result first. The rebuy will appear after they dismiss the result.
   const meBroke = G?.players?.find(p => p.id === me.id);
-  if (meBroke && meBroke.broke && !meBroke.eliminated && getFormatConfig().moneyMode) {
+  if (meBroke && meBroke.broke && !meBroke.eliminated &&
+      (getFormatConfig().moneyMode || (G?.rebuysEnabled && !G?.rebuyWindowClosed))) {
     const elimOverlay = document.getElementById('elim-overlay');
-    if (elimOverlay && elimOverlay.style.display !== 'flex') {
+    const showdownOverlay = document.getElementById('showdown-overlay');
+    const showdownVisible = showdownOverlay && showdownOverlay.style.display !== 'none';
+    if (elimOverlay && elimOverlay.style.display !== 'flex' && !showdownVisible) {
       showRebuyOverlay();
     }
   }
@@ -5407,6 +5821,15 @@ let _sliderTurnKey = null; // tracks which turn the slider is initialized for
 
 let _timerStartedAt = 0; // wall-clock time when this turn's timer began
 
+// Returns true if any non-eliminated player is broke and rebuys are still possible —
+// in that case the game should pause until they decide rebuy/sit-out.
+function isAnyRebuyPending() {
+  if (!G || !G.players) return false;
+  const rebuyAvailable = getFormatConfig().moneyMode || (G.rebuysEnabled && !G.rebuyWindowClosed);
+  if (!rebuyAvailable) return false;
+  return G.players.some(p => p.broke && !p.eliminated);
+}
+
 function startTurnTimer(seconds) {
   stopTurnTimer();
   const total = seconds || TURN_SECONDS;
@@ -5422,7 +5845,12 @@ function startTurnTimer(seconds) {
   updateTimerDisplay(_timerLeft, total, numEl, arcEl);
 
   _timerInterval = setInterval(() => {
-    // Recompute from wall clock each tick — resistant to event loop delays
+    // Freeze timer while someone is deciding rebuy/sit-out
+    if (isAnyRebuyPending() || G?.breakActive) {
+      // Slide the start time forward so when un-frozen, we resume from same point
+      _timerStartedAt = Date.now() - ((total - _timerLeft) * 1000);
+      return;
+    }
     const elapsed = Math.floor((Date.now() - _timerStartedAt) / 1000);
     _timerLeft = Math.max(0, total - elapsed);
     updateTimerDisplay(_timerLeft, total, numEl, arcEl);
@@ -5449,6 +5877,17 @@ function fireAutoAction() {
 
   // Default: check if possible, otherwise fold (player went away with no preselection)
   playerAction(canCheck ? 'check' : 'fold');
+}
+
+// Host-side: auto check/fold for a player who's stepped away. Used when an away
+// player is on action and we don't want the table to wait on them.
+function autoActAway(playerId) {
+  if (!G || !amHost) return;
+  const p = G.players.find(pl => pl.id === playerId);
+  if (!p) return;
+  const canCheck = G.currentBet === p.bet;
+  const action = canCheck ? 'check' : 'fold';
+  applyRemoteAction(playerId, action, 0);
 }
 
 function setAutoAction(action) {
@@ -6171,7 +6610,12 @@ function advanceAction() {
     if (candidate.bet < G.currentBet || candidate.lastAction === null) {
       G.actionIndex = searchIdx;
       renderGame();
-      syncGameState(); // push new actionIndex to guests
+      syncGameState();
+      // If the candidate is stepped away, auto check/fold instead of waiting
+      if (candidate.awayFromTable && amHost) {
+        setTimeout(() => autoActAway(candidate.id), 400);
+        return;
+      }
       if (amHost) startHostTurnEnforcer();
       if (!isMyTurn()) setTimeout(runCpuTurn, 700);
       return;
@@ -6521,8 +6965,9 @@ function doShowdown() {
     const isHomeGame = getFormatConfig().moneyMode;
     G.players.forEach(p => {
       if (!p.eliminated && p.chips <= 0) {
-        if (isHomeGame) {
-          // Home game: mark broke but don't eliminate. Player can re-buy.
+        const tournamentRebuyOpen = !isHomeGame && G.rebuysEnabled && !G.rebuyWindowClosed;
+        if (isHomeGame || tournamentRebuyOpen) {
+          // Player can re-buy. Mark broke (not eliminated) so overlay offers rebuy.
           p.broke = true;
         } else {
           p.eliminated = true;
@@ -6641,7 +7086,8 @@ function doShowdown() {
   const isHomeGameSD = getFormatConfig().moneyMode;
   G.players.forEach(p => {
     if (!p.eliminated && p.chips <= 0) {
-      if (isHomeGameSD) {
+      const tournamentRebuyOpen = !isHomeGameSD && G.rebuysEnabled && !G.rebuyWindowClosed;
+      if (isHomeGameSD || tournamentRebuyOpen) {
         p.broke = true;
       } else {
         p.eliminated = true;
@@ -7031,9 +7477,22 @@ function declineRebuy() {
   if (amHost || me.id === 'demo') {
     myPlayer.eliminated = true;
     myPlayer.broke = false;
+    if (!getFormatConfig().moneyMode && G.finalPlacements &&
+        !G.finalPlacements.some(fp => fp.name === myPlayer.name)) {
+      G.finalPlacements.unshift({ name: myPlayer.name, emoji: myPlayer.emoji });
+    }
     syncGameState();
     closeRebuyOverlay();
     renderGame();
+    // Host migration: if I'm the host and just got eliminated, trigger immediate migration
+    if (amHost && me.id !== 'demo') {
+      const stillIn = G.players.filter(p => !p.eliminated && p.id !== me.id);
+      if (stillIn.length > 0) {
+        // Trigger immediate host migration (don't wait for heartbeat timeout)
+        toast('Migrating host…');
+        setTimeout(() => attemptHostMigration(currentGameId, me.id), 400);
+      }
+    }
   } else if (sb && currentGameId) {
     sb.from('player_actions').insert({
       game_id: currentGameId,
@@ -7082,6 +7541,172 @@ function applyRebuy(playerId, addChips, costCents) {
   syncGameState();
   renderGame();
   toast(`${p.name} re-bought (+${addChips.toLocaleString()} chips)`);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// UNIVERSAL QUIT
+// ════════════════════════════════════════════════════════════════════════════
+// Quit behavior:
+//   Tournament: player set to auto check/fold + marked eliminated, goes to home
+//   Home game: cash out at current stack, record ledger, leave
+function confirmQuitGame() {
+  if (!G) { goHome(); return; }
+  const isTournament = !getFormatConfig().moneyMode;
+  const myP = G.players.find(p => p.id === me.id);
+  if (!myP) { goHome(); return; }
+  const hasChips = (myP.chips || 0) > 0;
+  const stackInfo = isTournament
+    ? `${(myP.chips || 0).toLocaleString()} chips`
+    : `$${((myP.chips || 0) / 100).toFixed(2)}`;
+
+  let msg;
+  if (isTournament && hasChips) {
+    msg = `Leave the table? You'll auto check/fold while you're away, blinds will still be taken from your stack (${stackInfo}), and you'll need to tap Sit Back Down to rejoin.`;
+  } else if (isTournament) {
+    msg = `Leave the tournament? You're out at your current stack and can't rejoin.`;
+  } else {
+    msg = `Cash out and leave the table at your current stack (${stackInfo})? Your ledger will be updated.`;
+  }
+  if (!confirm(msg)) return;
+  quitGame();
+}
+
+async function quitGame() {
+  if (!G) { goHome(); return; }
+  const isTournament = !getFormatConfig().moneyMode;
+  const myP = G.players.find(p => p.id === me.id);
+  if (!myP) { goHome(); return; }
+  const hasChips = (myP.chips || 0) > 0;
+
+  if (isTournament && hasChips) {
+    // ── STEP AWAY: mark away, set auto check/fold, return to home but keep player active ──
+    if (amHost || me.id === 'demo') {
+      myP.awayFromTable = true;
+      myP.disconnected = true; // shows as "📡 Away" in opponent badge
+      myP.lastAction = { type: 'away', label: 'Away' };
+      syncGameState();
+      // Trigger host migration since I'm leaving the device
+      if (amHost && me.id !== 'demo') {
+        const stillIn = G.players.filter(p => !p.eliminated && p.id !== me.id);
+        if (stillIn.length > 0) {
+          toast('Migrating host…');
+          setTimeout(() => attemptHostMigration(currentGameId, me.id), 400);
+        }
+      }
+    } else if (sb && currentGameId) {
+      try {
+        await sb.from('player_actions').insert({
+          game_id: currentGameId,
+          player_id: me.id,
+          action: 'step_away',
+          amount: null,
+          created_at: new Date().toISOString(),
+        });
+      } catch(e) { /* still leave */ }
+    }
+    // Mark this game in localStorage so we know to show the "Sit Back Down" prompt
+    // and NOT to auto-rejoin on next launch.
+    try {
+      const awayKey = `fr_away_${currentGameId}`;
+      localStorage.setItem(awayKey, '1');
+    } catch(e) { /* ignore */ }
+    goHome();
+    return;
+  }
+
+  if (isTournament) {
+    // No chips left — quit = eliminated permanently
+    if (amHost || me.id === 'demo') {
+      myP.eliminated = true;
+      myP.broke = false;
+      myP.lastAction = { type: 'quit', label: 'Quit' };
+      if (G.finalPlacements && !G.finalPlacements.some(fp => fp.name === myP.name)) {
+        G.finalPlacements.unshift({ name: myP.name, emoji: myP.emoji });
+      }
+      syncGameState();
+      if (amHost && me.id !== 'demo') {
+        const stillIn = G.players.filter(p => !p.eliminated && p.id !== me.id);
+        if (stillIn.length > 0) {
+          toast('Migrating host…');
+          setTimeout(() => attemptHostMigration(currentGameId, me.id), 400);
+        }
+      }
+    } else if (sb && currentGameId) {
+      try {
+        await sb.from('player_actions').insert({
+          game_id: currentGameId,
+          player_id: me.id,
+          action: 'sit_out',
+          amount: null,
+          created_at: new Date().toISOString(),
+        });
+      } catch(e) { /* still leave */ }
+    }
+    goHome();
+    return;
+  }
+
+  // ── HOME GAME QUIT ──
+  // Record ledger immediately. The game continues for everyone else with this
+  // player removed from active play.
+  const stackCents = myP.chips || 0;
+  const buyInCents = myP.totalBuyInCents || ((gameBuyIn || 0) * 100);
+  const netCents = stackCents - buyInCents;
+
+  // Set quitting player as eliminated locally; host will sync.
+  if (amHost || me.id === 'demo') {
+    myP.eliminated = true;
+    myP.broke = false;
+    myP.lastAction = { type: 'quit', label: 'Quit' };
+    syncGameState();
+  } else if (sb && currentGameId) {
+    try {
+      await sb.from('player_actions').insert({
+        game_id: currentGameId,
+        player_id: me.id,
+        action: 'quit_cashout',
+        amount: stackCents,
+        created_at: new Date().toISOString(),
+      });
+    } catch(e) { /* still leave */ }
+  }
+
+  // Record my ledger entry — pairwise against other players proportional to their
+  // net status. We use a simple approach: my net P/L gets recorded against the
+  // "house" of the remaining players as a single aggregate. To keep ledger
+  // accurate without forcing the host to settle yet, we just write a single row
+  // for this user noting the net.
+  // Actually, to keep things consistent with the cash-out flow, we record one row
+  // per pairwise relationship using a best-guess approach: split my net among
+  // currently-leading vs. trailing players. Simpler: just record me vs. each
+  // other player based on their current relative state. To avoid double-counting
+  // we ONLY write our own user_id rows. Other players record their own when they
+  // eventually cash out / quit.
+  if (sb && me.id !== 'demo' && netCents !== 0) {
+    try {
+      // Compute pairwise debts: each other active player owes me / I owe them
+      // proportional to (my net) / (their relative position).
+      // For simplicity: distribute my net evenly across all other non-self players.
+      const others = G.players.filter(p => p.id !== me.id && p.id !== 'demo');
+      const rows = [];
+      if (others.length > 0) {
+        const perPersonDollars = (netCents / 100) / others.length;
+        for (const o of others) {
+          if (!o.id || perPersonDollars === 0) continue;
+          rows.push({
+            game_id: currentGameId,
+            user_id: me.id,
+            opponent_id: o.id,
+            amount: perPersonDollars,
+            kind: 'game',
+            note: 'Quit mid-game cashout',
+          });
+        }
+      }
+      if (rows.length) await sb.from('payout_ledger').insert(rows);
+    } catch(e) { console.warn('quit ledger:', e); }
+  }
+  goHome();
 }
 
 function openHandHistory() {
@@ -7356,6 +7981,13 @@ function scheduleAutoDeal(delayMs = 4000) {
   if (!amHost && me.id !== 'demo') return; // only host schedules
   _autoDealTimer = setTimeout(() => {
     _autoDealTimer = null;
+    // Defer next hand if a player is mid-rebuy decision (broke + not yet eliminated)
+    const rebuyAvailable = getFormatConfig().moneyMode || (G?.rebuysEnabled && !G?.rebuyWindowClosed);
+    if (rebuyAvailable && G?.players?.some(p => p.broke && !p.eliminated)) {
+      // Re-check in 2 seconds — once everyone decides, we'll deal
+      _autoDealTimer = setTimeout(() => { _autoDealTimer = null; nextHand(); }, 2000);
+      return;
+    }
     nextHand();
   }, delayMs);
 }
@@ -7370,6 +8002,17 @@ function cancelAutoDeal() {
 function dismissShowdown() {
   const overlay = document.getElementById('showdown-overlay');
   if (overlay) overlay.style.display = 'none';
+
+  // If I'm broke and rebuys are available, show rebuy overlay BEFORE advancing
+  const myP = G?.players?.find(p => p.id === me.id);
+  const rebuyAvailable = myP && myP.broke && !myP.eliminated &&
+    (getFormatConfig().moneyMode || (G?.rebuysEnabled && !G?.rebuyWindowClosed));
+  if (rebuyAvailable) {
+    showRebuyOverlay();
+    // Host: pause auto-deal until rebuy decision is made
+    if (amHost || me.id === 'demo') cancelAutoDeal();
+    return;
+  }
 
   if (amHost || me.id === 'demo') {
     cancelAutoDeal();
@@ -7484,9 +8127,10 @@ function showTournamentOverlay(winner) {
   const stillIn = G.players.filter(p => !p.eliminated && p.chips > 0);
   const isChop = stillIn.length > 1;
 
-  // Calculate payouts based on total players who joined (not currently active)
+  // Calculate payouts. With rebuys enabled, the pool grows beyond buy-in × players.
   const totalPlayers = G.players?.length || 0;
-  const payouts = computePayouts(gameBuyIn, totalPlayers, isChop);
+  const actualPool = G.rebuysEnabled ? actualPrizePool() : null;
+  const payouts = computePayouts(gameBuyIn, totalPlayers, isChop, actualPool);
   const payoutByPlace = {};
   payouts.forEach(p => payoutByPlace[p.placement] = p.amount);
 
@@ -8251,7 +8895,9 @@ function updateChatBadge() {
 async function recordGameToLedger(gameId, buyIn, totalPlayers, finalPlacements, isChop) {
   if (!sb || me.id === 'demo' || !buyIn || buyIn <= 0) return { error: 'no buyin' };
 
-  const payouts = computePayouts(buyIn, totalPlayers, isChop);
+  // Same actual-pool logic as the overlay: rebuys add to prize pool
+  const actualPool = G?.rebuysEnabled ? actualPrizePool() : null;
+  const payouts = computePayouts(buyIn, totalPlayers, isChop, actualPool);
   if (!payouts.length) return { error: 'no payouts' };
 
   // Find each player's user_id from G.players (matched by name+emoji to finalPlacements)
