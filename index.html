@@ -3306,9 +3306,10 @@ let _currentBlindLevel  = 0;
 
 function startBlindTimer() {
   stopBlindTimer();
-  // Home games don't escalate blinds — no timer needed
-  if (getFormatConfig() && !getFormatConfig().blindsEscalate) {
-    // Just paint a static display
+  // Skip the timer ONLY when we're explicitly in home format (blinds fixed there).
+  // For tournaments or anything else, always run the interval.
+  const format = G?.format || gameFormat || 'tournament';
+  if (format === 'home') {
     updateBlindTimerDisplay();
     return;
   }
@@ -4496,6 +4497,13 @@ function guestSubscribeToGame(gameId) {
               setTimeout(() => showMuckOrShow(myP, winAmt), 200);
             }
           }
+        } else if (stillIn.length > 1) {
+          // True showdown with multiple players — guest needs to rebuild overlay from state.
+          // Player cards are revealed in synced state at showdown, so we have everything we need.
+          setTimeout(() => guestShowShowdown(prevMyChips), 200);
+        } else if (stillIn.length === 1 && stillIn[0].id !== me.id) {
+          // Someone else won by fold — show non-winner overlay
+          setTimeout(() => guestShowFoldWinOverlay(stillIn[0]), 200);
         }
       }
 
@@ -7186,6 +7194,122 @@ function doShowdown() {
   syncGameState();
   if (amHost) scheduleAutoDeal(6000);
   commitHandStats();
+}
+
+// ── GUEST-SIDE SHOWDOWN OVERLAY ──────────────────────────────────────────────
+// When a guest receives a state update with stage='showdown' and multiple players
+// still in, we rebuild the showdown overlay locally from the synced state.
+// The host already pushed revealed cards in the state (redactForSync exposes
+// all non-folded hands at showdown).
+function guestShowShowdown(prevMyChips) {
+  if (!G || G.stage !== 'showdown') return;
+  const overlay = document.getElementById('showdown-overlay');
+  if (!overlay) return;
+
+  const sidePots = []; // we don't have side pot detail in state, just total pot delta
+  const active = G.players.filter(p => !p.folded && !p.eliminated);
+  // Evaluate everyone's best hand from the synced cards
+  const handMap = {};
+  active.forEach(p => {
+    if (p.hand?.length && !p.hand.some(c => c.hidden)) {
+      handMap[p.id] = evalBest(p.hand, G.community, G.variant);
+    }
+  });
+  // Sort by hand strength
+  const showPlayers = active.filter(p => handMap[p.id])
+    .sort((a, b) => cmpScore(handMap[b.id], handMap[a.id]));
+
+  // Determine winners (highest tied score)
+  const bestScore = showPlayers.length ? handMap[showPlayers[0].id] : null;
+  const isWinnerFn = (p) => bestScore && cmpScore(handMap[p.id], bestScore) === 0;
+
+  overlay.style.display = 'flex';
+  overlay.dataset.kind = 'showdown';
+
+  overlay.innerHTML = `
+    <div class="showdown-bar" style="max-width:90%;width:100%">
+      <div style="font-size:0.78rem;letter-spacing:0.18em;text-transform:uppercase;
+        color:var(--gold-pale);margin-bottom:6px">Showdown</div>
+      ${showPlayers.map(p => {
+        const hand = handMap[p.id];
+        const isWin = isWinnerFn(p);
+        const usedHole = new Set(hand?.usedHoleIdx || []);
+        const usedComm = new Set(hand?.usedCommIdx || []);
+        const holeCardEls = (p.hand || []).map((c, i) => {
+          const red = isRed(c);
+          const used = usedHole.has(i);
+          return `<div class="card showdown-card ${red?'red':'black'}" style="opacity:${used?'1':'0.3'};
+            ${used && isWin?'box-shadow:0 0 0 1.5px var(--gold);':''}">
+            <div class="card-top"><div class="card-rank">${c.rank}</div><div class="card-suit">${c.suit}</div></div>
+            <div class="card-center">${c.suit}</div>
+            <div class="card-bot"><div class="card-rank">${c.rank}</div><div class="card-suit">${c.suit}</div></div>
+          </div>`;
+        }).join('');
+        const commCardEls = (G.community || []).map((c, i) => {
+          const red = isRed(c);
+          const used = usedComm.has(i);
+          return `<div class="card showdown-card ${red?'red':'black'}" style="opacity:${used?'1':'0.25'};
+            ${used && isWin?'box-shadow:0 0 0 1.5px var(--gold);':''}">
+            <div class="card-top"><div class="card-rank">${c.rank}</div><div class="card-suit">${c.suit}</div></div>
+            <div class="card-center">${c.suit}</div>
+            <div class="card-bot"><div class="card-rank">${c.rank}</div><div class="card-suit">${c.suit}</div></div>
+          </div>`;
+        }).join('');
+        const wonLabel = (isWin && p.id === me.id && prevMyChips != null)
+          ? `<span style="font-family:'Bebas Neue',sans-serif;color:var(--gold);font-size:1.25rem">
+              +${formatChipsCompact((p.chips || 0) - prevMyChips)}
+            </span>`
+          : (isWin ? `<span style="color:var(--gold);font-size:0.85rem">WINNER</span>` : '');
+        return `
+        <div style="display:flex;flex-direction:column;gap:6px;padding:10px 12px;
+          background:${isWin?'rgba(212,168,67,0.18)':'rgba(255,255,255,0.04)'};
+          border:1.5px solid ${isWin?'var(--gold)':'transparent'};
+          border-radius:10px;width:100%;max-width:340px;margin-bottom:6px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <div class="avatar sm">${p.emoji||p.name[0]}</div>
+            <div style="font-weight:600;font-size:0.88rem;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.name}</div>
+            ${wonLabel}
+          </div>
+          <div style="font-family:'Bebas Neue',sans-serif;color:${isWin?'var(--gold-pale)':'var(--text)'};
+            font-size:1rem;letter-spacing:0.08em">${hand?.name || '—'}</div>
+          <div>
+            <div style="font-size:0.6rem;color:var(--text-dim);letter-spacing:0.1em;
+              text-transform:uppercase;margin-bottom:3px">Hole</div>
+            <div style="display:flex;gap:4px">${holeCardEls}</div>
+          </div>
+          <div>
+            <div style="font-size:0.6rem;color:var(--text-dim);letter-spacing:0.1em;
+              text-transform:uppercase;margin-bottom:3px">Board</div>
+            <div style="display:flex;gap:4px">${commCardEls}</div>
+          </div>
+        </div>`;
+      }).join('')}
+      <button class="btn btn-primary btn-sm" onclick="dismissShowdown()"
+        style="margin-top:8px;min-width:160px">Got It</button>
+      <div style="font-size:0.72rem;color:var(--text-dim);margin-top:4px">Next hand in 6s…</div>
+    </div>`;
+}
+
+// When everyone folded leaving a single winner who isn't me, show the result overlay
+function guestShowFoldWinOverlay(winner) {
+  if (!G) return;
+  const overlay = document.getElementById('showdown-overlay');
+  if (!overlay) return;
+  const winAmt = winner.chips || 0; // approximate — we may not have exact pot
+  overlay.style.display = 'flex';
+  overlay.dataset.kind = 'showdown';
+  const myP = G.players.find(p => p.id === me.id);
+  const myFolded = myP && myP.folded && myP.hand?.length && !myP.hand.some(c => c.hidden);
+  overlay.innerHTML = `
+    <div class="showdown-bar">
+      <div class="avatar" style="font-size:1.4rem">${winner.emoji}</div>
+      <div class="showdown-result lose">${winner.name} Wins</div>
+      <div class="showdown-hand" style="color:var(--text-dim)">Everyone else folded</div>
+      ${myFolded ? `<button class="btn btn-ghost btn-sm" onclick="showMyFoldedCards()" style="margin-top:6px">Show My Cards</button>` : ''}
+      <button class="btn btn-primary btn-sm" onclick="dismissShowdown()"
+        style="margin-top:8px;min-width:140px">Got It</button>
+      <div style="font-size:0.7rem;color:var(--text-dim);margin-top:6px">Next hand in 6s…</div>
+    </div>`;
 }
 
 // ── MUCK OR SHOW ─────────────────────────────────────────────────────────────
