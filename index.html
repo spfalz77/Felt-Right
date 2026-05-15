@@ -4097,6 +4097,14 @@ function hostListenForActions(gameId) {
         applyRemoteAction(player_id, action, amount);
         return;
       }
+      // Winner explicitly mucked their fold-win cards — sync the flag
+      if (action === 'muck') {
+        if (G) {
+          G.winnerMucked = true;
+          syncGameState();
+        }
+        return;
+      }
       // Game actions require it to be the player's turn
       const acting = G?.players[G.actionIndex];
       if (!acting || acting.id !== player_id) return;
@@ -4498,12 +4506,22 @@ function guestSubscribeToGame(gameId) {
             }
           }
         } else if (stillIn.length > 1) {
-          // True showdown with multiple players — guest needs to rebuild overlay from state.
-          // Player cards are revealed in synced state at showdown, so we have everything we need.
           setTimeout(() => guestShowShowdown(prevMyChips), 200);
         } else if (stillIn.length === 1 && stillIn[0].id !== me.id) {
-          // Someone else won by fold — show non-winner overlay
           setTimeout(() => guestShowFoldWinOverlay(stillIn[0]), 200);
+        }
+      }
+
+      // While the fold-win overlay is open and we're still in showdown stage,
+      // re-render it on each state update so winner's reveal/muck choice appears
+      if (!amHost && G.stage === 'showdown' && G.variant !== 'guts3') {
+        const sd = document.getElementById('showdown-overlay');
+        if (sd && sd.dataset.kind === 'showdown' && sd.style.display !== 'none') {
+          const stillIn = G.players.filter(p => !p.folded && !p.eliminated);
+          // Only re-render fold-win overlay (single non-me winner)
+          if (stillIn.length === 1 && stillIn[0].id !== me.id) {
+            guestShowFoldWinOverlay(stillIn[0]);
+          }
         }
       }
 
@@ -4793,7 +4811,8 @@ function proceedToDeal() {
   G.pot = 0;
   G.deck = makeDeck();
   G.revealedHands = {};
-  G.chopOfferedBy = null; // clear any unresolved chop proposal
+  G.winnerMucked = false; // clear fold-win muck flag
+  G.chopOfferedBy = null;
   _autoAction = null; // away mode resets each hand
   _animatedCards.clear();
   stopTurnTimer();
@@ -5414,17 +5433,28 @@ function isMyTurn() {
 function renderGame() {
   // ── SOUND triggers based on state changes ──
   if (G && _lastSoundState) {
-    // Pot grew (chip movement)
+    // Pot GREW = chip movement (someone bet/called/raised)
     if (G.pot > _lastSoundState.pot) playChipSound();
+    // Pot SHRUNK to 0 = winner collected (also chip movement)
+    else if (G.pot === 0 && _lastSoundState.pot > 0) playChipSound();
     // Community card count grew (flop/turn/river dealt)
     if (G.community.length > _lastSoundState.communityLen) playCardDealSound();
-    // New hand started (handNumber incremented) — shuffle sound
-    if (G.handNumber > _lastSoundState.handNumber) playCardShuffleSound();
+    // New hand started (handNumber incremented) — shuffle sound + small delay then deal sound
+    if (G.handNumber > _lastSoundState.handNumber) {
+      playCardShuffleSound();
+      // Hole-card deal sound a moment after shuffle
+      setTimeout(() => playCardDealSound(), 350);
+    }
+    // Stage transition into showdown — deal sound for revealed hands
+    if (G.stage === 'showdown' && _lastSoundState.stage !== 'showdown') {
+      playCardDealSound();
+    }
   }
   _lastSoundState = G ? {
     pot: G.pot,
     communityLen: G.community.length,
     handNumber: G.handNumber,
+    stage: G.stage,
   } : null;
 
   // Handle pause state
@@ -7290,21 +7320,64 @@ function guestShowShowdown(prevMyChips) {
     </div>`;
 }
 
-// When everyone folded leaving a single winner who isn't me, show the result overlay
+// When everyone folded leaving a single winner who isn't me, show the result overlay.
+// The winner's cards display state depends on what they chose:
+//   - Not yet decided: "Waiting for winner to decide…" with face-down cards
+//   - Showed cards: real card visuals from G.revealedHands
+//   - Mucked (cleared from revealedHands or chose to muck): face-down "mucked" placeholder
 function guestShowFoldWinOverlay(winner) {
   if (!G) return;
   const overlay = document.getElementById('showdown-overlay');
   if (!overlay) return;
-  const winAmt = winner.chips || 0; // approximate — we may not have exact pot
   overlay.style.display = 'flex';
   overlay.dataset.kind = 'showdown';
+
+  const revealed = G.revealedHands?.[winner.id] || null;
+  const winnerHand = winner.hand || [];
+  const isHoldEmStyle = (G.variant || 'holdem') !== 'guts3';
+  const numCards = isHoldEmStyle ? (winnerHand.length || 2) : 3;
+
+  // Build card visuals
+  let cardsHtml = '';
+  let statusMsg = '';
+  if (revealed && revealed.length) {
+    // Winner chose to show — render real cards
+    cardsHtml = revealed.map(c => {
+      const red = isRed(c);
+      return `<div class="card showdown-card ${red?'red':'black'}" style="display:inline-block;margin:0 3px">
+        <div class="card-top"><div class="card-rank">${c.rank}</div><div class="card-suit">${c.suit}</div></div>
+        <div class="card-center">${c.suit}</div>
+        <div class="card-bot"><div class="card-rank">${c.rank}</div><div class="card-suit">${c.suit}</div></div>
+      </div>`;
+    }).join('');
+    statusMsg = '🎴 Cards revealed';
+  } else if (G.winnerMucked) {
+    // Winner explicitly mucked — face-down with mucked label
+    for (let i = 0; i < numCards; i++) {
+      cardsHtml += `<div class="card showdown-card" style="display:inline-block;margin:0 3px;
+        background:linear-gradient(135deg,#2a1f0d,#1a1306);border:1px solid var(--gold-dim);
+        opacity:0.5"></div>`;
+    }
+    statusMsg = '🙊 Mucked';
+  } else {
+    // Still waiting on winner's decision
+    for (let i = 0; i < numCards; i++) {
+      cardsHtml += `<div class="card showdown-card" style="display:inline-block;margin:0 3px;
+        background:linear-gradient(135deg,#2a1f0d,#1a1306);border:1px solid var(--gold-dim)"></div>`;
+    }
+    statusMsg = 'Waiting on winner…';
+  }
+
   const myP = G.players.find(p => p.id === me.id);
   const myFolded = myP && myP.folded && myP.hand?.length && !myP.hand.some(c => c.hidden);
+
   overlay.innerHTML = `
     <div class="showdown-bar">
       <div class="avatar" style="font-size:1.4rem">${winner.emoji}</div>
       <div class="showdown-result lose">${winner.name} Wins</div>
       <div class="showdown-hand" style="color:var(--text-dim)">Everyone else folded</div>
+      <div style="margin:8px 0">${cardsHtml}</div>
+      <div style="font-size:0.78rem;color:var(--gold-pale);margin-bottom:6px">${statusMsg}</div>
       ${myFolded ? `<button class="btn btn-ghost btn-sm" onclick="showMyFoldedCards()" style="margin-top:6px">Show My Cards</button>` : ''}
       <button class="btn btn-primary btn-sm" onclick="dismissShowdown()"
         style="margin-top:8px;min-width:140px">Got It</button>
@@ -7377,7 +7450,7 @@ function showMuckOrShow(winner, winAmt) {
       </div>
       <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center">
         <button class="btn btn-primary btn-sm" onclick="showSelectedCards()" style="min-width:140px">Show Selected</button>
-        <button class="btn btn-ghost btn-sm" onclick="dismissShowdown()" style="min-width:120px">Muck (Hide)</button>
+        <button class="btn btn-ghost btn-sm" onclick="muckFoldWin()" style="min-width:120px">Muck (Hide)</button>
       </div>
       <div style="font-size:0.72rem;color:var(--text-dim);margin-top:14px">Auto-deal in 6s</div>
     </div>`;
@@ -7399,6 +7472,27 @@ function toggleShowCard(idx) {
   }
 }
 
+// Winner explicitly chose to muck (not show cards). Sets a state flag so guests
+// can update their fold-win overlay to show face-down "mucked" placeholders.
+function muckFoldWin() {
+  if (G) {
+    G.winnerMucked = true;
+    if (amHost) {
+      syncGameState();
+    } else if (sb && currentGameId && me.id !== 'demo') {
+      // Guest winner: tell host via action so they can mark it in state
+      sb.from('player_actions').insert({
+        game_id: currentGameId,
+        player_id: me.id,
+        action: 'muck',
+        amount: null,
+        created_at: new Date().toISOString(),
+      }).then(() => {});
+    }
+  }
+  dismissShowdown();
+}
+
 function showSelectedCards() {
   const myPlayer = G.players.find(p => p.id === me.id);
   const sel = window._showCardSelection || [];
@@ -7406,14 +7500,15 @@ function showSelectedCards() {
 
   // Nothing selected = same as Muck. Just dismiss locally.
   if (!shown.length) {
-    dismissShowdown();
+    muckFoldWin();
     return;
   }
 
   // Publish reveal so all players see the chosen cards.
-  // Update locally so the muck/show overlay shows them immediately.
   if (!G.revealedHands) G.revealedHands = {};
   G.revealedHands[me.id] = shown;
+  // Explicit show — clear any "mucked" flag that might be set
+  G.winnerMucked = false;
 
   if (amHost) {
     renderGame();
