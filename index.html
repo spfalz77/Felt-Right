@@ -688,6 +688,10 @@ window.__dbgLogs = [];
           <button type="submit" class="btn btn-primary btn-full" style="margin-top:8px">Create Account</button>
         </form>
       </div>
+      <div style="text-align:center;margin-top:16px">
+        <span onclick="refreshApp()" style="color:var(--text-dim);font-size:0.78rem;
+          cursor:pointer;text-decoration:underline">↻ Refresh app</span>
+      </div>
     </div>
   </div>
 
@@ -698,7 +702,13 @@ window.__dbgLogs = [];
         <div class="home-greeting" id="home-greeting">FELT RIGHT</div>
         <div class="home-sub" id="home-sub">Your games</div>
       </div>
-      <div class="avatar lg" id="home-avatar" onclick="navTo('profile')" style="cursor:pointer">?</div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <button onclick="refreshApp()" title="Refresh"
+          style="background:none;border:1px solid var(--gold-dim);color:var(--gold);
+            width:38px;height:38px;border-radius:50%;cursor:pointer;font-size:1rem;
+            display:flex;align-items:center;justify-content:center">↻</button>
+        <div class="avatar lg" id="home-avatar" onclick="navTo('profile')" style="cursor:pointer">?</div>
+      </div>
     </div>
     <div id="demo-banner" style="display:none; margin: 0 16px 8px; background: rgba(212,168,67,0.1); border: 1px solid var(--gold-dim); border-radius: var(--r-sm); padding: 10px 14px; font-size: 0.8rem; color: var(--gold); align-items: center; gap: 10px;">
       <span>🃏</span>
@@ -8786,6 +8796,28 @@ function toast(msg) {
 
 function openModal(id) { document.getElementById(id).classList.add('open'); }
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+// Hard refresh the app. Clears any cached assets (in case a service worker or the
+// browser served stale files) and reloads. Used as a recovery action when the
+// backend hiccups or state gets stuck.
+async function refreshApp() {
+  try {
+    // If a service worker is ever registered, clear its caches first
+    if ('caches' in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k)));
+    }
+    if (navigator.serviceWorker?.getRegistrations) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r => r.unregister()));
+    }
+  } catch(e) { /* ignore — still reload */ }
+  // Mark that we want to auto-restore session on reload (so the user isn't
+  // bounced to the login screen if they were logged in)
+  try { sessionStorage.setItem('fr_auto_restore', '1'); } catch(e) {}
+  // Cache-busting reload
+  location.reload();
+}
 
 // ════════════════════════════════════════════════════════════════════════════
 // BOOT
