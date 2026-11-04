@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0d1f14">
+<title>Felt Right</title>
+<link rel="manifest" href="manifest.json?v=5">
+<link rel="icon" type="image/svg+xml" href="icon-192.svg?v=5">
+<link rel="apple-touch-icon" href="icon-192.svg?v=5">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Felt Right">
+<meta name="theme-color" content="#0d1f14">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+<style>
+/* @inline styles/app.css */
+</style>
+<script>
+/* @inline js/debug-capture.js */
+</script>
+</head>
+<body>
+<div id="root">
+
+  <!-- ─── SPLASH / AUTH ─────────────────────────────────────────────────── -->
+  <div class="screen active screen-full" id="screen-splash">
+    <div style="text-align:center; margin-bottom: 0;">
+      <div class="splash-hero-cards">
+        <div class="splash-card red">A<span class="c-suit">♥</span></div>
+        <div class="splash-card black">K<span class="c-suit">♠</span></div>
+      </div>
+      <div class="splash-logo">FELT RIGHT</div>
+      <div class="splash-sub">Texas Hold'em</div>
+      <div class="splash-rule"></div>
+    </div>
+    <div class="splash-form">
+      <div class="splash-tabs">
+        <div class="splash-tab active" onclick="switchTab('login')">Sign In</div>
+        <div class="splash-tab" onclick="switchTab('signup')">Create Account</div>
+      </div>
+      <!-- LOGIN -->
+      <div class="tab-content active" id="tab-login">
+        <form autocomplete="on" onsubmit="event.preventDefault();doLogin()">
+          <div class="input-group">
+            <div class="input-label">Email</div>
+            <input class="input" id="login-email" type="email" placeholder="you@example.com"
+              autocomplete="email" name="email">
+          </div>
+          <div class="input-group">
+            <div class="input-label">Password</div>
+            <input class="input" id="login-pass" type="password" placeholder="••••••••"
+              autocomplete="off" name="password">
+          </div>
+          <button type="submit" class="btn btn-primary btn-full" style="margin-top:8px">Sign In</button>
+        </form>
+        <div style="text-align:center;margin-top:12px">
+          <span style="color:var(--gold);cursor:pointer;font-size:0.82rem" onclick="doForgotPassword()">Forgot password?</span>
+        </div>
+        <div style="text-align:center; margin-top:10px; color:var(--text-dim); font-size:0.8rem;">
+          No account? <span style="color:var(--gold); cursor:pointer" onclick="switchTab('signup')">Sign up</span>
+        </div>
+        <div style="margin-top:16px; border-top:1px solid var(--border); padding-top:16px; text-align:center;">
+          <button class="btn btn-ghost btn-full btn-sm" onclick="enterDemoMode()">🃏 Try Demo Mode</button>
+          <div style="margin-top:8px; font-size:0.72rem; color:var(--text-dim);">No account needed · simulates friends joining</div>
+        </div>
+      </div>
+      <!-- SIGN UP -->
+      <div class="tab-content" id="tab-signup">
+        <form autocomplete="on" onsubmit="event.preventDefault();doSignup()">
+          <div class="input-group">
+            <div class="input-label">Your Name</div>
+            <input class="input" id="signup-name" type="text" placeholder="Poker Face Pete" autocomplete="name" name="name">
+          </div>
+          <div class="input-group">
+            <div class="input-label">Email</div>
+            <input class="input" id="signup-email" type="email" placeholder="you@example.com" autocomplete="email" name="email">
+          </div>
+          <div class="input-group">
+            <div class="input-label">Phone <span style="color:var(--text-dim);font-weight:400">(optional)</span></div>
+            <input class="input" id="signup-phone" type="tel" placeholder="(555) 867-5309" oninput="formatPhone(this)">
+          </div>
+          <div class="input-group">
+            <div class="input-label">Password</div>
+            <input class="input" id="signup-pass" type="password" placeholder="Min 8 characters" autocomplete="new-password" name="password">
+          </div>
+          <div class="input-group">
+            <div class="input-label">Confirm Password</div>
+            <input class="input" id="signup-pass-confirm" type="password" placeholder="Re-enter password" autocomplete="new-password">
+          </div>
+          <div class="ledger-disclaimer" style="font-size:0.75rem;color:var(--text-dim);margin:6px 0 4px;
+            padding:10px;background:var(--surface2);border-radius:6px;line-height:1.5">
+            <strong style="color:var(--gold)">Play chips only.</strong> Felt Right never handles real money.
+            The chip ledger is a personal scorecard for self-moderation: a way to see how you're
+            doing and how you match up against different play styles. It is not a record of debts
+            or a payment system.
+          </div>
+          <button type="submit" class="btn btn-primary btn-full" style="margin-top:8px">Create Account</button>
+        </form>
+      </div>
+      <div style="text-align:center;margin-top:16px">
+        <span onclick="refreshApp()" style="color:var(--text-dim);font-size:0.78rem;
+          cursor:pointer;text-decoration:underline">↻ Refresh app</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── HOME ──────────────────────────────────────────────────────────── -->
+  <div class="screen" id="screen-home">
+    <div class="home-header">
+      <div>
+        <div class="home-greeting" id="home-greeting">FELT RIGHT</div>
+        <div class="home-sub" id="home-sub">Your games</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <button onclick="refreshApp()" title="Refresh"
+          style="background:none;border:1px solid var(--gold-dim);color:var(--gold);
+            width:38px;height:38px;border-radius:50%;cursor:pointer;font-size:1rem;
+            display:flex;align-items:center;justify-content:center">↻</button>
+        <div class="avatar lg" id="home-avatar" onclick="navTo('profile')" style="cursor:pointer">?</div>
+      </div>
+    </div>
+    <div id="demo-banner" style="display:none; margin: 0 16px 8px; background: rgba(212,168,67,0.1); border: 1px solid var(--gold-dim); border-radius: var(--r-sm); padding: 10px 14px; font-size: 0.8rem; color: var(--gold); align-items: center; gap: 10px;">
+      <span>🃏</span>
+      <span style="flex:1"><strong>Demo Mode</strong> — Friends joining the lobby are simulated. Tap + to create a game.</span>
+    </div>
+    <!-- Admin toolbar -->
+    <div id="admin-bar" style="display:none;padding:0 16px 8px;display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-surface btn-sm" onclick="archiveMyGames()" style="font-size:0.75rem">📦 Archive Finished</button>
+      <button id="admin-kill-btn" class="btn btn-surface btn-sm" onclick="killStuckGames()" style="font-size:0.75rem;color:var(--red-light);display:none">🗑 Kill Stuck Games</button>
+    </div>
+    <div class="section-head" style="display:flex;align-items:center;justify-content:space-between;padding-right:16px">
+      <span>Games</span>
+      <button onclick="toggleAdminBar()" style="background:none;border:none;color:var(--text-dim);font-size:0.72rem;cursor:pointer;letter-spacing:0.06em">⚙ Manage</button>
+    </div>
+    <div id="games-list">
+      <div style="padding: 40px 20px; text-align:center; color:var(--text-dim); font-size:0.9rem; font-style:italic;">
+        No games yet.<br>Tap + to start one.
+      </div>
+    </div>
+    <button class="fab" onclick="openCreateGame()">+</button>
+  </div>
+
+  <!-- ─── FRIENDS ───────────────────────────────────────────────────────── -->
+  <div class="screen" id="screen-friends">
+    <div class="friends-header">
+      <h2 style="margin-bottom:12px">Friends</h2>
+      <div class="search-bar">
+        <span class="search-icon">🔍</span>
+        <input id="friend-search" type="text" placeholder="Search by name or phone…" oninput="searchFriends(this.value)">
+      </div>
+    </div>
+    <div id="friend-requests-section" style="display:none">
+      <div class="section-head">Requests</div>
+      <div id="friend-requests-list"></div>
+    </div>
+    <div id="friend-search-results" style="display:none">
+      <div class="section-head">Search Results</div>
+      <div id="friend-results-list"></div>
+    </div>
+    <div class="section-head">Your Friends</div>
+    <div id="friends-list">
+      <div style="padding: 40px 20px; text-align:center; color:var(--text-dim); font-size:0.9rem; font-style:italic;">
+        Search above to find friends.
+      </div>
+    </div>
+
+    <div class="section-head" style="display:flex;align-items:center;justify-content:space-between">
+      <span>Friends Ledger</span>
+      <button onclick="renderLedger()" style="background:none;border:none;color:var(--gold);
+        font-size:0.7rem;cursor:pointer;padding:2px 6px">↻ Refresh</button>
+    </div>
+    <div class="ledger-disclaimer" style="margin:0 16px 10px;font-size:0.72rem;color:var(--text-dim);
+      padding:8px 10px;background:var(--surface2);border-radius:6px;line-height:1.45">
+      Chip ledger is for self-moderation only: it tracks play chips so you can see how you're
+      doing against different players and styles. No real money is involved or owed.
+    </div>
+    <div id="friends-ledger-list" style="padding: 0 16px 16px">
+      <div style="color:var(--text-dim);font-size:0.85rem;padding:8px 0;font-style:italic">
+        Tap "Refresh" to load balances
+      </div>
+    </div>
+
+    <div style="padding: 16px;">
+      <div style="background:var(--surface); border-radius:var(--r); padding:14px 16px; border:1px solid var(--border);">
+        <div style="font-size:0.78rem; color:var(--text-dim); margin-bottom:10px; text-transform:uppercase; letter-spacing:0.1em;">Invite a friend to Felt Right</div>
+        <button class="btn btn-ghost btn-full btn-sm" onclick="copyInviteLink()">📋 Copy Invite Link</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── GAME LOBBY ─────────────────────────────────────────────────────── -->
+  <div class="screen screen-full" id="screen-lobby">
+    <div class="lobby-header" style="position:relative">
+      <button id="lobby-chat-btn" onclick="toggleChatPanel()" style="position:absolute;top:12px;right:12px;
+        background:none;border:1px solid var(--gold-dim);color:var(--gold);
+        font-size:0.9rem;padding:5px 10px;border-radius:6px;cursor:pointer;line-height:1">
+        💬
+        <span id="lobby-chat-unread-badge" style="display:none;position:absolute;top:-6px;right:-6px;
+          background:var(--red);color:#fff;border-radius:10px;font-size:0.6rem;
+          min-width:16px;height:16px;padding:0 4px;font-weight:700;
+          align-items:center;justify-content:center;line-height:1"></span>
+      </button>
+      <div class="lobby-title" id="lobby-game-name">GAME NAME</div>
+      <div id="lobby-variant-badge" style="font-family:'Bebas Neue',sans-serif;font-size:0.78rem;
+        letter-spacing:0.18em;color:var(--gold-pale);text-align:center;margin-top:-4px;
+        margin-bottom:8px;opacity:0.7">HOLDEM</div>
+      <div class="lobby-code" id="lobby-game-id">Game ID: —</div>
+      <div style="margin-top:8px; display:flex; gap:8px; justify-content:center; flex-wrap:wrap;" id="lobby-badges">
+        <span class="badge badge-gold">Sit & Go</span>
+        <span class="badge badge-dim">Texas Hold'em</span>
+        <span class="badge badge-dim">1500 chips</span>
+      </div>
+    </div>
+
+    <!-- Leave button — uses native link for bulletproof navigation -->
+    <div style="padding:10px 16px 0">
+      <a id="lobby-leave-btn" href="#" onclick="leaveLobby();return false;"
+        style="display:block;width:100%;text-align:center;
+          background:none;border:1px solid rgba(192,57,43,0.5);color:var(--red-light);
+          font-family:'DM Sans',sans-serif;font-weight:600;font-size:0.9rem;
+          letter-spacing:0.04em;border-radius:var(--r-sm);padding:13px 20px;
+          text-decoration:none;cursor:pointer;user-select:none;-webkit-user-select:none;">
+        Leave
+      </a>
+    </div>
+
+    <div style="padding:16px 16px 8px; display:flex; align-items:center; justify-content:space-between;">
+      <div style="font-size:0.78rem; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.1em;">Players</div>
+      <div id="lobby-player-count" style="font-size:0.85rem; color:var(--text-dim);">0 joined</div>
+    </div>
+    <div class="seat-grid" id="lobby-seats"></div>
+
+    <div style="padding:0 16px 8px">
+      <div style="font-size:0.78rem; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.1em; margin-bottom:10px;">Invite Friends</div>
+      <div id="lobby-friend-invite-list"></div>
+      <div class="invite-link-box" style="margin-top:10px">
+        <div class="invite-link-text" id="lobby-invite-url">felt.app/join/———</div>
+        <button class="btn btn-ghost btn-sm" onclick="copyLobbyLink()">Copy</button>
+      </div>
+    </div>
+
+    <div class="lobby-actions" id="lobby-actions-area">
+      <!-- Blind structure editor (host only) -->
+      <div id="blind-editor-section" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--border)">
+          <div>
+            <div style="font-size:0.78rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.1em">Buy-In</div>
+            <div id="payout-preview" style="font-size:0.7rem;color:var(--text-dim);margin-top:3px;font-style:italic">—</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="color:var(--gold)">$</span>
+            <input id="buy-in-input" type="number" min="0" step="5" value="20"
+              oninput="onBuyInChanged(this.value)"
+              style="width:60px;background:var(--surface2);border:1px solid var(--border);
+                color:var(--gold);border-radius:6px;padding:6px 8px;font-size:0.95rem;
+                font-family:'Bebas Neue',sans-serif;letter-spacing:0.04em;text-align:right">
+          </div>
+        </div>
+        <!-- Tournament-style multi-level blind editor (hidden in home games) -->
+        <div id="tournament-blinds-section">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <div style="font-size:0.78rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.1em">Blind Structure</div>
+            <button class="btn btn-ghost btn-sm" onclick="addBlindLevel()">+ Add Level</button>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+            <div style="font-size:0.78rem;color:var(--text-dim)">Minutes per level</div>
+            <input class="blind-input" id="blind-duration-input" type="number" min="1" max="60" value="10"
+              oninput="blindDurationSeconds = Math.max(1, parseInt(this.value)||10) * 60"
+              style="width:52px">
+          </div>
+          <div style="overflow-x:auto">
+            <table class="blind-table">
+              <thead>
+                <tr>
+                  <th>Lvl</th><th>Small</th><th>Big</th><th></th>
+                </tr>
+              </thead>
+              <tbody id="blind-editor-body"></tbody>
+            </table>
+          </div>
+          <button class="btn btn-ghost btn-full btn-sm" onclick="resetBlinds()" style="margin-top:8px">Reset to Default</button>
+        </div>
+
+        <!-- Home-game blinds editor (simple SB/BB in cents) -->
+        <div id="home-blinds-section" style="display:none">
+          <div style="font-size:0.78rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px">Blinds (¢)</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px">
+            <div>
+              <div style="font-size:0.7rem;color:var(--text-dim);margin-bottom:4px">Small Blind</div>
+              <div style="display:flex;align-items:center;gap:4px">
+                <span style="color:var(--gold)">¢</span>
+                <input id="home-sb-input" type="number" min="1" step="1" value="5"
+                  oninput="onHomeBlindChange()"
+                  style="flex:1;background:var(--surface2);border:1px solid var(--border);
+                    color:var(--gold);border-radius:6px;padding:6px 8px;font-size:0.95rem;
+                    font-family:'Bebas Neue',sans-serif;letter-spacing:0.04em;text-align:right">
+              </div>
+            </div>
+            <div>
+              <div style="font-size:0.7rem;color:var(--text-dim);margin-bottom:4px">Big Blind</div>
+              <div style="display:flex;align-items:center;gap:4px">
+                <span style="color:var(--gold)">¢</span>
+                <input id="home-bb-input" type="number" min="1" step="1" value="10"
+                  oninput="onHomeBlindChange()"
+                  style="flex:1;background:var(--surface2);border:1px solid var(--border);
+                    color:var(--gold);border-radius:6px;padding:6px 8px;font-size:0.95rem;
+                    font-family:'Bebas Neue',sans-serif;letter-spacing:0.04em;text-align:right">
+              </div>
+            </div>
+          </div>
+          <div style="font-size:0.7rem;color:var(--text-dim);font-style:italic;line-height:1.4">
+            Blinds stay fixed throughout the game · No level timer
+          </div>
+        </div>
+      </div>
+
+      <button class="btn btn-primary btn-full" id="lobby-start-btn" onclick="startGame()" style="display:none">
+        Start Game
+      </button>
+      <div class="waiting-msg" id="lobby-waiting-msg">Waiting for host to start…</div>
+    </div>
+  </div>
+
+  <!-- ─── GAME TABLE ─────────────────────────────────────────────────────── -->
+  <div class="screen screen-full" id="screen-game">
+    <div class="table-wrap" id="table-wrap">
+      <!-- Top bar -->
+      <div class="game-topbar">
+        <div class="blind-info" id="blind-info">Blinds: 10/20</div>
+        <div class="stage-label" id="stage-label">PRE-FLOP</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="hand-num" id="hand-num">Hand #1</div>
+          <div class="turn-timer" id="turn-timer" style="display:none">
+            <svg width="36" height="36" viewBox="0 0 36 36">
+              <circle class="turn-timer-track" cx="18" cy="18" r="15"/>
+              <circle class="turn-timer-fill" id="timer-arc" cx="18" cy="18" r="15"
+                stroke-dasharray="94.25" stroke-dashoffset="0" stroke="var(--gold)"/>
+            </svg>
+            <div class="turn-timer-num" id="timer-num">30</div>
+          </div>
+          <button id="host-pause-btn" onclick="pauseGame()" style="display:none;
+            background:none;border:1px solid var(--gold-dim);color:var(--gold);
+            font-size:0.7rem;padding:3px 8px;border-radius:4px;cursor:pointer">
+            ⏸ Pause
+          </button>
+          <button id="host-endgame-btn" onclick="openCashOutModal()" style="display:none;
+            background:none;border:1px solid var(--gold-dim);color:var(--gold);
+            font-size:0.7rem;padding:3px 8px;border-radius:4px;cursor:pointer">
+            💵 End
+          </button>
+          <button id="hand-history-btn" onclick="openHandHistory()" style="display:none;
+            background:none;border:1px solid var(--gold-dim);color:var(--gold);
+            font-size:0.7rem;padding:3px 8px;border-radius:4px;cursor:pointer">
+            📜
+          </button>
+          <button id="quit-game-btn" onclick="confirmQuitGame()" style="
+            background:none;border:1px solid rgba(231,76,60,0.5);color:#e74c3c;
+            font-size:0.7rem;padding:3px 8px;border-radius:4px;cursor:pointer">
+            🚪 Quit
+          </button>
+          <button id="chat-btn" onclick="toggleChatPanel()" style="position:relative;
+            background:none;border:1px solid var(--gold-dim);color:var(--gold);
+            font-size:0.85rem;padding:3px 10px;border-radius:4px;cursor:pointer;line-height:1">
+            💬
+            <span id="chat-unread-badge" style="display:none;position:absolute;top:-6px;right:-6px;
+              background:var(--red);color:#fff;border-radius:10px;font-size:0.6rem;
+              min-width:16px;height:16px;padding:0 4px;font-weight:700;
+              display:none;align-items:center;justify-content:center;line-height:1"></span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Blind level timer -->
+      <div class="blind-timer-row" id="blind-timer-row">
+        <div class="blind-timer-label" id="blind-level-label">Level 1</div>
+        <div class="blind-timer-track">
+          <div class="blind-timer-fill" id="blind-timer-fill" style="width:100%"></div>
+        </div>
+        <div class="blind-timer-countdown" id="blind-timer-countdown">10:00</div>
+      </div>
+
+      <!-- Scrollable table area: ring + community + my hand -->
+      <div class="table-area">
+        <!-- Opponents -->
+        <div class="opponents-ring" id="opponents-ring"></div>
+
+        <!-- Community cards + pot -->
+        <div class="community-area">
+          <div class="pot-label" id="pot-display">POT: 0</div>
+          <div class="community-row">
+            <div class="burn-stack" id="burn-stack" style="display:none">
+              <div class="burn-card"></div>
+              <div class="burn-card"></div>
+              <div class="burn-card"></div>
+              <div class="burn-label">Burn</div>
+            </div>
+            <div class="community-cards" id="community-cards"></div>
+          </div>
+          <div class="stage-label" id="community-stage"></div>
+        </div>
+
+        <!-- My hand -->
+        <div class="my-hand-area">
+          <div class="my-cards" id="my-cards"></div>
+          <div class="my-info">
+          <div style="position:relative;display:inline-block">
+            <div class="avatar sm" id="my-avatar">?</div>
+            <div id="my-pos-badges" style="position:absolute;bottom:-6px;right:-6px;display:flex;gap:2px"></div>
+          </div>
+          <div>
+            <div class="my-name" id="my-name">You</div>
+            <div class="my-chips" id="my-chips">1500</div>
+            <div id="my-bet-chip" style="display:none" class="bet-chip-front">
+              <span class="chip-icon">●</span> <span id="my-bet-amt">0</span>
+            </div>
+          </div>
+          <div id="my-action-bubble"></div>
+        </div>
+      </div>
+      </div><!-- /.table-area -->
+
+      <!-- Bet slider (shown when raising) -->
+      <div class="bet-slider-row" id="bet-slider-row" style="display:none">
+        <input type="range" id="bet-slider" min="20" max="1500" step="10" value="40" oninput="updateBetLabel()">
+        <div class="bet-amount-label" id="bet-amount-label">40</div>
+      </div>
+
+      <!-- Auto-action (step away) bar -->
+      <div id="auto-action-bar" style="display:flex;align-items:center;gap:6px;padding:4px 12px 0;flex-wrap:wrap;background:rgba(0,0,0,0.3);min-height:0"></div>
+
+      <!-- Action buttons -->
+      <div class="action-bar" id="action-bar">
+        <div class="waiting-msg" style="width:100%; padding:8px 0">Waiting for your turn…</div>
+      </div>
+
+      <!-- Overlays -->
+      <div id="showdown-overlay" style="display:none"></div>
+      <div id="elim-overlay" style="display:none"></div>
+      <div id="break-overlay" style="display:none"></div>
+      <div id="tourney-overlay" style="display:none"></div>
+    </div>
+  </div>
+
+  <!-- ─── PROFILE ───────────────────────────────────────────────────────────── -->
+  <div class="screen" id="screen-profile">
+    <div style="padding: calc(var(--safe-top) + 20px) 16px 16px; background: linear-gradient(to bottom, var(--surface), transparent);">
+      <h2>Profile</h2>
+    </div>
+
+    <!-- Avatar -->
+    <div style="display:flex;flex-direction:column;align-items:center;gap:10px;padding:20px 16px 16px;">
+      <div id="profile-avatar-display" style="
+        width:80px;height:80px;border-radius:50%;background:var(--felt-light);
+        display:flex;align-items:center;justify-content:center;
+        font-size:2.4rem;border:2px solid var(--gold-dim);cursor:pointer;"
+        onclick="toggleEmojiPicker()">🃏</div>
+      <div style="font-size:0.78rem;color:var(--text-dim)">Tap to change avatar</div>
+
+      <!-- Emoji grid -->
+      <div id="emoji-picker" style="display:none;width:100%;max-width:320px;
+        background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:12px 8px;">
+        <div id="emoji-grid" style="display:grid;grid-template-columns:repeat(6,1fr);gap:4px;"></div>
+      </div>
+    </div>
+
+    <!-- Fields -->
+    <div style="padding:0 16px 16px">
+      <div class="input-group">
+        <div class="input-label">Display Name</div>
+        <input class="input" id="profile-name" type="text" placeholder="Your name" maxlength="20">
+      </div>
+      <div class="input-group">
+        <div class="input-label">Email</div>
+        <input class="input" id="profile-email" type="text" readonly style="color:var(--text-dim)">
+      </div>
+      <div class="input-group">
+        <div class="input-label">Phone <span style="color:var(--text-dim);font-weight:400">(optional, for friend search)</span></div>
+        <input class="input" id="profile-phone" type="tel" placeholder="(555) 867-5309" oninput="formatPhone(this)">
+      </div>
+      <button class="btn btn-primary btn-full" onclick="saveProfile()">Save Changes</button>
+    </div>
+
+    <!-- Share -->
+    <div style="margin:0 16px 16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px">
+      <div style="font-size:0.78rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px">Invite Friends</div>
+      <button class="btn btn-ghost btn-full btn-sm" onclick="copyInviteLink()">📋 Copy App Link</button>
+    </div>
+
+    <!-- Stats -->
+    <div id="profile-stats-section" style="margin:0 16px 16px"></div>
+
+    <!-- Settings -->
+    <div style="margin:0 16px 16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:6px 16px">
+      <div style="font-size:0.78rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.1em;padding:10px 0 6px">Settings</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)">
+        <div>
+          <div style="font-size:0.88rem">Sounds</div>
+          <div style="font-size:0.72rem;color:var(--text-dim);margin-top:2px">Card and chip effects during play</div>
+        </div>
+        <button id="sound-toggle-btn" onclick="toggleSounds()" style="background:none;border:1px solid var(--gold-dim);
+          color:var(--gold);padding:6px 16px;border-radius:6px;cursor:pointer;font-size:0.85rem;min-width:60px">On</button>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0">
+        <div>
+          <div style="font-size:0.88rem">Notifications</div>
+          <div style="font-size:0.72rem;color:var(--text-dim);margin-top:2px">Push alerts when it's your turn or someone nudges you</div>
+        </div>
+        <button id="notif-toggle-btn" onclick="toggleNotifications()" style="background:none;border:1px solid var(--gold-dim);
+          color:var(--gold);padding:6px 16px;border-radius:6px;cursor:pointer;font-size:0.85rem;min-width:60px">On</button>
+      </div>
+    </div>
+
+    <!-- Sign out -->
+    <div style="padding:0 16px 24px;">
+      <button class="btn btn-full" onclick="signOut()"
+        style="background:none;color:var(--red-light);border:1px solid rgba(192,57,43,0.3)">Sign Out</button>
+    </div>
+  </div>
+
+  <!-- ─── BOTTOM NAV ─────────────────────────────────────────────────────── -->
+  <nav id="nav">
+    <div class="nav-item active" onclick="navTo('home')">
+      <div class="nav-icon">🏠</div>
+      <div class="nav-label">Home</div>
+    </div>
+    <div class="nav-item" onclick="navTo('friends')">
+      <div class="nav-icon">👥</div>
+      <div class="nav-label">Friends</div>
+    </div>
+    <div class="nav-item" onclick="navTo('profile')">
+      <div class="nav-icon" id="nav-profile-icon">🃏</div>
+      <div class="nav-label">Profile</div>
+    </div>
+  </nav>
+</div>
+
+<!-- ─── MODALS ─────────────────────────────────────────────────────────────── -->
+
+<!-- Hand history modal (home games) -->
+<div class="modal-backdrop" id="modal-hand-history" onclick="closeModal('modal-hand-history')">
+  <div class="modal-sheet" onclick="event.stopPropagation()" style="max-height:75vh;overflow-y:auto">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Hand History</div>
+    <div id="hand-history-list" style="font-size:0.85rem"></div>
+    <button class="btn btn-ghost btn-full" onclick="closeModal('modal-hand-history')" style="margin-top:14px">Close</button>
+  </div>
+</div>
+
+<!-- Home game cash-out modal -->
+<div class="modal-backdrop" id="modal-cashout" onclick="closeModal('modal-cashout')">
+  <div class="modal-sheet" onclick="event.stopPropagation()" style="max-height:80vh;overflow-y:auto">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Cash Out</div>
+    <div style="font-size:0.85rem;color:var(--text-dim);margin-bottom:14px;line-height:1.4">
+      Each player's stack at the end of the game is what they cash out for. Confirm the amounts below — these will be recorded to your friends ledger (play chips only, for self-tracking; not real money).
+    </div>
+    <div id="cashout-list"></div>
+    <div style="font-size:0.75rem;color:var(--text-dim);margin-top:12px;padding:10px;
+      background:var(--surface2);border-radius:6px;line-height:1.5">
+      <strong>Pool:</strong> <span id="cashout-pool">—</span><br>
+      <strong>Sum of cash-outs:</strong> <span id="cashout-sum">—</span><br>
+      <span id="cashout-balance-msg" style="color:var(--gold)"></span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px">
+      <button class="btn btn-ghost" onclick="closeModal('modal-cashout')">Cancel</button>
+      <button class="btn btn-primary" id="cashout-confirm-btn" onclick="confirmCashOut()">End Game</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="modal-create-game" onclick="closeModal('modal-create-game')">
+  <div class="modal-sheet" onclick="event.stopPropagation()">
+    <div class="modal-handle"></div>
+    <div class="modal-title">New Game</div>
+    <div class="input-group">
+      <div class="input-label">Game Name</div>
+      <input class="input" id="new-game-name" type="text" placeholder="Friday Night Poker">
+    </div>
+
+    <div class="input-group">
+      <div class="input-label">Format</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <button id="format-tournament" onclick="selectGameFormat('tournament')" type="button"
+          class="format-btn format-selected">
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:1rem;letter-spacing:0.08em">Tournament</div>
+          <div style="font-size:0.7rem;color:var(--text-dim);margin-top:2px">Sit & Go · single winner</div>
+        </button>
+        <button id="format-home" onclick="selectGameFormat('home')" type="button"
+          class="format-btn">
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:1rem;letter-spacing:0.08em">Home Game</div>
+          <div style="font-size:0.7rem;color:var(--text-dim);margin-top:2px">Cash · ¢ chips</div>
+        </button>
+      </div>
+    </div>
+
+    <div class="input-group" id="variant-selection-group">
+      <div class="input-label">Variant</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <button id="variant-holdem" onclick="selectGameVariant('holdem')" type="button"
+          class="format-btn format-selected">
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:1rem;letter-spacing:0.08em">Hold'em</div>
+          <div style="font-size:0.7rem;color:var(--text-dim);margin-top:2px">2 hole cards</div>
+        </button>
+        <button id="variant-omaha" onclick="selectGameVariant('omaha')" type="button"
+          class="format-btn">
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:1rem;letter-spacing:0.08em">Omaha</div>
+          <div style="font-size:0.7rem;color:var(--text-dim);margin-top:2px">4 hole cards</div>
+        </button>
+      </div>
+    </div>
+
+    <div class="input-group" id="rebuys-toggle-group">
+      <label style="display:flex;align-items:center;gap:10px;padding:10px 12px;
+        background:var(--surface2);border-radius:8px;cursor:pointer;font-size:0.85rem">
+        <input type="checkbox" id="rebuys-enabled-checkbox"
+          onchange="onRebuysToggle(this.checked)"
+          style="width:18px;height:18px;cursor:pointer;accent-color:var(--gold)">
+        <div style="flex:1">
+          <div style="font-weight:600;color:var(--text)">Allow Rebuys</div>
+          <div style="font-size:0.7rem;color:var(--text-dim);margin-top:2px">
+            ½ buy-in for ½ starting chips · Open until first break (after 4 blind levels)
+          </div>
+        </div>
+      </label>
+    </div>
+
+    <div style="background:var(--surface2); border-radius:var(--r-sm); padding:10px 14px; margin-bottom:16px; font-size:0.78rem; color:var(--text-dim); line-height:1.5;">
+      <span id="create-game-summary">Sit & Go · Texas Hold'em · 1500 chips</span>
+    </div>
+    <button class="btn btn-primary btn-full" onclick="createGame()">Create Game</button>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<!-- ─── SUPABASE CDN ────────────────────────────────────────────────────────── -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+
+<script>
+/* @inline-all js/[0-9]*.js */
+</script>
+
+<!-- Global Chat slide-up panel (outside all screens so it works in lobby AND game) -->
+<div id="chat-backdrop" onclick="closeChatPanel()" style="display:none;position:fixed;inset:0;
+  background:rgba(0,0,0,0.5);z-index:399;backdrop-filter:blur(2px)"></div>
+<div id="chat-panel" style="display:none;position:fixed;bottom:0;left:0;right:0;
+  max-width:520px;margin:0 auto;z-index:400;
+  background:var(--surface);border-top:1px solid var(--border);
+  border-radius:16px 16px 0 0;box-shadow:0 -8px 30px rgba(0,0,0,0.5);
+  max-height:70vh;flex-direction:column;
+  transform:translateY(100%);transition:transform 0.25s ease-out">
+  <div style="display:flex;align-items:center;justify-content:space-between;
+    padding:12px 16px;border-bottom:1px solid var(--border)">
+    <div style="font-family:'Bebas Neue',sans-serif;font-size:1.1rem;letter-spacing:0.1em;color:var(--gold-pale)">
+      TABLE CHAT
+    </div>
+    <button onclick="closeChatPanel()" style="background:none;border:none;color:var(--text-dim);
+      font-size:1.4rem;cursor:pointer;padding:4px 10px;line-height:1">×</button>
+  </div>
+  <div id="chat-messages" style="flex:1;overflow-y:auto;padding:12px 16px;
+    display:flex;flex-direction:column;gap:10px;min-height:200px"></div>
+  <div style="padding:10px 12px;border-top:1px solid var(--border);display:flex;gap:8px;
+    padding-bottom:max(10px, env(safe-area-inset-bottom))">
+    <input id="chat-input" type="text" placeholder="Say something…" maxlength="500"
+      onkeydown="if(event.key==='Enter'){event.preventDefault();sendChatFromInput()}"
+      style="flex:1;background:var(--surface2);border:1px solid var(--border);
+        color:var(--text);border-radius:8px;padding:10px 12px;font-size:0.9rem;
+        font-family:inherit;outline:none">
+    <button onclick="sendChatFromInput()" class="btn btn-primary" style="padding:10px 16px">
+      Send
+    </button>
+  </div>
+</div>
+
+<!-- ═══ IN-APP DEBUG CONSOLE (hidden by default; tap top-left corner 5x to reveal) ═══ -->
+<div id="dbg-toggle" style="display:none;position:fixed;top:60px;right:6px;z-index:99999;
+  min-width:48px;height:32px;padding:0 10px;border-radius:16px;background:#ff0;color:#000;
+  align-items:center;justify-content:center;font-size:0.78rem;font-weight:700;
+  cursor:pointer;box-shadow:0 2px 12px rgba(255,255,0,0.6);border:2px solid #000;
+  font-family:monospace;user-select:none;-webkit-user-select:none">
+  LOG <span id="dbg-count" style="margin-left:5px;background:#000;color:#ff0;
+    padding:1px 5px;border-radius:8px;font-size:0.7rem">0</span>
+</div>
+
+<div id="dbg-panel" style="display:none;position:fixed;bottom:0;left:0;right:0;
+  height:50vh;background:#0a0a0a;color:#0f0;font-family:'Courier New',monospace;
+  font-size:0.7rem;line-height:1.3;z-index:9997;border-top:2px solid var(--gold);
+  display:none;flex-direction:column">
+  <div style="display:flex;align-items:center;justify-content:space-between;
+    padding:6px 10px;background:#1a1a1a;border-bottom:1px solid #333;color:var(--gold);
+    font-family:'Bebas Neue',sans-serif;letter-spacing:0.1em;font-size:0.85rem">
+    <span>DEBUG CONSOLE</span>
+    <div style="display:flex;gap:6px">
+      <button id="dbg-clear" style="background:none;border:1px solid #444;color:#aaa;
+        font-size:0.65rem;padding:3px 8px;border-radius:3px;cursor:pointer;font-family:inherit">CLEAR</button>
+      <button id="dbg-copy" style="background:none;border:1px solid #444;color:#aaa;
+        font-size:0.65rem;padding:3px 8px;border-radius:3px;cursor:pointer;font-family:inherit">COPY</button>
+      <button id="dbg-close" style="background:none;border:1px solid #444;color:#aaa;
+        font-size:0.65rem;padding:3px 8px;border-radius:3px;cursor:pointer;font-family:inherit">CLOSE</button>
+    </div>
+  </div>
+  <div id="dbg-log" style="flex:1;overflow-y:auto;padding:8px;white-space:pre-wrap;word-break:break-all"></div>
+</div>
+
+<script>
+/* @inline js/debug-panel.js */
+</script>
+
+</body>
+</html>

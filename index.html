@@ -685,6 +685,13 @@ window.__dbgLogs = [];
             <div class="input-label">Confirm Password</div>
             <input class="input" id="signup-pass-confirm" type="password" placeholder="Re-enter password" autocomplete="new-password">
           </div>
+          <div class="ledger-disclaimer" style="font-size:0.75rem;color:var(--text-dim);margin:6px 0 4px;
+            padding:10px;background:var(--surface2);border-radius:6px;line-height:1.5">
+            <strong style="color:var(--gold)">Play chips only.</strong> Felt Right never handles real money.
+            The chip ledger is a personal scorecard for self-moderation: a way to see how you're
+            doing and how you match up against different play styles. It is not a record of debts
+            or a payment system.
+          </div>
           <button type="submit" class="btn btn-primary btn-full" style="margin-top:8px">Create Account</button>
         </form>
       </div>
@@ -759,6 +766,11 @@ window.__dbgLogs = [];
       <span>Friends Ledger</span>
       <button onclick="renderLedger()" style="background:none;border:none;color:var(--gold);
         font-size:0.7rem;cursor:pointer;padding:2px 6px">↻ Refresh</button>
+    </div>
+    <div class="ledger-disclaimer" style="margin:0 16px 10px;font-size:0.72rem;color:var(--text-dim);
+      padding:8px 10px;background:var(--surface2);border-radius:6px;line-height:1.45">
+      Chip ledger is for self-moderation only: it tracks play chips so you can see how you're
+      doing against different players and styles. No real money is involved or owed.
     </div>
     <div id="friends-ledger-list" style="padding: 0 16px 16px">
       <div style="color:var(--text-dim);font-size:0.85rem;padding:8px 0;font-style:italic">
@@ -1138,7 +1150,7 @@ window.__dbgLogs = [];
     <div class="modal-handle"></div>
     <div class="modal-title">Cash Out</div>
     <div style="font-size:0.85rem;color:var(--text-dim);margin-bottom:14px;line-height:1.4">
-      Each player's stack at the end of the game is what they cash out for. Confirm the amounts below — these will be recorded to your friends ledger.
+      Each player's stack at the end of the game is what they cash out for. Confirm the amounts below — these will be recorded to your friends ledger (play chips only, for self-tracking; not real money).
     </div>
     <div id="cashout-list"></div>
     <div style="font-size:0.75rem;color:var(--text-dim);margin-top:12px;padding:10px;
@@ -1461,7 +1473,8 @@ function score5(cards) {
   else if(gc[0]===2&&gc[1]===2){rank=2;name='Two Pair';}
   else if(gc[0]===2){rank=1;name='One Pair';}
   else{rank=0;name='High Card';}
-  const tieVals=grps.flatMap(g=>Array(g.count).fill(g.val));
+  // A-2-3-4-5 (wheel) is a 5-high straight: the ace plays low for tiebreaks.
+  const tieVals=(wheel&&rank>=4&&rank!==5)?[5,4,3,2,1]:grps.flatMap(g=>Array(g.count).fill(g.val));
   return{rank,name,tieVals};
 }
 function evalBest(hole, comm, variant) {
