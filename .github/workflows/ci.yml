@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Engine tests
+        run: npm test
+      - name: index.html matches src/
+        run: npm run check
+      - name: JS syntax check
+        run: |
+          node -e "
+            const html = require('fs').readFileSync('index.html', 'utf8');
+            const js = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1]);
+            js.forEach((code, i) => { try { new Function(code); } catch (e) { console.error('script', i, e.message); process.exit(1); } });
+            console.log('ok:', js.length, 'inline scripts parse');
+          "

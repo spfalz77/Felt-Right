@@ -1,0 +1,14 @@
+{
+  "name": "felt-right",
+  "private": true,
+  "description": "Texas Hold'em with friends",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check": "node scripts/build.mjs --check",
+    "test": "node --test tests/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
