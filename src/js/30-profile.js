@@ -202,7 +202,7 @@ async function saveProfile() {
 
   try {
     const { error } = await sb.from('users')
-      .update({ display_name: name, avatar_emoji: emoji, phone })
+      .update({ display_name: name, avatar_emoji: emoji, phone: phone || null })
       .eq('id', me.id);
     if (error) throw error;
     me.display_name = name; me.phone = phone;

@@ -13,7 +13,7 @@ async function doLogin() {
       const meta = data.user.user_metadata || {};
       await sb.from('users').insert({
         id: data.user.id,
-        phone: meta.phone || '',
+        phone: meta.phone || null, // blank → NULL (phone is UNIQUE)
         display_name: meta.display_name || email.split('@')[0],
       });
       me = await getProfile(data.user.id);
@@ -43,7 +43,7 @@ async function doSignup() {
 
     if (data.session) {
       await sb.from('users').upsert({
-        id: data.user.id, phone, display_name: name,
+        id: data.user.id, phone: phone || null, display_name: name,
       });
       me = { id: data.user.id, display_name: name, avatar_emoji: '🃏', phone, email };
       enterApp();
