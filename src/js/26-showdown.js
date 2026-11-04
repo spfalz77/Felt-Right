@@ -312,11 +312,13 @@ function guestShowShowdown(prevMyChips) {
             <div class="card-bot"><div class="card-rank">${c.rank}</div><div class="card-suit">${c.suit}</div></div>
           </div>`;
         }).join('');
-        const wonLabel = (isWin && p.id === me.id && prevMyChips != null)
+        const isSplit = showPlayers.filter(isWinnerFn).length > 1;
+        const myDelta = (p.id === me.id && prevMyChips != null) ? (p.chips || 0) - prevMyChips : null;
+        const wonLabel = (isWin && myDelta != null && myDelta > 0)
           ? `<span style="font-family:'Bebas Neue',sans-serif;color:var(--gold);font-size:1.25rem">
-              +${formatChipsCompact((p.chips || 0) - prevMyChips)}
+              ${isSplit ? 'SPLIT ' : ''}+${formatChipsCompact(myDelta)}
             </span>`
-          : (isWin ? `<span style="color:var(--gold);font-size:0.85rem">WINNER</span>` : '');
+          : (isWin ? `<span style="color:var(--gold);font-size:0.85rem">${isSplit ? 'SPLIT POT' : 'WINNER'}</span>` : '');
         return `
         <div style="display:flex;flex-direction:column;gap:6px;padding:10px 12px;
           background:${isWin?'rgba(212,168,67,0.18)':'rgba(255,255,255,0.04)'};
