@@ -137,6 +137,13 @@ export function tableView(p) {
     folded: Object.fromEntries(G.players.map((x) => [x.id, !!x.folded])),
     myCards: (G.players.find((x) => x.id === me.id)?.hand || []).filter((c) => c && c.rank).length,
     screen: document.querySelector('.screen.active')?.id || null,
+    dbg: amHost ? {
+      enforcer: typeof _hostTurnEnforcer !== 'undefined' && !!_hostTurnEnforcer,
+      online: typeof _onlineIds !== 'undefined' ? [..._onlineIds].map((id) => G.players.find((x) => x.id === id)?.name || id) : null,
+      disconnected: G.players.filter((x) => x.disconnected).map((x) => x.name),
+      turnAgeMs: G.turnStartAt ? Date.now() - new Date(G.turnStartAt).getTime() : null,
+      paused: !!G.paused,
+    } : undefined,
     lastType: Object.fromEntries(G.players.map((x) => [x.id, x.lastAction?.type || null])),
     owe: Object.fromEntries(G.players.map((x) => [x.id, Math.max((G.currentBet || 0) - (x.bet || 0), 0)])),
     lastLabel: Object.fromEntries(G.players.map((x) => [x.id, x.lastAction?.label || x.lastAction?.type || null])),
