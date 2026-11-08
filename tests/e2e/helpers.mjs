@@ -20,6 +20,9 @@ if (!ANON_KEY) throw new Error('SUPABASE_ANON_KEY is not set (run: supabase stat
 // Refuse to run against the live project.
 if (/dcfsbtefwkcbdeqreiyx/.test(SUPABASE_URL)) throw new Error('E2E tests must not run against the live project');
 
+// Tests share one database: keep every sign-up unique
+const RUN = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+
 const indexPath = fileURLToPath(new URL('../../index.html', import.meta.url));
 
 function appHtml() {
@@ -47,7 +50,7 @@ export async function newPlayer(browser, name, deviceOpts) {
   });
   page.on('pageerror', (e) => log.push(`[pageerror] ${e.message}`));
   await page.goto(APP_URL);
-  return { name, email: `${name.toLowerCase()}@e2e.test`, context, page, log };
+  return { name, email: `${name.toLowerCase()}.${RUN}@e2e.test`, context, page, log };
 }
 
 export async function signUp(p) {

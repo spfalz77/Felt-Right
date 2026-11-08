@@ -18,7 +18,7 @@ const BOARD = cards('2c 7d 9h 3s 4d'); // no straight or flush possible with the
 test('side pots: three all-ins with different stacks pay out exactly', async ({ browser }) => {
   test.setTimeout(6 * 60_000);
   const { all, host, gameId } = await test.step('sign up, friends, create, invite, join, start', () =>
-    setupHomeGame(browser, ['Hosty', 'Guesty', 'Pixie'], PHONES));
+    setupHomeGame(browser, ['Shelly', 'Marco', 'Bigs'], PHONES));
   const byId = (id) => all.find((p) => p.id === id);
 
   // Dealer's choice is only picked for the hand this test has queued a deal for
@@ -26,7 +26,7 @@ test('side pots: three all-ins with different stacks pay out exactly', async ({ 
   allowPick(0);
 
   await test.step('hand 1: small blind folds, the other two check it down (makes 3 different stacks)', async () => {
-    await rigNextHand(host, { hands: { Hosty: cards('Ks Kh'), Guesty: cards('Qs Qh'), Pixie: cards('Js Jh') }, board: BOARD });
+    await rigNextHand(host, { hands: { Shelly: cards('Ks Kh'), Marco: cards('Qs Qh'), Bigs: cards('Js Jh') }, board: BOARD });
     allowPick(1);
     await runTable({
       all, gameId,
