@@ -159,6 +159,16 @@ export function tableView(p) {
     bets: Object.fromEntries(G.players.map((x) => [x.id, x.bet || 0])),
     myCards: (G.players.find((x) => x.id === me.id)?.hand || []).filter((c) => c && c.rank).length,
     screen: document.querySelector('.screen.active')?.id || null,
+    // What a finger would hit at the first action button (catches overlays covering the bar)
+    barTop: (() => {
+      const b = document.querySelector('#action-bar button');
+      if (!b) return null;
+      const r = b.getBoundingClientRect();
+      const el = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+      return el === b || b.contains(el) ? 'button' : el ? `${el.tagName}#${el.id}.${String(el.className).slice(0, 40)}` : 'nothing';
+    })(),
+    overlays: ['showdown-overlay', 'elim-overlay', 'break-overlay', 'tourney-overlay']
+      .filter((id) => document.getElementById(id)?.style.display === 'flex'),
     dbg: amHost ? {
       enforcer: typeof _hostTurnEnforcer !== 'undefined' && !!_hostTurnEnforcer,
       online: typeof _onlineIds !== 'undefined' ? [..._onlineIds].map((id) => G.players.find((x) => x.id === id)?.name || id) : null,
