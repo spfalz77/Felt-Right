@@ -1,5 +1,11 @@
 // ── DEAL ─────────────────────────────────────────────────────────────────────
 function dealNewHand() {
+  // Safety net: never deal over a hand still in progress (chips in the pot
+  // would vanish). Call it off and return the bets first; that deals again.
+  if (amHost && me.id !== 'demo' && (G?.pot || 0) > 0 && ['preflop', 'flop', 'turn', 'river'].includes(G?.stage)) {
+    voidHandInProgress('Hand called off, bets returned');
+    return;
+  }
   const activePlayers = G.players.filter(p => !p.eliminated && p.chips > 0);
   if (activePlayers.length < 2) { endTournament(); return; }
 
