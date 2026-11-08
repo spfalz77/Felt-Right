@@ -4824,7 +4824,12 @@ function startDealerChoiceTimer() {
     if (G.paused || G.breakActive || cashOutOpen) {
       G.dealerChoiceDeadlineMs = Date.now() + DEALER_CHOICE_SECONDS * 1000; return;
     }
-    if (Date.now() < G.dealerChoiceDeadlineMs) return;
+    // Dealer's app is closed / offline: don't make the table wait the full time
+    const dealer = G.players.find(p => p.id === G.dealerId);
+    const dealerGone = dealer && dealer.id !== me.id && dealer.disconnected && !isPlayerOnline(dealer.id);
+    const startedAt = G.dealerChoiceDeadlineMs - DEALER_CHOICE_SECONDS * 1000;
+    const dueAt = dealerGone ? Math.min(G.dealerChoiceDeadlineMs, startedAt + DISCONNECTED_GRACE_MS) : G.dealerChoiceDeadlineMs;
+    if (Date.now() < dueAt) return;
     stopDealerChoiceTimer();
     const dealerName = G.players.find(p => p.id === G.dealerId)?.name || 'Dealer';
     G.variant = 'holdem';
@@ -6384,6 +6389,13 @@ function startPresence(gameId) {
 }
 
 
+
+// True unless presence has synced and this player isn't in it. Before the first
+// presence sync we don't know, so assume online (never auto-act on a guess).
+function isPlayerOnline(playerId) {
+  if (!_onlineIds || !_onlineIds.size) return true;
+  return _onlineIds.has(playerId);
+}
 // ── PAUSE SYSTEM (manual host toggle) ─────────────────────────────────────────
 // G.paused = true when host has paused the game
 // G.pauseQueued = true when host tapped pause but hand in progress — will pause after hand
@@ -6697,6 +6709,10 @@ function runCpuTurn() {
 
 let _hostTurnEnforcer = null;
 const TURN_ENFORCE_LIMIT_MS = 45000; // 45s from turn start before auto-fold
+// A player whose app is closed / offline (no presence) doesn't get the full
+// 45s: after this short grace the host checks for them, or folds them if they
+// face a bet. They come back to normal turns as soon as they rejoin.
+const DISCONNECTED_GRACE_MS = 5000;
 
 function stopHostTurnEnforcer() {
   clearInterval(_hostTurnEnforcer);
@@ -6722,7 +6738,8 @@ function startHostTurnEnforcer() {
     if (stillP.folded || stillP.eliminated) { stopHostTurnEnforcer(); return; }
 
     const elapsed = Date.now() - startedAt;
-    if (elapsed < TURN_ENFORCE_LIMIT_MS) return;
+    const gone = stillP.disconnected && !isPlayerOnline(stillP.id);
+    if (elapsed < (gone ? DISCONNECTED_GRACE_MS : TURN_ENFORCE_LIMIT_MS)) return;
 
     // Time's up — auto check/fold
     stopHostTurnEnforcer();

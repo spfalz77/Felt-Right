@@ -137,6 +137,8 @@ export function tableView(p) {
     folded: Object.fromEntries(G.players.map((x) => [x.id, !!x.folded])),
     myCards: (G.players.find((x) => x.id === me.id)?.hand || []).filter((c) => c && c.rank).length,
     screen: document.querySelector('.screen.active')?.id || null,
+    lastType: Object.fromEntries(G.players.map((x) => [x.id, x.lastAction?.type || null])),
+    owe: Object.fromEntries(G.players.map((x) => [x.id, Math.max((G.currentBet || 0) - (x.bet || 0), 0)])),
     lastLabel: Object.fromEntries(G.players.map((x) => [x.id, x.lastAction?.label || x.lastAction?.type || null])),
     actorId: G.players[G.actionIndex]?.id || null,
     finished: !!G.tournamentOver,

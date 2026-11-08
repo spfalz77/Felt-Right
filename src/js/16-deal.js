@@ -133,7 +133,12 @@ function startDealerChoiceTimer() {
     if (G.paused || G.breakActive || cashOutOpen) {
       G.dealerChoiceDeadlineMs = Date.now() + DEALER_CHOICE_SECONDS * 1000; return;
     }
-    if (Date.now() < G.dealerChoiceDeadlineMs) return;
+    // Dealer's app is closed / offline: don't make the table wait the full time
+    const dealer = G.players.find(p => p.id === G.dealerId);
+    const dealerGone = dealer && dealer.id !== me.id && dealer.disconnected && !isPlayerOnline(dealer.id);
+    const startedAt = G.dealerChoiceDeadlineMs - DEALER_CHOICE_SECONDS * 1000;
+    const dueAt = dealerGone ? Math.min(G.dealerChoiceDeadlineMs, startedAt + DISCONNECTED_GRACE_MS) : G.dealerChoiceDeadlineMs;
+    if (Date.now() < dueAt) return;
     stopDealerChoiceTimer();
     const dealerName = G.players.find(p => p.id === G.dealerId)?.name || 'Dealer';
     G.variant = 'holdem';

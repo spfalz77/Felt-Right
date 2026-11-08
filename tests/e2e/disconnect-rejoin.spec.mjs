@@ -38,9 +38,9 @@ test('home game: disconnected player is checked/folded quickly, rejoins after cl
     const hv = views[0];
     if (!hv) return;
     const kitUp = hv.actorId === kit.id && ['preflop', 'flop', 'turn', 'river'].includes(hv.stage);
-    if (kitUp && !kit.page && turnStartedAt === null) turnStartedAt = Date.now();
+    if (kitUp && !kit.page && turnStartedAt === null) { turnStartedAt = Date.now(); kit.owed = hv.owe[kit.id]; }
     if (!kitUp && turnStartedAt !== null) {
-      awayTurns.push({ ms: Date.now() - turnStartedAt, label: hv.lastLabel[kit.id] });
+      awayTurns.push({ ms: Date.now() - turnStartedAt, owed: kit.owed, type: hv.lastType[kit.id], label: hv.lastLabel[kit.id], folded: hv.folded[kit.id] });
       turnStartedAt = null;
     }
   };
@@ -52,6 +52,10 @@ test('home game: disconnected player is checked/folded quickly, rejoins after cl
     expect(awayTurns.length, 'Kit had at least one turn while away').toBeGreaterThan(0);
     for (const t of awayTurns) {
       expect(t.ms, `host acted for away Kit within ${AUTO_ACT_LIMIT_MS / 1000}s`).toBeLessThan(AUTO_ACT_LIMIT_MS);
+      // Check when checking is allowed; fold when facing a bet or raise
+      expect(t.label, 'shown as Away').toBe('Away');
+      expect({ type: t.type, folded: t.folded }, `Kit owed ${t.owed} to call`)
+        .toEqual(t.owed > 0 ? { type: 'fold', folded: true } : { type: 'check', folded: false });
     }
   });
 
