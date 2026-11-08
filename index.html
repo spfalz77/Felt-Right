@@ -3938,7 +3938,7 @@ function syncGameState() {
     }
   }
   const safeState = redactForSync(G);
-  sb.from('games')
+  return sb.from('games')
     .update({ state: safeState, hand_number: G.handNumber, last_host_seen: new Date().toISOString() })
     .eq('id', currentGameId)
     .then(({ error }) => { if (error) console.warn('sync error:', error); });
@@ -4052,12 +4052,15 @@ function hostListenForActions(gameId) {
       if (action === 'quit_cashout') {
         if (G) {
           const p = G.players.find(pl => pl.id === player_id);
-          if (p) {
+          if (p && p.cashedOutCents == null) {
+            // Bank what they take home (host's own count, not the client's)
+            p.cashedOutCents = p.chips || 0;
+            p.chips = 0;
             p.eliminated = true;
             p.broke = false;
             p.lastAction = { type: 'quit', label: 'Quit' };
-            syncGameState();
             renderGame();
+            Promise.resolve(syncGameState()).then(() => settleHomeGameLedger(currentGameId));
           }
         }
         return;
@@ -7891,18 +7894,28 @@ async function quitGame() {
   }
 
   // ── HOME GAME QUIT ──
-  // Record ledger immediately. The game continues for everyone else with this
-  // player removed from active play.
+  // The player takes their stack home. The host banks it on the player
+  // (cashedOutCents), clears it from the table so it can't be counted twice,
+  // and the server records the friends ledger for both sides of every pair
+  // (settle_home_game_ledger). The game continues for everyone else.
   const stackCents = myP.chips || 0;
-  const buyInCents = myP.totalBuyInCents || ((gameBuyIn || 0) * 100);
-  const netCents = stackCents - buyInCents;
-
-  // Set quitting player as eliminated locally; host will sync.
   if (amHost || me.id === 'demo') {
+    if (myP.cashedOutCents == null) {
+      myP.cashedOutCents = stackCents;
+      myP.chips = 0;
+    }
     myP.eliminated = true;
     myP.broke = false;
     myP.lastAction = { type: 'quit', label: 'Quit' };
-    syncGameState();
+    if (me.id !== 'demo') {
+      try { await syncGameState(); } catch(e) { /* still leave */ }
+      await settleHomeGameLedger(currentGameId);
+      const stillIn = G.players.filter(p => !p.eliminated && p.id !== me.id);
+      if (stillIn.length > 0) {
+        toast('Migrating host…');
+        setTimeout(() => attemptHostMigration(currentGameId, me.id), 400);
+      }
+    }
   } else if (sb && currentGameId) {
     try {
       await sb.from('player_actions').insert({
@@ -7913,42 +7926,6 @@ async function quitGame() {
         created_at: new Date().toISOString(),
       });
     } catch(e) { /* still leave */ }
-  }
-
-  // Record my ledger entry — pairwise against other players proportional to their
-  // net status. We use a simple approach: my net P/L gets recorded against the
-  // "house" of the remaining players as a single aggregate. To keep ledger
-  // accurate without forcing the host to settle yet, we just write a single row
-  // for this user noting the net.
-  // Actually, to keep things consistent with the cash-out flow, we record one row
-  // per pairwise relationship using a best-guess approach: split my net among
-  // currently-leading vs. trailing players. Simpler: just record me vs. each
-  // other player based on their current relative state. To avoid double-counting
-  // we ONLY write our own user_id rows. Other players record their own when they
-  // eventually cash out / quit.
-  if (sb && me.id !== 'demo' && netCents !== 0) {
-    try {
-      // Compute pairwise debts: each other active player owes me / I owe them
-      // proportional to (my net) / (their relative position).
-      // For simplicity: distribute my net evenly across all other non-self players.
-      const others = G.players.filter(p => p.id !== me.id && p.id !== 'demo');
-      const rows = [];
-      if (others.length > 0) {
-        const perPersonDollars = (netCents / 100) / others.length;
-        for (const o of others) {
-          if (!o.id || perPersonDollars === 0) continue;
-          rows.push({
-            game_id: currentGameId,
-            user_id: me.id,
-            opponent_id: o.id,
-            amount: perPersonDollars,
-            kind: 'game',
-            note: 'Quit mid-game cashout',
-          });
-        }
-      }
-      if (rows.length) await sb.from('payout_ledger').insert(rows);
-    } catch(e) { console.warn('quit ledger:', e); }
   }
   goHome();
 }
@@ -8021,8 +7998,9 @@ function openCashOutModal() {
       id: p.id,
       name: p.name,
       emoji: p.emoji,
-      stackCents: p.chips || 0,
+      stackCents: p.cashedOutCents != null ? p.cashedOutCents : (p.chips || 0),
       buyInCents: p.totalBuyInCents || defaultBuyInCents,
+      leftTable: p.cashedOutCents != null,
     })),
   };
   renderCashOutModal();
@@ -8038,7 +8016,7 @@ function renderCashOutModal() {
       <div class="avatar sm">${p.emoji}</div>
       <div style="flex:1;min-width:0">
         <div style="font-weight:600;font-size:0.88rem">${p.name}</div>
-        <div style="font-size:0.7rem;color:var(--text-dim)">Bought in: $${(p.buyInCents/100).toFixed(2)}</div>
+        <div style="font-size:0.7rem;color:var(--text-dim)">Bought in: $${(p.buyInCents/100).toFixed(2)}${p.leftTable ? ' · left early' : ''}</div>
       </div>
       <div style="display:flex;align-items:center;gap:4px">
         <span style="color:var(--gold)">$</span>
@@ -8097,12 +8075,15 @@ async function confirmCashOut() {
   G.finalPlacements = G.cashOuts.map(p => ({ name: p.name, emoji: p.emoji, netCents: p.netCents }));
   G.tournamentOver = true;
   G.stage = 'finished';
-  syncGameState();
-
-  if (sb && currentGameId) {
-    sb.from('games').update({ status: 'finished' }).eq('id', currentGameId).then(() => {});
-  }
   closeModal('modal-cashout');
+
+  if (sb && currentGameId && me.id !== 'demo') {
+    // Save final cash-outs, then record the ledger for everyone (both sides)
+    try { await syncGameState(); } catch(e) { /* retry via button */ }
+    sb.from('games').update({ status: 'finished', finished_at: new Date().toISOString() }).eq('id', currentGameId).then(() => {});
+    const res = await settleHomeGameLedger(currentGameId);
+    if (res && !res.error) sessionStorage.setItem(`fr_ledger_recorded_${currentGameId}`, '1');
+  }
   showHomeGameEnd();
 }
 
@@ -8147,75 +8128,21 @@ function showHomeGameEnd() {
     </div>`;
 }
 
-// Each player records their OWN net rows against winners (for losses) or losers (for wins).
-// Same pairwise distribution as recordGameToLedger but driven by net P/L per player.
+// Records the home game to the friends ledger for every player (both sides),
+// computed on the server from the saved cash-outs. Safe to press more than once.
 async function onRecordHomeGameLedger() {
   const btn = document.getElementById('record-ledger-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Recording…'; }
-  const cashOuts = G.cashOuts || [];
-  if (!cashOuts.length) { toast('No cash-out data'); return; }
-
-  // Winners (positive net) and losers (negative net)
-  const winners = cashOuts.filter(p => p.netCents > 0);
-  const losers  = cashOuts.filter(p => p.netCents < 0);
-  const totalWinnings = winners.reduce((s, p) => s + p.netCents, 0);
-  if (totalWinnings <= 0) {
-    sessionStorage.setItem(`fr_ledger_recorded_${currentGameId}`, '1');
-    if (btn) btn.outerHTML = `<div style="font-size:0.78rem;color:var(--gold-pale);margin-top:8px;font-style:italic">✓ Nothing to record</div>`;
-    return;
-  }
-
-  // Each loser pays each winner in proportion to winner's share of total winnings.
-  const rows = [];
-  for (const w of winners) {
-    for (const l of losers) {
-      if (!w.id || !l.id || w.id === 'demo' || l.id === 'demo') continue;
-      // l owes w: (w.netCents / totalWinnings) * |l.netCents|
-      const oweCents = Math.round((w.netCents / totalWinnings) * Math.abs(l.netCents));
-      const oweDollars = oweCents / 100;
-      if (oweDollars <= 0) continue;
-      // I record my own perspective
-      if (w.id === me.id) {
-        rows.push({
-          game_id: currentGameId,
-          user_id: w.id,
-          opponent_id: l.id,
-          amount: oweDollars,
-          kind: 'game',
-          note: 'Home game cash-out',
-        });
-      }
-      if (l.id === me.id) {
-        rows.push({
-          game_id: currentGameId,
-          user_id: l.id,
-          opponent_id: w.id,
-          amount: -oweDollars,
-          kind: 'game',
-          note: 'Home game cash-out',
-        });
-      }
-    }
-  }
-  if (!rows.length) {
-    sessionStorage.setItem(`fr_ledger_recorded_${currentGameId}`, '1');
-    if (btn) btn.outerHTML = `<div style="font-size:0.78rem;color:var(--gold-pale);margin-top:8px;font-style:italic">✓ Nothing to record (broke even)</div>`;
-    return;
-  }
-  try {
-    const { error } = await sb.from('payout_ledger').insert(rows);
-    if (error) {
-      toast('Could not record: ' + error.message);
-      if (btn) { btn.disabled = false; btn.textContent = '📒 Record to Friends Ledger'; }
-      return;
-    }
-    sessionStorage.setItem(`fr_ledger_recorded_${currentGameId}`, '1');
-    if (btn) btn.outerHTML = `<div style="font-size:0.78rem;color:var(--gold-pale);margin-top:8px;font-style:italic">✓ Recorded to ledger</div>`;
-    toast('Recorded to ledger');
-  } catch(e) {
-    toast('Failed: ' + (e.message || e));
+  const res = await settleHomeGameLedger(currentGameId);
+  if (!res || res.error) {
+    toast('Could not record to ledger');
     if (btn) { btn.disabled = false; btn.textContent = '📒 Record to Friends Ledger'; }
+    return;
   }
+  sessionStorage.setItem(`fr_ledger_recorded_${currentGameId}`, '1');
+  const msg = res.ledger_rows ? '✓ Recorded to ledger' : '✓ Nothing to record (everyone broke even)';
+  if (btn) btn.outerHTML = `<div style="font-size:0.78rem;color:var(--gold-pale);margin-top:8px;font-style:italic">${msg}</div>`;
+  if (res.ledger_rows) toast('Recorded to ledger');
 }
 
 let _autoDealTimer = null;
@@ -9234,6 +9161,17 @@ async function recordGameToLedger(gameId, buyIn, totalPlayers, finalPlacements, 
     if (error) return { error };
     return { ok: true, count: rows.length };
   } catch(e) { return { error: e }; }
+}
+
+// Ask the server to (re)write a home game's ledger entries for all players.
+// Returns { final, ledger_rows } or { skipped } / { error }, or null on failure.
+async function settleHomeGameLedger(gameId) {
+  if (!sb || !gameId || me.id === 'demo') return null;
+  try {
+    const { data, error } = await sb.rpc('settle_home_game_ledger', { p_game_id: gameId });
+    if (error) { console.warn('settleHomeGameLedger:', error); return null; }
+    return data;
+  } catch(e) { console.warn('settleHomeGameLedger:', e); return null; }
 }
 
 async function loadMyLedger() {
