@@ -4905,6 +4905,7 @@ function proceedToDeal() {
       for (let i = 0; i < numHoleCards; i++) p.hand.push(G.deck.pop());
     }
   }
+  applyRiggedHand(numHoleCards);
 
   // Write each player's hole cards to private_hands BEFORE syncing state
   // So guests always find their cards waiting when they react to the hand number change
@@ -5005,6 +5006,28 @@ function postAntes(anteCents) {
   });
 }
 
+
+// ── Test hook (end-to-end tests only) ──────────────────────────────────────
+// The app never sets window.__feltRightRiggedHands, so in normal play this
+// returns immediately. Tests push { hands: { <player name>: [card, card] },
+// board: [5 cards] } onto it on the host's screen; the next dealt hand then
+// uses those hole cards and that board, so pot and side-pot payouts can be
+// checked exactly. Cards are { rank, suit } like makeDeck() produces.
+function applyRiggedHand(numHoleCards) {
+  const queue = typeof window !== 'undefined' ? window.__feltRightRiggedHands : null;
+  if (!Array.isArray(queue) || !queue.length) return;
+  const rig = queue.shift();
+  const key = (c) => c.rank + c.suit;
+  const forced = new Set([...Object.values(rig.hands || {}).flat(), ...(rig.board || [])].map(key));
+  const rest = makeDeck().filter((c) => !forced.has(key(c)));
+  for (const p of G.players) {
+    if (p.folded) continue;
+    const h = rig.hands?.[p.name];
+    p.hand = h ? h.map((c) => ({ ...c })) : Array.from({ length: numHoleCards }, () => rest.pop());
+  }
+  // Board cards are popped from the end of the deck, first card last
+  G.deck = [...rest, ...[...(rig.board || [])].reverse().map((c) => ({ ...c }))];
+}
 // ════════════════════════════════════════════════════════════════════════════
 // 3-CARD GUTS — DECISION + REVEAL
 // ════════════════════════════════════════════════════════════════════════════
