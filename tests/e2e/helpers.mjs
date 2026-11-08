@@ -114,6 +114,10 @@ export async function botStep(p) {
   if (await pick.isVisible().catch(() => false)) { await tap(pick.first()); return 'picked holdem'; }
   const v = await tableView(p);
   if (!v || !v.myTurn) return null;
+  // One tap per turn: wait for the screen to move on before tapping again
+  const turnKey = `${v.hand}:${v.stage}:${v.actionIndex}`;
+  if (p.lastTurnKey === turnKey && Date.now() - p.lastTapAt < 5_000) return null;
+  p.lastTurnKey = turnKey; p.lastTapAt = Date.now();
   const bar = page.locator('#action-bar');
   const check = bar.locator('button:not([disabled])', { hasText: /^Check$/ });
   if (await check.count()) return (await tap(check.first())) && 'check';
