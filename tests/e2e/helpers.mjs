@@ -198,7 +198,7 @@ export async function runTable({ all, gameId, strategy, onTick, done, timeoutMs 
     const sig = JSON.stringify(views.map((v) => v && [v.hand, v.stage, v.pot, v.actionIndex]));
     if (sig !== lastSig) { lastSig = sig; lastProgress = Date.now(); }
     if (Date.now() - lastProgress > stallMs) await reportStall(all, gameId, views, `Table stalled for ${stallMs / 1000}s`);
-    await all[0].page.waitForTimeout(250);
+    await new Promise((r) => setTimeout(r, 250));
   }
   await reportStall(all, gameId, await Promise.all(all.map(tableView)), 'Timed out');
 }
