@@ -2445,8 +2445,9 @@ function stopLobbyWatchdog() {
 }
 
 async function ensureFriendsLoaded() {
-  if (myFriends.length > 0 || me.id === 'demo') return;
-  // Friends tab hasn't been visited yet — load now
+  if (me.id === 'demo') return;
+  // Always refresh: friends accepted since the Friends tab was last opened
+  // must show up in the lobby invite list
   try {
     const { data } = await sb.from('friendships')
       .select(`id,requester_id,addressee_id,
