@@ -12,6 +12,9 @@ on:
       filter:
         description: Only run tests whose name matches (blank = all)
         default: ''
+      repeat:
+        description: Run each test this many times (flakiness check)
+        default: '1'
 
 concurrency:
   group: e2e-${{ github.ref }}
@@ -45,10 +48,11 @@ jobs:
       - name: Run multi-player tests
         env:
           FILTER: ${{ github.event.inputs.filter }}
+          REPEAT: ${{ github.event.inputs.repeat || '1' }}
         run: |
           eval "$(supabase status -o env | sed 's/^/export /')"
           SUPABASE_URL="$API_URL" SUPABASE_ANON_KEY="$ANON_KEY" SUPABASE_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY" \
-          E2E_HANDS="${{ github.event.inputs.hands || '3' }}" npm run test:e2e -- ${FILTER:+-g "$FILTER"}
+          E2E_HANDS="${{ github.event.inputs.hands || '3' }}" npm run test:e2e -- ${FILTER:+-g "$FILTER"} --repeat-each "${REPEAT:-1}"
 
       - name: Upload report, videos and traces
         if: failure()
