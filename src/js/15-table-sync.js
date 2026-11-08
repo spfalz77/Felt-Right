@@ -301,12 +301,25 @@ function syncGameState() {
       _lastTurnKey = turnKey;
     }
   }
-  const safeState = redactForSync(G);
-  return sb.from('games')
-    .update({ state: safeState, hand_number: G.handNumber, last_host_seen: new Date().toISOString() })
-    .eq('id', currentGameId)
-    .then(({ error }) => { if (error) console.warn('sync error:', error); });
+  // One write at a time, latest state last. Callers often sync twice in a row
+  // (e.g. dealer's choice → proceedToDeal); unawaited parallel PATCHes can land
+  // out of order and leave an older state in the DB, freezing guests' screens.
+  if (_syncInFlight) { _syncDirty = true; return _syncInFlight; }
+  _syncInFlight = (async () => {
+    do {
+      _syncDirty = false;
+      if (!G || !currentGameId) break;
+      const gameId = currentGameId;
+      const { error } = await sb.from('games')
+        .update({ state: redactForSync(G), hand_number: G.handNumber, last_host_seen: new Date().toISOString() })
+        .eq('id', gameId);
+      if (error) console.warn('sync error:', error);
+    } while (_syncDirty);
+  })().finally(() => { _syncInFlight = null; });
+  return _syncInFlight;
 }
+let _syncInFlight = null;
+let _syncDirty = false;
 
 let _myPrivateHand = null; // { handNumber, cards }
 let _prevPaused = false;
