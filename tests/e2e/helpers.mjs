@@ -271,6 +271,8 @@ export async function cashOutAndCheckLedger(host, gameId, { endButton = '#host-e
   await hp.locator(endButton).click({ force: true });
   // The sheet must actually slide up on screen (not just exist in the page)
   await expect(hp.locator('#modal-cashout')).toHaveClass(/open/);
+  // Small phones scroll the sheet to reach the button, like a person would
+  await hp.locator('#cashout-confirm-btn').scrollIntoViewIfNeeded();
   await expect(hp.locator('#cashout-confirm-btn')).toBeInViewport();
   await hp.locator('#cashout-confirm-btn').click({ timeout: 10_000 });
 
