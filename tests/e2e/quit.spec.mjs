@@ -94,6 +94,7 @@ test('tournament: player quits on their turn and blinds out (checked/folded righ
         const hv = views[0];
         if (!hv) return;
         if (quitAt === null && hv.actorId === wes.id && BETTING.includes(hv.stage) && views[2]?.myTurn) {
+          wes.owed = hv.owe[wes.id];
           await quitGame(wes);
           quitAt = Date.now();
           turnStartedAt = quitAt; // this turn is timed from the tap
