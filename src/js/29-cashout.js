@@ -26,8 +26,34 @@ function openCashOutModal() {
       leftTable: p.cashedOutCents != null,
     })),
   };
+  voidUnfinishedHandForCashOut(_cashOutState.players);
   renderCashOutModal();
   openModal('modal-cashout');
+}
+
+// Ending mid-hand: void the unfinished hand so chips in the pot aren't lost.
+// Same rule as the database's cleanup_stale_games(): everyone still seated gets
+// back what they put in this hand; any pot that can't be attributed (e.g. a
+// Guts carry-over) is split evenly, remainder to the first seated player.
+function voidUnfinishedHandForCashOut(players) {
+  const pot = Math.max(G?.pot || 0, 0);
+  if (!pot) return;
+  const seated = players.filter(p => !p.leftTable);
+  if (!seated.length) return;
+  const betOf = (p) => Math.max(G.players.find(x => x.id === p.id)?.totalBet || 0, 0);
+  const refundable = seated.reduce((a, p) => a + betOf(p), 0);
+  let leftover = 0;
+  if (refundable > pot) {
+    seated.forEach(p => { p.stackCents += Math.round(betOf(p) * pot / refundable); });
+  } else {
+    seated.forEach(p => { p.stackCents += betOf(p); });
+    leftover = pot - refundable;
+  }
+  if (leftover > 0) {
+    const share = Math.floor(leftover / seated.length);
+    seated.forEach(p => { p.stackCents += share; });
+    seated[0].stackCents += leftover - share * seated.length;
+  }
 }
 
 function renderCashOutModal() {

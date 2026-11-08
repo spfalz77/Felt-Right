@@ -101,3 +101,27 @@ test('blinds keep doubling past the defined structure', () => {
   const a = getBlinds(100), b = getBlinds(101);
   assert.equal(b.big, a.big * 2);
 });
+
+test('cash-out mid-hand voids the hand: bets go back, chips are conserved', () => {
+  const cctx = vm.createContext({ console, G: null });
+  vm.runInContext(readFileSync(new URL('../src/js/29-cashout.js', import.meta.url), 'utf8'), cctx, { filename: '29-cashout.js' });
+  // Blinds posted (5 + 10), plus a 30¢ carry-over nobody can claim
+  cctx.G = { pot: 45, players: [{ id: 'a', totalBet: 0 }, { id: 'b', totalBet: 5 }, { id: 'c', totalBet: 10 }] };
+  const players = [
+    { id: 'a', stackCents: 2000, leftTable: false },
+    { id: 'b', stackCents: 1995, leftTable: false },
+    { id: 'c', stackCents: 1990, leftTable: false },
+  ];
+  cctx.voidUnfinishedHandForCashOut(players);
+  assert.deepEqual(players.map((p) => p.stackCents), [2010, 2010, 2010]);
+
+  // A player who already left keeps their take-home amount untouched
+  cctx.G = { pot: 15, players: [{ id: 'a', totalBet: 5 }, { id: 'b', totalBet: 10 }] };
+  const withQuitter = [
+    { id: 'a', stackCents: 1000, leftTable: false },
+    { id: 'b', stackCents: 990, leftTable: false },
+    { id: 'q', stackCents: 700, leftTable: true },
+  ];
+  cctx.voidUnfinishedHandForCashOut(withQuitter);
+  assert.deepEqual(withQuitter.map((p) => p.stackCents), [1005, 1000, 700]);
+});
