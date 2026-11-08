@@ -295,6 +295,9 @@ function proceedToDeal() {
 
   renderGame();
   syncGameState(); // push new hand state to guests
+  // Host backstop for the first turn of the hand too: if that player's phone
+  // has dropped, fold/check them after the limit instead of waiting forever.
+  if (amHost) startHostTurnEnforcer();
   if (!isMyTurn()) setTimeout(runCpuTurn, 1000);
 }
 
