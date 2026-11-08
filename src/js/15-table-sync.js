@@ -257,6 +257,7 @@ function voidHandInProgress(message) {
 
 // ── ENTER GAME ────────────────────────────────────────────────────────────────
 function enterGame(gameId, state) {
+  document.getElementById('invite-banner')?.remove();
   currentGameId = gameId;
   currentLobbyId = null; // critical: stop the lobby poller from re-firing
   G = JSON.parse(JSON.stringify(state));

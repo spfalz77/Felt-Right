@@ -2,6 +2,7 @@
 // REJOIN ACTIVE GAME
 // ════════════════════════════════════════════════════════════════════════════
 async function rejoinActiveGame(gameId, gameRef) {
+  document.getElementById('invite-banner')?.remove();
   try {
     // Explicit rejoin clears sit-out + away flags for this game
     try {
