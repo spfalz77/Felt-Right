@@ -97,6 +97,12 @@ export function tableView(p) {
   }));
 }
 
+// The table re-renders the action bar on every timer tick, so buttons never
+// count as "stable". Tap without waiting for that, and let the caller retry.
+async function tap(locator) {
+  try { await locator.click({ force: true, timeout: 2_000 }); return true; } catch { return false; }
+}
+
 /**
  * Plays one move on this player's screen if it's their turn, by tapping real
  * buttons: dealer's-choice picks Hold'em, otherwise Check, else Call.
@@ -105,14 +111,14 @@ export function tableView(p) {
 export async function botStep(p) {
   const { page } = p;
   const pick = page.locator(`button[onclick="dealerPickedVariant('holdem')"]`);
-  if (await pick.isVisible().catch(() => false)) { await pick.click(); return 'picked holdem'; }
+  if (await pick.isVisible().catch(() => false)) { await tap(pick.first()); return 'picked holdem'; }
   const v = await tableView(p);
   if (!v || !v.myTurn) return null;
   const bar = page.locator('#action-bar');
   const check = bar.locator('button:not([disabled])', { hasText: /^Check$/ });
-  if (await check.count()) { await check.first().click(); return 'check'; }
+  if (await check.count()) return (await tap(check.first())) && 'check';
   const call = bar.locator('button:not([disabled])', { hasText: /^Call/ });
-  if (await call.count()) { await call.first().click(); return 'call'; }
+  if (await call.count()) return (await tap(call.first())) && 'call';
   return null;
 }
 
