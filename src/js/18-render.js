@@ -209,7 +209,7 @@ function renderGame() {
   renderActionBar();
 
   // Timer lifecycle — runs for host and guest alike, gated by turn key
-  if (G && !G.paused && isMyTurn()) {
+  if (G && !G.paused && canActNow()) {
     const thisTurnKey = `${G.handNumber || 0}:${G.actionIndex}:${G.stage}`;
     if (_timerForActionKey !== thisTurnKey) {
       startTurnTimer(30);
@@ -316,7 +316,7 @@ function renderActionBar() {
   const potOk     = canRaise && potBet  >= minRaise;
   const allInOk   = myPlayer.chips > 0; // always selectable
 
-  const myTurn = isMyTurn();
+  const myTurn = canActNow();
 
   // ── SLIDER LOGIC ──
   // Slider is ALWAYS active so any player can prep a bet during others' turns.
@@ -417,3 +417,10 @@ function updateBetLabel() {
   }
 }
 
+
+// My turn AND a betting round is actually on screen. A guest whose screen is
+// still on the deal / dealer's-choice stage must not get live buttons or a
+// running turn timer (it would auto-fold them on a stale state).
+function canActNow() {
+  return isMyTurn() && ['preflop', 'flop', 'turn', 'river'].includes(G?.stage);
+}

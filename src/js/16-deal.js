@@ -21,6 +21,7 @@ function dealNewHand() {
   if (getFormatConfig().dealerChoiceVariant && !G.pendingDealerChoice) {
     rotateDealer();
     G.pendingDealerChoice = true;
+    G.dealerChoiceDeadlineMs = Date.now() + DEALER_CHOICE_SECONDS * 1000;
     G.handNumber = (G.handNumber || 0) + 1;
     // Clear any leftover overlay before showing dealer choice
     const sd = document.getElementById('showdown-overlay');
@@ -61,6 +62,16 @@ function showDealerChoice() {
   if (!overlay) return;
   overlay.style.display = 'flex';
   overlay.dataset.kind = 'dealer-choice';
+  if (amHost) startDealerChoiceTimer();
+
+  // The picker covers the table header, so the host's End button lives here too
+  const hostEndBtn = amHost && me.id !== 'demo' && getFormatConfig().moneyMode ? `
+        <button id="dc-endgame-btn" onclick="openCashOutModal()" style="background:none;border:none;
+          color:var(--text-dim);font-size:0.78rem;text-decoration:underline;cursor:pointer;margin-top:10px">
+          End game &amp; cash out</button>` : '';
+  const autoNote = `
+        <div style="font-size:0.7rem;color:var(--text-dim);margin-top:10px">
+          No pick in ${DEALER_CHOICE_SECONDS}s → Hold'em is dealt</div>`;
 
   if (isDealer) {
     overlay.innerHTML = `
@@ -86,7 +97,7 @@ function showDealerChoice() {
             <div style="font-family:'Bebas Neue',sans-serif;font-size:1.05rem;letter-spacing:0.08em">3-Card Guts</div>
             <div style="font-size:0.68rem;color:var(--text-dim);margin-top:2px">In/out · match full pot · 10¢ ante</div>
           </button>
-        </div>
+        </div>${autoNote}${hostEndBtn}
       </div>`;
   } else {
     overlay.innerHTML = `
@@ -94,9 +105,45 @@ function showDealerChoice() {
         <div style="font-family:'Bebas Neue',sans-serif;font-size:1.4rem;letter-spacing:0.1em;
           color:var(--gold);margin-bottom:6px">DEALER'S CHOICE</div>
         <div style="font-size:1.1rem;margin-bottom:8px">${dealerEmoji} ${dealerName}</div>
-        <div style="font-size:0.85rem;color:var(--text-dim)">Choosing the variant…</div>
+        <div style="font-size:0.85rem;color:var(--text-dim)">Choosing the variant…</div>${autoNote}${hostEndBtn}
       </div>`;
   }
+}
+
+// Host-only: if the dealer doesn't pick in time (stepped away, phone asleep),
+// deal Hold'em so the table doesn't wait forever.
+const DEALER_CHOICE_SECONDS = 25;
+let _dealerChoiceTimer = null;
+
+function stopDealerChoiceTimer() {
+  clearInterval(_dealerChoiceTimer);
+  _dealerChoiceTimer = null;
+}
+
+function startDealerChoiceTimer() {
+  stopDealerChoiceTimer();
+  if (!G) return;
+  if (!G.dealerChoiceDeadlineMs) G.dealerChoiceDeadlineMs = Date.now() + DEALER_CHOICE_SECONDS * 1000;
+  _dealerChoiceTimer = setInterval(() => {
+    if (!G || !amHost || !G.pendingDealerChoice || G.tournamentOver || G.stage === 'finished') {
+      stopDealerChoiceTimer(); return;
+    }
+    // Paused / on a break / cash-out sheet open: don't auto-deal; restart the clock
+    const cashOutOpen = document.getElementById('modal-cashout')?.classList.contains('open');
+    if (G.paused || G.breakActive || cashOutOpen) {
+      G.dealerChoiceDeadlineMs = Date.now() + DEALER_CHOICE_SECONDS * 1000; return;
+    }
+    if (Date.now() < G.dealerChoiceDeadlineMs) return;
+    stopDealerChoiceTimer();
+    const dealerName = G.players.find(p => p.id === G.dealerId)?.name || 'Dealer';
+    G.variant = 'holdem';
+    G.pendingDealerChoice = false;
+    const overlay = document.getElementById('showdown-overlay');
+    if (overlay && overlay.dataset.kind === 'dealer-choice') { overlay.style.display = 'none'; overlay.dataset.kind = ''; }
+    toast(`${dealerName} didn't pick — dealing Hold'em`);
+    syncGameState();
+    proceedToDeal();
+  }, 1000);
 }
 
 // Called when dealer picks variant. Clears the pending flag and starts the deal.
