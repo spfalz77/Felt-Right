@@ -46,14 +46,42 @@ export async function newPlayer(browser, name, deviceOpts, { fakeClock = false }
     return route.fulfill({ status: 404, body: '' });
   });
   context.on('dialog', (d) => d.accept()); // confirm() prompts
-  const page = await context.newPage();
-  const log = [];
+  const p = { name, email: `${name.toLowerCase()}.${RUN}@e2e.test`, context, log: [] };
+  await openApp(p);
+  return p;
+}
+
+async function openApp(p) {
+  const page = await p.context.newPage();
   page.on('console', (m) => {
-    if (m.type() === 'error' || m.type() === 'warning') log.push(`[${m.type()}] ${m.text()}`);
+    if (m.type() === 'error' || m.type() === 'warning') p.log.push(`[${m.type()}] ${m.text()}`);
   });
-  page.on('pageerror', (e) => log.push(`[pageerror] ${e.message}`));
+  page.on('pageerror', (e) => p.log.push(`[pageerror] ${e.message}`));
   await page.goto(APP_URL);
-  return { name, email: `${name.toLowerCase()}.${RUN}@e2e.test`, context, page, log };
+  p.page = page;
+}
+
+/** Closes the app on this phone (tab gone, like swiping the app away). */
+export async function closeApp(p) {
+  await p.page.close();
+  p.page = null;
+  p.offline = true; // bots skip this player
+}
+
+/**
+ * Opens the app again on the same phone (still signed in), or reloads it, and
+ * taps Rejoin on the game card, like a player coming back. Waits until they're
+ * at the table.
+ */
+export async function reopenAndRejoin(p, gameName = 'E2E Home Game', { reload = false } = {}) {
+  if (reload) await p.page.reload(); else await openApp(p);
+  const { page } = p;
+  await expect(page.locator('#screen-home')).toHaveClass(/active/, { timeout: 15_000 });
+  const card = page.locator('.game-card').filter({ hasText: gameName });
+  await expect(card).toContainText(/Rejoin|Sit Back Down/, { timeout: 15_000 });
+  await card.click();
+  await expect(page.locator('#screen-game')).toHaveClass(/active/, { timeout: 15_000 });
+  p.offline = false;
 }
 
 export async function signUp(p) {
@@ -87,6 +115,7 @@ export async function makeFriends(requester, addressee) {
 
 /** Snapshot of the table as one player's screen sees it. */
 export function tableView(p) {
+  if (!p.page) return Promise.resolve(null);
   return p.page.evaluate(() => (typeof G === 'undefined' || !G ? null : {
     hand: G.handNumber,
     stage: G.stage,
@@ -106,6 +135,8 @@ export function tableView(p) {
     })(),
     meId: me.id,
     folded: Object.fromEntries(G.players.map((x) => [x.id, !!x.folded])),
+    myCards: (G.players.find((x) => x.id === me.id)?.hand || []).filter((c) => c && c.rank).length,
+    screen: document.querySelector('.screen.active')?.id || null,
     lastLabel: Object.fromEntries(G.players.map((x) => [x.id, x.lastAction?.label || x.lastAction?.type || null])),
     actorId: G.players[G.actionIndex]?.id || null,
     finished: !!G.tournamentOver,

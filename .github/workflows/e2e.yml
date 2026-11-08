@@ -9,6 +9,9 @@ on:
       hands:
         description: Hands to play
         default: '3'
+      filter:
+        description: Only run tests whose name matches (blank = all)
+        default: ''
 
 concurrency:
   group: e2e-${{ github.ref }}
@@ -40,10 +43,12 @@ jobs:
         run: npm run build
 
       - name: Run multi-player tests
+        env:
+          FILTER: ${{ github.event.inputs.filter }}
         run: |
           eval "$(supabase status -o env | sed 's/^/export /')"
           SUPABASE_URL="$API_URL" SUPABASE_ANON_KEY="$ANON_KEY" SUPABASE_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY" \
-          E2E_HANDS="${{ github.event.inputs.hands || '3' }}" npm run test:e2e
+          E2E_HANDS="${{ github.event.inputs.hands || '3' }}" npm run test:e2e -- ${FILTER:+-g "$FILTER"}
 
       - name: Upload report, videos and traces
         if: failure()
