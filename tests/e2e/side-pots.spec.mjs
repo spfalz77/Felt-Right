@@ -67,6 +67,10 @@ test('side pots: three all-ins with different stacks pay out exactly', async ({ 
   });
 
   await test.step('cash out; ledger matches the final stacks', async () => {
+    // The dealer's-choice screen covers the host's End button, so let hand 3 be
+    // dealt first. Cash Out mid-hand gives the blinds back, so stacks are unchanged.
+    allowPick(3);
+    await runTable({ all, gameId, strategy: () => 'fold', done: (views) => views[0]?.hand === 3 && views[0].stage === 'preflop' });
     const { cashOuts } = await cashOutAndCheckLedger(host, gameId);
     for (const c of cashOuts) expect(c.stackCents, `${c.name} cashes out what they hold`).toBe(expected[c.id]);
   });
