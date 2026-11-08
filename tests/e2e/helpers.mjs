@@ -54,7 +54,7 @@ export async function newPlayer(browser, name, deviceOpts, { fakeClock = false }
 async function openApp(p) {
   const page = await p.context.newPage();
   page.on('console', (m) => {
-    if (m.type() === 'error' || m.type() === 'warning') p.log.push(`[${m.type()}] ${m.text()}`);
+    if (m.type() === 'error' || m.type() === 'warning' || m.text().startsWith('[void-hand]')) p.log.push(`[${m.type()}] ${m.text()}`);
   });
   page.on('pageerror', (e) => p.log.push(`[pageerror] ${e.message}`));
   await page.goto(APP_URL);

@@ -250,6 +250,7 @@ function voidHandInProgress(message) {
   G.actionIndex = -1;
   G.stage = 'deal';
   if (message) toast(message);
+  console.info('[void-hand]', message, JSON.stringify({ pot, refundable, chips: G.players.map(p => p.chips) }));
   renderGame();
   syncGameState();
   setTimeout(dealNewHand, 1500);
