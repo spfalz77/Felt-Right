@@ -356,6 +356,9 @@ function proceedToDeal() {
   // Host backstop for the first turn of the hand too: if that player's phone
   // has dropped, fold/check them after the limit instead of waiting forever.
   if (amHost) startHostTurnEnforcer();
+  // First to act has quit the tournament (blinding out): act for them right away
+  const firstUp = G.players[G.actionIndex];
+  if (amHost && firstUp?.awayFromTable) setTimeout(() => autoActAway(firstUp.id), 400);
   if (!isMyTurn()) setTimeout(runCpuTurn, 1000);
 }
 

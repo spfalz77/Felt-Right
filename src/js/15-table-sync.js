@@ -490,13 +490,20 @@ function hostListenForActions(gameId) {
           const p = G.players.find(pl => pl.id === player_id);
           if (p && p.cashedOutCents == null) {
             // Bank what they take home (host's own count, not the client's)
+            const wasUp = G.players[G.actionIndex]?.id === player_id;
             p.cashedOutCents = p.chips || 0;
             p.chips = 0;
             p.eliminated = true;
+            p.folded = true; // out of this hand; what they already bet stays in the pot
             p.broke = false;
             p.lastAction = { type: 'quit', label: 'Quit' };
             renderGame();
             Promise.resolve(syncGameState()).then(() => settleHomeGameLedger(currentGameId));
+            // Keep the hand moving: they were on action, or only one player is left in it
+            const inHand = G.players.filter(x => !x.folded && !x.eliminated);
+            if (['preflop', 'flop', 'turn', 'river'].includes(G.stage) && (wasUp || inHand.length === 1)) {
+              setTimeout(advanceAction, 300);
+            }
           }
         }
         return;

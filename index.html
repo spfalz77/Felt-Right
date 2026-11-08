@@ -4128,13 +4128,20 @@ function hostListenForActions(gameId) {
           const p = G.players.find(pl => pl.id === player_id);
           if (p && p.cashedOutCents == null) {
             // Bank what they take home (host's own count, not the client's)
+            const wasUp = G.players[G.actionIndex]?.id === player_id;
             p.cashedOutCents = p.chips || 0;
             p.chips = 0;
             p.eliminated = true;
+            p.folded = true; // out of this hand; what they already bet stays in the pot
             p.broke = false;
             p.lastAction = { type: 'quit', label: 'Quit' };
             renderGame();
             Promise.resolve(syncGameState()).then(() => settleHomeGameLedger(currentGameId));
+            // Keep the hand moving: they were on action, or only one player is left in it
+            const inHand = G.players.filter(x => !x.folded && !x.eliminated);
+            if (['preflop', 'flop', 'turn', 'river'].includes(G.stage) && (wasUp || inHand.length === 1)) {
+              setTimeout(advanceAction, 300);
+            }
           }
         }
         return;
@@ -5113,6 +5120,9 @@ function proceedToDeal() {
   // Host backstop for the first turn of the hand too: if that player's phone
   // has dropped, fold/check them after the limit instead of waiting forever.
   if (amHost) startHostTurnEnforcer();
+  // First to act has quit the tournament (blinding out): act for them right away
+  const firstUp = G.players[G.actionIndex];
+  if (amHost && firstUp?.awayFromTable) setTimeout(() => autoActAway(firstUp.id), 400);
   if (!isMyTurn()) setTimeout(runCpuTurn, 1000);
 }
 
@@ -7214,7 +7224,8 @@ function doShowdown() {
     G.players.forEach(p => {
       if (!p.eliminated && p.chips <= 0) {
         const tournamentRebuyOpen = !isHomeGame && G.rebuysEnabled && !G.rebuyWindowClosed;
-        if (isHomeGame || tournamentRebuyOpen) {
+        // A player who quit (tournament step-away) can't answer a rebuy offer: they're out
+        if ((isHomeGame || tournamentRebuyOpen) && !p.awayFromTable) {
           // Player can re-buy. Mark broke (not eliminated) so overlay offers rebuy.
           p.broke = true;
         } else {
@@ -7335,7 +7346,7 @@ function doShowdown() {
   G.players.forEach(p => {
     if (!p.eliminated && p.chips <= 0) {
       const tournamentRebuyOpen = !isHomeGameSD && G.rebuysEnabled && !G.rebuyWindowClosed;
-      if (isHomeGameSD || tournamentRebuyOpen) {
+      if ((isHomeGameSD || tournamentRebuyOpen) && !p.awayFromTable) {
         p.broke = true;
       } else {
         p.eliminated = true;
@@ -8089,6 +8100,7 @@ async function quitGame() {
       myP.chips = 0;
     }
     myP.eliminated = true;
+    myP.folded = true;
     myP.broke = false;
     myP.lastAction = { type: 'quit', label: 'Quit' };
     if (me.id !== 'demo') {

@@ -31,6 +31,13 @@ function appHtml() {
     .replace(/const SUPABASE_ANON_KEY\s*=\s*'[^']*'/, `const SUPABASE_ANON_KEY = '${ANON_KEY}'`);
 }
 
+/** Taps Quit on this player's screen (the confirm prompt is accepted). */
+export async function quitGame(p) {
+  await p.page.locator('#quit-game-btn').click({ force: true });
+  await expect(p.page.locator('#screen-home')).toHaveClass(/active/, { timeout: 15_000 });
+  p.offline = true; // bots leave this phone alone from now on
+}
+
 /** Opens a new phone-sized player session with the app loaded. */
 export async function newPlayer(browser, name, deviceOpts, { fakeClock = false } = {}) {
   const context = await browser.newContext({ ...deviceOpts, ignoreHTTPSErrors: true });
@@ -135,6 +142,10 @@ export function tableView(p) {
     })(),
     meId: me.id,
     folded: Object.fromEntries(G.players.map((x) => [x.id, !!x.folded])),
+    eliminated: Object.fromEntries(G.players.map((x) => [x.id, !!x.eliminated])),
+    away: Object.fromEntries(G.players.map((x) => [x.id, !!x.awayFromTable])),
+    cashedOut: Object.fromEntries(G.players.map((x) => [x.id, x.cashedOutCents ?? null])),
+    bets: Object.fromEntries(G.players.map((x) => [x.id, x.bet || 0])),
     myCards: (G.players.find((x) => x.id === me.id)?.hand || []).filter((c) => c && c.rank).length,
     screen: document.querySelector('.screen.active')?.id || null,
     dbg: amHost ? {
@@ -232,7 +243,7 @@ export function expectScreensAgree(all, views, total, label) {
 
 /**
  * Three players sign up, become friends, and the first one hosts a home game
- * the others join. Returns once every screen is at the table.
+ * (or a tournament, with opts.format = 'tournament') the others join. Returns once every screen is at the table.
  */
 export async function setupHomeGame(browser, names, phones, opts = {}) {
   const all = await Promise.all(names.map((n, i) => newPlayer(browser, n, phones[i % phones.length], opts)));
@@ -244,7 +255,7 @@ export async function setupHomeGame(browser, names, phones, opts = {}) {
   await hp.evaluate(() => navTo('home'));
   await hp.locator('#screen-home .fab').click();
   await hp.fill('#new-game-name', 'E2E Home Game');
-  await hp.locator('#format-home').click();
+  await hp.locator(opts.format === 'tournament' ? '#format-tournament' : '#format-home').click();
   await hp.getByRole('button', { name: 'Create Game' }).click();
   await expect(hp.locator('#screen-lobby')).toHaveClass(/active/, { timeout: 15_000 });
   const gameId = await hp.evaluate(() => currentLobbyId);
