@@ -301,7 +301,9 @@ export async function cashOutAndCheckLedger(host, gameId, { endButton = '#host-e
 
 export function expectNoPageErrors(all) {
   for (const p of all) {
-    expect(p.log.filter((l) => l.startsWith('[pageerror]')), `${p.name} had no uncaught page errors`).toEqual([]);
+    // WebKit reports requests cut off by a reload/close as "access control" errors
+    const real = p.log.filter((l) => l.startsWith('[pageerror]') && !/due to access control checks/.test(l));
+    expect(real, `${p.name} had no uncaught page errors`).toEqual([]);
   }
 }
 
