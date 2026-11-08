@@ -227,9 +227,9 @@ export async function setupHomeGame(browser, names, phones, opts = {}) {
 }
 
 /** Host taps End → Cash Out; checks the saved cash-outs and the ledger rows. */
-export async function cashOutAndCheckLedger(host, gameId) {
+export async function cashOutAndCheckLedger(host, gameId, { endButton = '#host-endgame-btn' } = {}) {
   const hp = host.page;
-  await hp.locator('#host-endgame-btn').click({ force: true });
+  await hp.locator(endButton).click({ force: true });
   // The sheet must actually slide up on screen (not just exist in the page)
   await expect(hp.locator('#modal-cashout')).toHaveClass(/open/);
   await expect(hp.locator('#cashout-confirm-btn')).toBeInViewport();

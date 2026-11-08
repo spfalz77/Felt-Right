@@ -77,6 +77,7 @@ async function leaveGameSitOut() {
 }
 
 function playerAction(action) {
+  if (!canActNow()) return; // stale screen (e.g. still on the deal) — ignore the tap
   stopTurnTimer();
 
   // ── STATS: track this player's actions ──
