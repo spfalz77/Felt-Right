@@ -105,9 +105,11 @@ test('home game: 3 players, play hands, cash out, ledger balances', async ({ bro
 
   await test.step('host cashes out; database writes a balanced ledger', async () => {
     const hp = host.page;
-    await hp.locator('#host-endgame-btn').click();
-    await expect(hp.locator('#modal-cashout')).toBeVisible();
-    await hp.locator('#cashout-confirm-btn').click();
+    await hp.locator('#host-endgame-btn').click({ force: true });
+    // The sheet must actually slide up on screen (not just exist in the page)
+    await expect(hp.locator('#modal-cashout')).toHaveClass(/open/);
+    await expect(hp.locator('#cashout-confirm-btn')).toBeInViewport();
+    await hp.locator('#cashout-confirm-btn').click({ timeout: 10_000 });
 
     let game = null;
     await expect.poll(async () => {

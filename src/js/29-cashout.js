@@ -27,7 +27,7 @@ function openCashOutModal() {
     })),
   };
   renderCashOutModal();
-  document.getElementById('modal-cashout').style.display = 'flex';
+  openModal('modal-cashout');
 }
 
 function renderCashOutModal() {
