@@ -102,18 +102,28 @@ async function quitGame() {
   }
 
   // ── HOME GAME QUIT ──
-  // Record ledger immediately. The game continues for everyone else with this
-  // player removed from active play.
+  // The player takes their stack home. The host banks it on the player
+  // (cashedOutCents), clears it from the table so it can't be counted twice,
+  // and the server records the friends ledger for both sides of every pair
+  // (settle_home_game_ledger). The game continues for everyone else.
   const stackCents = myP.chips || 0;
-  const buyInCents = myP.totalBuyInCents || ((gameBuyIn || 0) * 100);
-  const netCents = stackCents - buyInCents;
-
-  // Set quitting player as eliminated locally; host will sync.
   if (amHost || me.id === 'demo') {
+    if (myP.cashedOutCents == null) {
+      myP.cashedOutCents = stackCents;
+      myP.chips = 0;
+    }
     myP.eliminated = true;
     myP.broke = false;
     myP.lastAction = { type: 'quit', label: 'Quit' };
-    syncGameState();
+    if (me.id !== 'demo') {
+      try { await syncGameState(); } catch(e) { /* still leave */ }
+      await settleHomeGameLedger(currentGameId);
+      const stillIn = G.players.filter(p => !p.eliminated && p.id !== me.id);
+      if (stillIn.length > 0) {
+        toast('Migrating host…');
+        setTimeout(() => attemptHostMigration(currentGameId, me.id), 400);
+      }
+    }
   } else if (sb && currentGameId) {
     try {
       await sb.from('player_actions').insert({
@@ -124,42 +134,6 @@ async function quitGame() {
         created_at: new Date().toISOString(),
       });
     } catch(e) { /* still leave */ }
-  }
-
-  // Record my ledger entry — pairwise against other players proportional to their
-  // net status. We use a simple approach: my net P/L gets recorded against the
-  // "house" of the remaining players as a single aggregate. To keep ledger
-  // accurate without forcing the host to settle yet, we just write a single row
-  // for this user noting the net.
-  // Actually, to keep things consistent with the cash-out flow, we record one row
-  // per pairwise relationship using a best-guess approach: split my net among
-  // currently-leading vs. trailing players. Simpler: just record me vs. each
-  // other player based on their current relative state. To avoid double-counting
-  // we ONLY write our own user_id rows. Other players record their own when they
-  // eventually cash out / quit.
-  if (sb && me.id !== 'demo' && netCents !== 0) {
-    try {
-      // Compute pairwise debts: each other active player owes me / I owe them
-      // proportional to (my net) / (their relative position).
-      // For simplicity: distribute my net evenly across all other non-self players.
-      const others = G.players.filter(p => p.id !== me.id && p.id !== 'demo');
-      const rows = [];
-      if (others.length > 0) {
-        const perPersonDollars = (netCents / 100) / others.length;
-        for (const o of others) {
-          if (!o.id || perPersonDollars === 0) continue;
-          rows.push({
-            game_id: currentGameId,
-            user_id: me.id,
-            opponent_id: o.id,
-            amount: perPersonDollars,
-            kind: 'game',
-            note: 'Quit mid-game cashout',
-          });
-        }
-      }
-      if (rows.length) await sb.from('payout_ledger').insert(rows);
-    } catch(e) { console.warn('quit ledger:', e); }
   }
   goHome();
 }

@@ -83,6 +83,17 @@ async function recordGameToLedger(gameId, buyIn, totalPlayers, finalPlacements, 
   } catch(e) { return { error: e }; }
 }
 
+// Ask the server to (re)write a home game's ledger entries for all players.
+// Returns { final, ledger_rows } or { skipped } / { error }, or null on failure.
+async function settleHomeGameLedger(gameId) {
+  if (!sb || !gameId || me.id === 'demo') return null;
+  try {
+    const { data, error } = await sb.rpc('settle_home_game_ledger', { p_game_id: gameId });
+    if (error) { console.warn('settleHomeGameLedger:', error); return null; }
+    return data;
+  } catch(e) { console.warn('settleHomeGameLedger:', e); return null; }
+}
+
 async function loadMyLedger() {
   if (!sb || me.id === 'demo') return [];
   try {

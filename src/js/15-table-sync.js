@@ -302,7 +302,7 @@ function syncGameState() {
     }
   }
   const safeState = redactForSync(G);
-  sb.from('games')
+  return sb.from('games')
     .update({ state: safeState, hand_number: G.handNumber, last_host_seen: new Date().toISOString() })
     .eq('id', currentGameId)
     .then(({ error }) => { if (error) console.warn('sync error:', error); });
@@ -416,12 +416,15 @@ function hostListenForActions(gameId) {
       if (action === 'quit_cashout') {
         if (G) {
           const p = G.players.find(pl => pl.id === player_id);
-          if (p) {
+          if (p && p.cashedOutCents == null) {
+            // Bank what they take home (host's own count, not the client's)
+            p.cashedOutCents = p.chips || 0;
+            p.chips = 0;
             p.eliminated = true;
             p.broke = false;
             p.lastAction = { type: 'quit', label: 'Quit' };
-            syncGameState();
             renderGame();
+            Promise.resolve(syncGameState()).then(() => settleHomeGameLedger(currentGameId));
           }
         }
         return;
