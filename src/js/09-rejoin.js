@@ -47,6 +47,7 @@ async function rejoinActiveGame(gameId, gameRef) {
       renderGame();
       hostListenForActions(gameId);
       startHostHeartbeat(gameId);
+      resumeHostDuties();
       if (!isMyTurn()) setTimeout(runCpuTurn, 800);
     } else {
       // Clear any stale auto-action from previous session

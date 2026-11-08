@@ -186,14 +186,73 @@ async function attemptHostMigration(gameId, oldHostId) {
     renderGame();
     if (G.stage === 'deal' || G.stage === 'showdown') {
       setTimeout(dealNewHand, 1000);
-    } else if (!isMyTurn()) {
-      setTimeout(runCpuTurn, 800);
+    } else {
+      resumeHostDuties(oldHostId);
+      if (!isMyTurn()) setTimeout(runCpuTurn, 800);
     }
 
   } catch(e) {
     console.warn('Migration failed:', e);
     _gamePaused = false;
   }
+}
+
+// A phone that has just become host (took over, or rejoined as host) picks up
+// the host's timers for whatever is in progress: the turn backstop for the
+// player on action (so a player who's gone is checked/folded instead of the
+// table waiting forever) and the dealer's-choice timeout. Who is connected is
+// re-read from presence, and the host we took over from counts as gone.
+function resumeHostDuties(oldHostId) {
+  if (!amHost || !G?.players) return;
+  G.players.forEach(p => {
+    if (p.id === me.id || p.eliminated) return;
+    if (oldHostId && p.id === oldHostId) { p.disconnected = true; return; }
+    p.disconnected = !isPlayerOnline(p.id);
+  });
+  // Took over mid-hand: the other players' cards are private, so this phone
+  // can't decide the hand fairly. Call it off, return the bets, deal again.
+  const othersHidden = G.players.some(p => p.id !== me.id && !p.folded && !p.eliminated
+    && (p.hand || []).some(c => !c || c.hidden));
+  if (['preflop', 'flop', 'turn', 'river'].includes(G.stage) && othersHidden) {
+    voidHandInProgress('Host changed mid-hand — hand called off, bets returned');
+    return;
+  }
+  if (G.pendingDealerChoice) startDealerChoiceTimer();
+  else if (['preflop', 'flop', 'turn', 'river'].includes(G.stage)) startHostTurnEnforcer();
+}
+
+// Host-only: cancel the hand in progress. Everyone still seated gets back what
+// they put in this hand; any pot that can't be attributed (e.g. a Guts
+// carry-over) is split evenly, remainder to the first seated player. Same rule
+// as Cash Out mid-hand and cleanup_stale_games().
+function voidHandInProgress(message) {
+  if (!amHost || !G) return;
+  stopHostTurnEnforcer();
+  const seated = G.players.filter(p => !p.eliminated && !p.cashedOutCents);
+  const pot = Math.max(G.pot || 0, 0);
+  const refundable = seated.reduce((a, p) => a + Math.max(p.totalBet || 0, 0), 0);
+  let leftover = 0;
+  if (refundable > pot) {
+    seated.forEach(p => { p.chips += Math.round(Math.max(p.totalBet || 0, 0) * pot / refundable); });
+  } else {
+    seated.forEach(p => { p.chips += Math.max(p.totalBet || 0, 0); });
+    leftover = pot - refundable;
+  }
+  if (leftover > 0 && seated.length) {
+    const share = Math.floor(leftover / seated.length);
+    seated.forEach(p => { p.chips += share; });
+    seated[0].chips += leftover - share * seated.length;
+  }
+  G.players.forEach(p => { p.bet = 0; p.totalBet = 0; p.folded = false; p.allIn = false; p.lastAction = null; });
+  G.pot = 0;
+  G.currentBet = 0;
+  G.community = [];
+  G.actionIndex = -1;
+  G.stage = 'deal';
+  if (message) toast(message);
+  renderGame();
+  syncGameState();
+  setTimeout(dealNewHand, 1500);
 }
 
 // ── ENTER GAME ────────────────────────────────────────────────────────────────
@@ -799,6 +858,7 @@ function guestSubscribeToGame(gameId) {
       const prevStage = G?.stage;
 
       // Host changed (migration happened) — update our role accordingly
+      let justPromoted = false;
       if (row.host_id && row.host_id !== me.id && amHost) {
         // I used to be host but am not anymore — downgrade to guest cleanly
         amHost = false;
@@ -812,7 +872,12 @@ function guestSubscribeToGame(gameId) {
         startHostHeartbeat(gameId);
         clearDisconnectBanner();
         toast('You are now the host');
+        justPromoted = true;
+        setTimeout(() => resumeHostDuties(), 0); // after G is updated below
       }
+      // The host's own G is the real table (it holds everyone's cards). Saved
+      // state is redacted, so never let an echo of it overwrite the host's G.
+      if (amHost && !justPromoted) return;
 
       if (_gamePaused) {
         _gamePaused = false;

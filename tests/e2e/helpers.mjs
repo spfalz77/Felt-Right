@@ -46,14 +46,42 @@ export async function newPlayer(browser, name, deviceOpts, { fakeClock = false }
     return route.fulfill({ status: 404, body: '' });
   });
   context.on('dialog', (d) => d.accept()); // confirm() prompts
-  const page = await context.newPage();
-  const log = [];
+  const p = { name, email: `${name.toLowerCase()}.${RUN}@e2e.test`, context, log: [] };
+  await openApp(p);
+  return p;
+}
+
+async function openApp(p) {
+  const page = await p.context.newPage();
   page.on('console', (m) => {
-    if (m.type() === 'error' || m.type() === 'warning') log.push(`[${m.type()}] ${m.text()}`);
+    if (m.type() === 'error' || m.type() === 'warning' || /^\[(void-hand|trace)\]/.test(m.text())) p.log.push(`[${m.type()}] ${m.text()}`);
   });
-  page.on('pageerror', (e) => log.push(`[pageerror] ${e.message}`));
+  page.on('pageerror', (e) => p.log.push(`[pageerror] ${e.message}`));
   await page.goto(APP_URL);
-  return { name, email: `${name.toLowerCase()}.${RUN}@e2e.test`, context, page, log };
+  p.page = page;
+}
+
+/** Closes the app on this phone (tab gone, like swiping the app away). */
+export async function closeApp(p) {
+  await p.page.close();
+  p.page = null;
+  p.offline = true; // bots skip this player
+}
+
+/**
+ * Opens the app again on the same phone (still signed in), or reloads it, and
+ * taps Rejoin on the game card, like a player coming back. Waits until they're
+ * at the table.
+ */
+export async function reopenAndRejoin(p, gameName = 'E2E Home Game', { reload = false } = {}) {
+  if (reload) await p.page.reload(); else await openApp(p);
+  const { page } = p;
+  await expect(page.locator('#screen-home')).toHaveClass(/active/, { timeout: 15_000 });
+  const card = page.locator('.game-card').filter({ hasText: gameName });
+  await expect(card).toContainText(/Rejoin|Sit Back Down/, { timeout: 15_000 });
+  await card.click();
+  await expect(page.locator('#screen-game')).toHaveClass(/active/, { timeout: 15_000 });
+  p.offline = false;
 }
 
 export async function signUp(p) {
@@ -73,8 +101,8 @@ export async function makeFriends(requester, addressee) {
   const rp = requester.page;
   await rp.evaluate(() => navTo('friends'));
   await rp.fill('#friend-search', addressee.name);
-  const row = rp.locator('#friend-results-list .list-row').filter({ hasText: addressee.name });
-  await row.getByRole('button', { name: 'Add' }).click();
+  // Match by user id: names can repeat across runs sharing one database
+  await rp.locator(`#friend-results-list button[onclick*="${addressee.id}"]`).click();
 
   const ap = addressee.page;
   await expect(async () => {
@@ -87,6 +115,7 @@ export async function makeFriends(requester, addressee) {
 
 /** Snapshot of the table as one player's screen sees it. */
 export function tableView(p) {
+  if (!p.page) return Promise.resolve(null);
   return p.page.evaluate(() => (typeof G === 'undefined' || !G ? null : {
     hand: G.handNumber,
     stage: G.stage,
@@ -106,6 +135,17 @@ export function tableView(p) {
     })(),
     meId: me.id,
     folded: Object.fromEntries(G.players.map((x) => [x.id, !!x.folded])),
+    myCards: (G.players.find((x) => x.id === me.id)?.hand || []).filter((c) => c && c.rank).length,
+    screen: document.querySelector('.screen.active')?.id || null,
+    dbg: amHost ? {
+      enforcer: typeof _hostTurnEnforcer !== 'undefined' && !!_hostTurnEnforcer,
+      online: typeof _onlineIds !== 'undefined' ? [..._onlineIds].map((id) => G.players.find((x) => x.id === id)?.name || id) : null,
+      disconnected: G.players.filter((x) => x.disconnected).map((x) => x.name),
+      turnAgeMs: G.turnStartAt ? Date.now() - new Date(G.turnStartAt).getTime() : null,
+      paused: !!G.paused,
+    } : undefined,
+    lastType: Object.fromEntries(G.players.map((x) => [x.id, x.lastAction?.type || null])),
+    owe: Object.fromEntries(G.players.map((x) => [x.id, Math.max((G.currentBet || 0) - (x.bet || 0), 0)])),
     lastLabel: Object.fromEntries(G.players.map((x) => [x.id, x.lastAction?.label || x.lastAction?.type || null])),
     actorId: G.players[G.actionIndex]?.id || null,
     finished: !!G.tournamentOver,
@@ -153,24 +193,24 @@ export async function botStep(p, strategy = () => 'checkcall') {
  * strategy(player, view). onTick(views) runs each round (for test setup).
  * Fails with screens + database state if nothing changes for 30s.
  */
-export async function runTable({ all, gameId, strategy, onTick, done, timeoutMs = 4 * 60_000 }) {
+export async function runTable({ all, gameId, strategy, onTick, done, timeoutMs = 4 * 60_000, stallMs = 30_000 }) {
   const deadline = Date.now() + timeoutMs;
   let lastProgress = Date.now();
   let lastSig = '';
   while (Date.now() < deadline) {
-    for (const p of all) if (!p.offline) await botStep(p, (v) => (strategy ? strategy(p, v) : 'checkcall'));
+    for (const p of all) if (!p.offline && p.page) await botStep(p, (v) => (strategy ? strategy(p, v) : 'checkcall'));
     const views = await Promise.all(all.map(tableView));
     if (onTick) await onTick(views);
     if (await done(views)) return views;
     const sig = JSON.stringify(views.map((v) => v && [v.hand, v.stage, v.pot, v.actionIndex]));
     if (sig !== lastSig) { lastSig = sig; lastProgress = Date.now(); }
-    if (Date.now() - lastProgress > 30_000) await reportStall(all, gameId, views);
-    await all[0].page.waitForTimeout(250);
+    if (Date.now() - lastProgress > stallMs) await reportStall(all, gameId, views, `Table stalled for ${stallMs / 1000}s`);
+    await new Promise((r) => setTimeout(r, 250));
   }
   await reportStall(all, gameId, await Promise.all(all.map(tableView)), 'Timed out');
 }
 
-async function reportStall(all, gameId, views, what = 'Table stalled for 30s') {
+async function reportStall(all, gameId, views, what = 'Table stalled') {
   const [db] = await adminSelect('games', `id=eq.${gameId}&select=status,hand_number,state`);
   const acts = await adminSelect('player_actions', `game_id=eq.${gameId}&select=player_id,action,amount&order=created_at`);
   const ids = Object.fromEntries(all.map((p) => [p.id, p.name]));
@@ -209,8 +249,7 @@ export async function setupHomeGame(browser, names, phones, opts = {}) {
   await expect(hp.locator('#screen-lobby')).toHaveClass(/active/, { timeout: 15_000 });
   const gameId = await hp.evaluate(() => currentLobbyId);
   for (const g of guests) {
-    await hp.locator('#lobby-friend-invite-list .list-row').filter({ hasText: g.name })
-      .getByRole('button', { name: 'Invite' }).click();
+    await hp.locator(`#lobby-friend-invite-list button[onclick*="${g.id}"]`).click();
   }
   for (const g of guests) {
     await expect(async () => {
@@ -232,6 +271,8 @@ export async function cashOutAndCheckLedger(host, gameId, { endButton = '#host-e
   await hp.locator(endButton).click({ force: true });
   // The sheet must actually slide up on screen (not just exist in the page)
   await expect(hp.locator('#modal-cashout')).toHaveClass(/open/);
+  // Small phones scroll the sheet to reach the button, like a person would
+  await hp.locator('#cashout-confirm-btn').scrollIntoViewIfNeeded();
   await expect(hp.locator('#cashout-confirm-btn')).toBeInViewport();
   await hp.locator('#cashout-confirm-btn').click({ timeout: 10_000 });
 
@@ -260,7 +301,9 @@ export async function cashOutAndCheckLedger(host, gameId, { endButton = '#host-e
 
 export function expectNoPageErrors(all) {
   for (const p of all) {
-    expect(p.log.filter((l) => l.startsWith('[pageerror]')), `${p.name} had no uncaught page errors`).toEqual([]);
+    // WebKit reports requests cut off by a reload/close as "access control" errors
+    const real = p.log.filter((l) => l.startsWith('[pageerror]') && !/due to access control checks/.test(l));
+    expect(real, `${p.name} had no uncaught page errors`).toEqual([]);
   }
 }
 

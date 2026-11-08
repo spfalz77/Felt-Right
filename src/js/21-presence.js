@@ -49,3 +49,10 @@ function startPresence(gameId) {
 }
 
 
+
+// True unless presence has synced and this player isn't in it. Before the first
+// presence sync we don't know, so assume online (never auto-act on a guess).
+function isPlayerOnline(playerId) {
+  if (!_onlineIds || !_onlineIds.size) return true;
+  return _onlineIds.has(playerId);
+}

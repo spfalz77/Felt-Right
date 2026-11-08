@@ -33,3 +33,7 @@ enable_signup = true
 [auth.email]
 enable_signup = true
 enable_confirmations = false
+
+# Test email inbox: not needed (email confirmation is off)
+[local_smtp]
+enabled = false

@@ -5,6 +5,10 @@
 
 let _hostTurnEnforcer = null;
 const TURN_ENFORCE_LIMIT_MS = 45000; // 45s from turn start before auto-fold
+// A player whose app is closed / offline (no presence) doesn't get the full
+// 45s: after this short grace the host checks for them, or folds them if they
+// face a bet. They come back to normal turns as soon as they rejoin.
+const DISCONNECTED_GRACE_MS = 5000;
 
 function stopHostTurnEnforcer() {
   clearInterval(_hostTurnEnforcer);
@@ -30,7 +34,8 @@ function startHostTurnEnforcer() {
     if (stillP.folded || stillP.eliminated) { stopHostTurnEnforcer(); return; }
 
     const elapsed = Date.now() - startedAt;
-    if (elapsed < TURN_ENFORCE_LIMIT_MS) return;
+    const gone = !isPlayerOnline(stillP.id); // live presence, not the saved flag (state syncs can reset it)
+    if (elapsed < (gone ? DISCONNECTED_GRACE_MS : TURN_ENFORCE_LIMIT_MS)) return;
 
     // Time's up — auto check/fold
     stopHostTurnEnforcer();
