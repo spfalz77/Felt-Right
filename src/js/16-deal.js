@@ -135,7 +135,7 @@ function startDealerChoiceTimer() {
     }
     // Dealer's app is closed / offline: don't make the table wait the full time
     const dealer = G.players.find(p => p.id === G.dealerId);
-    const dealerGone = dealer && dealer.id !== me.id && dealer.disconnected && !isPlayerOnline(dealer.id);
+    const dealerGone = dealer && dealer.id !== me.id && !isPlayerOnline(dealer.id);
     const startedAt = G.dealerChoiceDeadlineMs - DEALER_CHOICE_SECONDS * 1000;
     const dueAt = dealerGone ? Math.min(G.dealerChoiceDeadlineMs, startedAt + DISCONNECTED_GRACE_MS) : G.dealerChoiceDeadlineMs;
     if (Date.now() < dueAt) return;

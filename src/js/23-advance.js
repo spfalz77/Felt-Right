@@ -34,7 +34,7 @@ function startHostTurnEnforcer() {
     if (stillP.folded || stillP.eliminated) { stopHostTurnEnforcer(); return; }
 
     const elapsed = Date.now() - startedAt;
-    const gone = stillP.disconnected && !isPlayerOnline(stillP.id);
+    const gone = !isPlayerOnline(stillP.id); // live presence, not the saved flag (state syncs can reset it)
     if (elapsed < (gone ? DISCONNECTED_GRACE_MS : TURN_ENFORCE_LIMIT_MS)) return;
 
     // Time's up — auto check/fold
