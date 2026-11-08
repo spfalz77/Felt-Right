@@ -1,0 +1,35 @@
+# Local Supabase settings, used only by `supabase start` for the end-to-end tests.
+# The live project is configured in the Supabase dashboard, not here.
+project_id = "felt-right"
+
+[api]
+port = 54321
+schemas = ["public", "graphql_public"]
+
+[db]
+port = 54322
+major_version = 17
+
+[realtime]
+enabled = true
+
+[studio]
+enabled = false
+
+[storage]
+enabled = false
+
+[edge_runtime]
+enabled = false
+
+[analytics]
+enabled = false
+
+[auth]
+enabled = true
+site_url = "http://felt-right.test/Felt-Right/"
+enable_signup = true
+
+[auth.email]
+enable_signup = true
+enable_confirmations = false
