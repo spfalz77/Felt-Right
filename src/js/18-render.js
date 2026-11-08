@@ -96,7 +96,7 @@ function renderGame() {
   // Pot display — show side pots if any player is all-in
   const allInPlayers = G.players.filter(p => p.allIn && !p.eliminated);
   if (allInPlayers.length > 0 && G.stage !== 'showdown') {
-    const previewPots = buildSidePots(G.players.filter(p => !p.eliminated));
+    const previewPots = buildSidePots(G.players);
     const potText = previewPots.length > 1
       ? previewPots.map((p, i) => `${i===0?'Main':'Side'}: ${formatChipsCompact(p.amount)}`).join(' · ')
       : `POT: ${formatChips(G.pot)}`;

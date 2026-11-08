@@ -495,6 +495,7 @@ function hostListenForActions(gameId) {
             p.chips = 0;
             p.eliminated = true;
             p.folded = true; // out of this hand; what they already bet stays in the pot
+            p.quitHand = G.handNumber;
             p.broke = false;
             p.lastAction = { type: 'quit', label: 'Quit' };
             renderGame();

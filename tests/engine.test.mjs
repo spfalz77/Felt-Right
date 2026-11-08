@@ -125,3 +125,20 @@ test('cash-out mid-hand voids the hand: bets go back, chips are conserved', () =
   cctx.voidUnfinishedHandForCashOut(withQuitter);
   assert.deepEqual(withQuitter.map((p) => p.stackCents), [1005, 1000, 700]);
 });
+
+test('side pots: chips bet by a player who quit this hand stay in the pot', () => {
+  ctx.G = { handNumber: 7 };
+  try {
+    const players = [
+      { id: 'a', totalBet: 10, folded: false, eliminated: false },
+      { id: 'b', totalBet: 10, folded: false, eliminated: false },
+      // quit during hand 7 after posting the big blind
+      { id: 'q', totalBet: 10, folded: true, eliminated: true, quitHand: 7 },
+      // left in an earlier hand: their old totalBet must not count again
+      { id: 'old', totalBet: 50, folded: true, eliminated: true, quitHand: 3 },
+    ];
+    const pots = buildSidePots(players);
+    assert.equal(pots.reduce((a, p) => a + p.amount, 0), 30);
+    for (const pot of pots) assert.ok(!pot.eligible.some((p) => (p.id || p) === 'q'), 'quitter cannot win');
+  } finally { ctx.G = null; }
+});

@@ -33,8 +33,19 @@ function appHtml() {
 
 /** Taps Quit on this player's screen (the confirm prompt is accepted). */
 export async function quitGame(p) {
+  const under = await p.page.evaluate(() => {
+    const b = document.getElementById('quit-game-btn');
+    const r = b?.getBoundingClientRect();
+    const el = r && document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+    return { visible: !!r && r.width > 0, top: el ? `${el.tagName}#${el.id}.${el.className}` : null, rect: r && [r.x, r.y, r.width, r.height] };
+  });
   await p.page.locator('#quit-game-btn').click({ force: true });
-  await expect(p.page.locator('#screen-home')).toHaveClass(/active/, { timeout: 15_000 });
+  try {
+    await expect(p.page.locator('#screen-home')).toHaveClass(/active/, { timeout: 15_000 });
+  } catch (e) {
+    const after = await p.page.evaluate(() => ({ screen: document.querySelector('.screen.active')?.id, toast: document.getElementById('toast')?.textContent, stage: G?.stage }));
+    throw new Error(`Quit didn't reach the home screen. Under the button: ${JSON.stringify(under)}; now: ${JSON.stringify(after)}`);
+  }
   p.offline = true; // bots leave this phone alone from now on
 }
 

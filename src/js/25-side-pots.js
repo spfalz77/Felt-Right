@@ -10,7 +10,10 @@ function buildSidePots(players) {
   // This correctly handles: multiple all-ins, folded players who contributed, uncalled overage
   // (which should already have been returned by returnUncalledBets before this is called).
 
-  const contributors = players.filter(p => !p.eliminated && p.totalBet > 0);
+  // A player who quit during this hand has left the table (eliminated) but the
+  // chips they already bet stay in the pot (they're folded, so can't win it).
+  const handNo = (typeof G !== 'undefined' && G) ? G.handNumber : undefined;
+  const contributors = players.filter(p => (!p.eliminated || (p.quitHand != null && p.quitHand === handNo)) && p.totalBet > 0);
   if (!contributors.length) return [];
 
   // Distinct totalBet levels in ascending order

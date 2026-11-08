@@ -4133,6 +4133,7 @@ function hostListenForActions(gameId) {
             p.chips = 0;
             p.eliminated = true;
             p.folded = true; // out of this hand; what they already bet stays in the pot
+            p.quitHand = G.handNumber;
             p.broke = false;
             p.lastAction = { type: 'quit', label: 'Quit' };
             renderGame();
@@ -5727,7 +5728,7 @@ function renderGame() {
   // Pot display — show side pots if any player is all-in
   const allInPlayers = G.players.filter(p => p.allIn && !p.eliminated);
   if (allInPlayers.length > 0 && G.stage !== 'showdown') {
-    const previewPots = buildSidePots(G.players.filter(p => !p.eliminated));
+    const previewPots = buildSidePots(G.players);
     const potText = previewPots.length > 1
       ? previewPots.map((p, i) => `${i===0?'Main':'Side'}: ${formatChipsCompact(p.amount)}`).join(' · ')
       : `POT: ${formatChips(G.pot)}`;
@@ -7147,7 +7148,10 @@ function buildSidePots(players) {
   // This correctly handles: multiple all-ins, folded players who contributed, uncalled overage
   // (which should already have been returned by returnUncalledBets before this is called).
 
-  const contributors = players.filter(p => !p.eliminated && p.totalBet > 0);
+  // A player who quit during this hand has left the table (eliminated) but the
+  // chips they already bet stay in the pot (they're folded, so can't win it).
+  const handNo = (typeof G !== 'undefined' && G) ? G.handNumber : undefined;
+  const contributors = players.filter(p => (!p.eliminated || (p.quitHand != null && p.quitHand === handNo)) && p.totalBet > 0);
   if (!contributors.length) return [];
 
   // Distinct totalBet levels in ascending order
@@ -7267,7 +7271,7 @@ function doShowdown() {
 
   // ── TRUE SHOWDOWN with side pots ──
   // Build side pots from totalBet contributions
-  const sidePots = buildSidePots(G.players.filter(p => !p.eliminated));
+  const sidePots = buildSidePots(G.players);
 
   // Evaluate each active player's best hand
   const handMap = {};
@@ -8101,6 +8105,7 @@ async function quitGame() {
     }
     myP.eliminated = true;
     myP.folded = true;
+    myP.quitHand = G.handNumber;
     myP.broke = false;
     myP.lastAction = { type: 'quit', label: 'Quit' };
     if (me.id !== 'demo') {

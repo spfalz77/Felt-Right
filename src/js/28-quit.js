@@ -114,6 +114,7 @@ async function quitGame() {
     }
     myP.eliminated = true;
     myP.folded = true;
+    myP.quitHand = G.handNumber;
     myP.broke = false;
     myP.lastAction = { type: 'quit', label: 'Quit' };
     if (me.id !== 'demo') {

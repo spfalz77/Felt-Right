@@ -74,7 +74,7 @@ function doShowdown() {
 
   // ── TRUE SHOWDOWN with side pots ──
   // Build side pots from totalBet contributions
-  const sidePots = buildSidePots(G.players.filter(p => !p.eliminated));
+  const sidePots = buildSidePots(G.players);
 
   // Evaluate each active player's best hand
   const handMap = {};
