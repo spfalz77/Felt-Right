@@ -2555,6 +2555,7 @@ async function rejoinActiveGame(gameId, gameRef) {
       renderGame();
       hostListenForActions(gameId);
       startHostHeartbeat(gameId);
+      resumeHostDuties();
       if (!isMyTurn()) setTimeout(runCpuTurn, 800);
     } else {
       // Clear any stale auto-action from previous session
@@ -3823,14 +3824,31 @@ async function attemptHostMigration(gameId, oldHostId) {
     renderGame();
     if (G.stage === 'deal' || G.stage === 'showdown') {
       setTimeout(dealNewHand, 1000);
-    } else if (!isMyTurn()) {
-      setTimeout(runCpuTurn, 800);
+    } else {
+      resumeHostDuties(oldHostId);
+      if (!isMyTurn()) setTimeout(runCpuTurn, 800);
     }
 
   } catch(e) {
     console.warn('Migration failed:', e);
     _gamePaused = false;
   }
+}
+
+// A phone that has just become host (took over, or rejoined as host) picks up
+// the host's timers for whatever is in progress: the turn backstop for the
+// player on action (so a player who's gone is checked/folded instead of the
+// table waiting forever) and the dealer's-choice timeout. Who is connected is
+// re-read from presence, and the host we took over from counts as gone.
+function resumeHostDuties(oldHostId) {
+  if (!amHost || !G?.players) return;
+  G.players.forEach(p => {
+    if (p.id === me.id || p.eliminated) return;
+    if (oldHostId && p.id === oldHostId) { p.disconnected = true; return; }
+    p.disconnected = !isPlayerOnline(p.id);
+  });
+  if (G.pendingDealerChoice) startDealerChoiceTimer();
+  else if (['preflop', 'flop', 'turn', 'river'].includes(G.stage)) startHostTurnEnforcer();
 }
 
 // ── ENTER GAME ────────────────────────────────────────────────────────────────
@@ -4449,6 +4467,7 @@ function guestSubscribeToGame(gameId) {
         startHostHeartbeat(gameId);
         clearDisconnectBanner();
         toast('You are now the host');
+        setTimeout(() => resumeHostDuties(), 0); // after G is updated below
       }
 
       if (_gamePaused) {
