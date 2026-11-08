@@ -108,3 +108,56 @@ test('home game: disconnected player is checked/folded quickly, rejoins after cl
   expectNoPageErrors(all);
   await Promise.all(all.map((p) => p.context.close()));
 });
+
+// The host's phone runs the table. If the host closes the app, another player
+// takes over after ~25s and the game carries on; when the old host comes back
+// they rejoin as a regular player. The new host ends the game.
+test('home game: host closes the app, a guest takes over, old host rejoins as a player', async ({ browser }) => {
+  test.setTimeout(7 * 60_000);
+  const { all, host, gameId } = await test.step('sign up, friends, create, invite, join, start', () =>
+    setupHomeGame(browser, ['Hal', 'Gus', 'Liv'], PHONES));
+  const live = (views) => views.filter((v, i) => all[i].page && v);
+  const handStarted = (n) => (views) => {
+    const lv = live(views);
+    return lv.length > 0 && lv.every((v) => v.hand === n && v.stage === 'preflop' && v.pot === lv[0].pot);
+  };
+  const actionsBy = async (p) => (await adminSelect('player_actions', `game_id=eq.${gameId}&player_id=eq.${p.id}&select=id`)).length;
+  const screenChips = (p) => p.page.evaluate(() => ({ chips: Object.fromEntries(G.players.map((x) => [x.id, x.chips])), pot: G.pot }));
+
+  await runTable({ all, gameId, strategy: () => 'idle', done: handStarted(1) });
+
+  let newHost;
+  await test.step('host closes the app; a guest becomes host and the hand carries on', async () => {
+    await closeApp(host);
+    await expect.poll(async () => (await adminSelect('games', `id=eq.${gameId}&select=host_id`))[0].host_id,
+      { timeout: 60_000, message: 'another player takes over as host' }).not.toBe(host.id);
+    const [{ host_id }] = await adminSelect('games', `id=eq.${gameId}&select=host_id`);
+    newHost = all.find((p) => p.id === host_id);
+    await expect.poll(() => newHost.page.evaluate(() => amHost), { timeout: 15_000, message: `${newHost.name}'s phone runs the table` }).toBe(true);
+    await expect(newHost.page.locator('#host-endgame-btn')).toBeVisible({ timeout: 10_000 });
+    await runTable({ all, gameId, stallMs: 45_000, done: handStarted(2), strategy: (p, v) => (v.hand >= 2 ? 'idle' : 'checkcall') });
+  });
+
+  await test.step('old host opens the app again and rejoins as a player', async () => {
+    await reopenAndRejoin(host);
+    expect(await host.page.evaluate(() => amHost), 'old host is now a regular player').toBe(false);
+    await expect.poll(async () => {
+      const [h, o] = [await tableView(newHost), await tableView(host)];
+      return o && h && o.hand === h.hand && o.stage === h.stage && JSON.stringify(o.chips) === JSON.stringify(h.chips);
+    }, { timeout: 15_000, message: "old host's screen catches up" }).toBe(true);
+    const before = await actionsBy(host);
+    await runTable({ all, gameId, done: handStarted(4), strategy: (p, v) => (v.hand >= 4 ? 'idle' : 'checkcall') });
+    expect(await actionsBy(host), 'old host sent moves after rejoining').toBeGreaterThan(before);
+    const order = [newHost, ...all.filter((p) => p !== newHost)];
+    const views = await Promise.all(order.map(screenChips));
+    expectScreensAgree(order, views, TOTAL, 'start of hand 4');
+  });
+
+  await test.step('new host cashes out; everyone is in the ledger', async () => {
+    const { cashOuts } = await cashOutAndCheckLedger(newHost, gameId);
+    expect(cashOuts.map((c) => c.id).sort()).toEqual(all.map((p) => p.id).sort());
+  });
+
+  expectNoPageErrors(all);
+  await Promise.all(all.map((p) => p.context.close()));
+});

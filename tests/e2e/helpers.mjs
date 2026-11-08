@@ -186,24 +186,24 @@ export async function botStep(p, strategy = () => 'checkcall') {
  * strategy(player, view). onTick(views) runs each round (for test setup).
  * Fails with screens + database state if nothing changes for 30s.
  */
-export async function runTable({ all, gameId, strategy, onTick, done, timeoutMs = 4 * 60_000 }) {
+export async function runTable({ all, gameId, strategy, onTick, done, timeoutMs = 4 * 60_000, stallMs = 30_000 }) {
   const deadline = Date.now() + timeoutMs;
   let lastProgress = Date.now();
   let lastSig = '';
   while (Date.now() < deadline) {
-    for (const p of all) if (!p.offline) await botStep(p, (v) => (strategy ? strategy(p, v) : 'checkcall'));
+    for (const p of all) if (!p.offline && p.page) await botStep(p, (v) => (strategy ? strategy(p, v) : 'checkcall'));
     const views = await Promise.all(all.map(tableView));
     if (onTick) await onTick(views);
     if (await done(views)) return views;
     const sig = JSON.stringify(views.map((v) => v && [v.hand, v.stage, v.pot, v.actionIndex]));
     if (sig !== lastSig) { lastSig = sig; lastProgress = Date.now(); }
-    if (Date.now() - lastProgress > 30_000) await reportStall(all, gameId, views);
+    if (Date.now() - lastProgress > stallMs) await reportStall(all, gameId, views, `Table stalled for ${stallMs / 1000}s`);
     await all[0].page.waitForTimeout(250);
   }
   await reportStall(all, gameId, await Promise.all(all.map(tableView)), 'Timed out');
 }
 
-async function reportStall(all, gameId, views, what = 'Table stalled for 30s') {
+async function reportStall(all, gameId, views, what = 'Table stalled') {
   const [db] = await adminSelect('games', `id=eq.${gameId}&select=status,hand_number,state`);
   const acts = await adminSelect('player_actions', `game_id=eq.${gameId}&select=player_id,action,amount&order=created_at`);
   const ids = Object.fromEntries(all.map((p) => [p.id, p.name]));
