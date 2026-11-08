@@ -32,8 +32,11 @@ function appHtml() {
 }
 
 /** Opens a new phone-sized player session with the app loaded. */
-export async function newPlayer(browser, name, deviceOpts) {
+export async function newPlayer(browser, name, deviceOpts, { fakeClock = false } = {}) {
   const context = await browser.newContext({ ...deviceOpts, ignoreHTTPSErrors: true });
+  // Fake clock: time still runs normally, but a test can jump it forward
+  // (page.clock.fastForward) to fire turn timers without waiting.
+  if (fakeClock) await context.clock.install();
   const html = appHtml();
   await context.route(`${APP_URL}**`, (route) => {
     const url = new URL(route.request().url());
@@ -102,6 +105,9 @@ export function tableView(p) {
       return d < 0 ? null : live[(d + 1) % live.length].id;
     })(),
     meId: me.id,
+    folded: Object.fromEntries(G.players.map((x) => [x.id, !!x.folded])),
+    lastLabel: Object.fromEntries(G.players.map((x) => [x.id, x.lastAction?.label || x.lastAction?.type || null])),
+    actorId: G.players[G.actionIndex]?.id || null,
     finished: !!G.tournamentOver,
   }));
 }
@@ -114,7 +120,7 @@ async function tap(locator) {
 
 /**
  * Plays one move on this player's screen if it's their turn, by tapping real
- * buttons. `strategy(view)` returns 'allin', 'fold' or 'checkcall' (default).
+ * buttons. `strategy(view)` returns 'allin', 'fold', 'idle' or 'checkcall' (default).
  * Dealer's choice always picks Hold'em (only for hand
  * p.pickHand, if the test set one). Returns what it did, or null.
  */
@@ -128,13 +134,14 @@ export async function botStep(p, strategy = () => 'checkcall') {
     await tap(pick.first()); return 'picked holdem';
   }
   if (!v || !v.myTurn || !['preflop', 'flop', 'turn', 'river'].includes(v.stage)) return null;
+  const plan = strategy(v);
+  if (plan === 'idle') return null; // leave the phone alone (timer tests)
   // One tap per turn: wait for the screen to move on before tapping again
   const turnKey = `${v.hand}:${v.stage}:${v.actionIndex}`;
   if (p.lastTurnKey === turnKey && Date.now() - p.lastTapAt < 5_000) return null;
   p.lastTurnKey = turnKey; p.lastTapAt = Date.now();
 
   const btn = (action) => page.locator(`#action-bar button[onclick="playerAction('${action}')"]:not([disabled])`);
-  const plan = strategy(v);
   for (const action of plan === 'allin' ? ['allin', 'call', 'check'] : plan === 'fold' ? ['fold'] : ['check', 'call']) {
     if (await btn(action).count()) return (await tap(btn(action).first())) && action;
   }
@@ -151,7 +158,7 @@ export async function runTable({ all, gameId, strategy, onTick, done, timeoutMs 
   let lastProgress = Date.now();
   let lastSig = '';
   while (Date.now() < deadline) {
-    for (const p of all) await botStep(p, (v) => (strategy ? strategy(p, v) : 'checkcall'));
+    for (const p of all) if (!p.offline) await botStep(p, (v) => (strategy ? strategy(p, v) : 'checkcall'));
     const views = await Promise.all(all.map(tableView));
     if (onTick) await onTick(views);
     if (await done(views)) return views;
@@ -187,8 +194,8 @@ export function expectScreensAgree(all, views, total, label) {
  * Three players sign up, become friends, and the first one hosts a home game
  * the others join. Returns once every screen is at the table.
  */
-export async function setupHomeGame(browser, names, phones) {
-  const all = await Promise.all(names.map((n, i) => newPlayer(browser, n, phones[i % phones.length])));
+export async function setupHomeGame(browser, names, phones, opts = {}) {
+  const all = await Promise.all(names.map((n, i) => newPlayer(browser, n, phones[i % phones.length], opts)));
   const [host, ...guests] = all;
   for (const p of all) await signUp(p);
   for (const g of guests) await makeFriends(host, g);
