@@ -136,6 +136,10 @@ test('home game: host closes the app, a guest takes over, old host rejoins as a 
     await expect.poll(() => newHost.page.evaluate(() => amHost), { timeout: 15_000, message: `${newHost.name}'s phone runs the table` }).toBe(true);
     await expect(newHost.page.locator('#host-endgame-btn')).toBeVisible({ timeout: 10_000 });
     await runTable({ all, gameId, stallMs: 45_000, done: handStarted(2), strategy: (p, v) => (v.hand >= 2 ? 'idle' : 'checkcall') });
+    const order = [newHost, ...all.filter((p) => p !== newHost && p.page)];
+    const views = await Promise.all(order.map(screenChips));
+    const last = await newHost.page.evaluate(() => (G.handHistory || []).slice(-1)[0]);
+    expectScreensAgree(order, views, TOTAL, `start of hand 2, after the takeover hand. Last hand: ${JSON.stringify(last)?.slice(0, 1500)}`);
   });
 
   await test.step('old host opens the app again and rejoins as a player', async () => {
