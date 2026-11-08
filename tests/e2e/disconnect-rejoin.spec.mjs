@@ -54,7 +54,7 @@ test('home game: disconnected player is checked/folded quickly, rejoins after cl
       expect(t.ms, `host acted for away Kit within ${AUTO_ACT_LIMIT_MS / 1000}s`).toBeLessThan(AUTO_ACT_LIMIT_MS);
       // Check when checking is allowed; fold when facing a bet or raise. (A check's
       // label is cleared if the next betting round starts before we look.)
-      expect(t.label, 'shown as Away').toBe('Away');
+      if (t.folded || t.label !== null) expect(t.label, 'shown as Away').toBe('Away');
       expect({ type: t.type, folded: t.folded }, `Kit owed ${t.owed} to call`)
         .toEqual(t.owed > 0 ? { type: 'fold', folded: true } : { type: t.type === null ? null : 'check', folded: false });
     }
