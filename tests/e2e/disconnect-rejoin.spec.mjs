@@ -128,6 +128,19 @@ test('home game: host closes the app, a guest takes over, old host rejoins as a 
 
   let newHost;
   await test.step('host closes the app; a guest becomes host and the hand carries on', async () => {
+    // Trace host-side calls on the guests' phones (diagnostics for failures)
+    for (const g of all.slice(1)) {
+      await g.page.evaluate(() => {
+        for (const fn of ['dealNewHand', 'voidHandInProgress', 'resumeHostDuties', 'attemptHostMigration', 'nextHand']) {
+          const orig = window[fn];
+          if (typeof orig !== 'function') continue;
+          window[fn] = function (...args) {
+            console.info(`[trace] ${fn} amHost=${amHost} stage=${G?.stage} hand=${G?.handNumber} ${(new Error().stack || '').split('\n').slice(1, 4).join(' < ')}`);
+            return orig.apply(this, args);
+          };
+        }
+      });
+    }
     await closeApp(host);
     await expect.poll(async () => (await adminSelect('games', `id=eq.${gameId}&select=host_id`))[0].host_id,
       { timeout: 60_000, message: 'another player takes over as host' }).not.toBe(host.id);
@@ -144,7 +157,7 @@ test('home game: host closes the app, a guest takes over, old host rejoins as a 
     const order = [newHost, ...all.filter((p) => p !== newHost && p.page)];
     const views = await Promise.all(order.map(screenChips));
     const last = await newHost.page.evaluate(() => (G.handHistory || []).slice(-1)[0]);
-    expectScreensAgree(order, views, TOTAL, `start of hand 2, after the takeover hand.\nsnaps:\n${newHost.snaps.join('\n')}\nlogs:\n${all.map((p) => p.name + ': ' + p.log.filter((l) => l.includes('void')).join(' | ')).join('\n')}`);
+    expectScreensAgree(order, views, TOTAL, `start of hand 2, after the takeover hand.\nsnaps:\n${newHost.snaps.join('\n')}\nlogs:\n${all.map((p) => p.name + ': ' + p.log.filter((l) => /void|trace/.test(l)).join(' | ')).join('\n')}`);
   });
 
   await test.step('old host opens the app again and rejoins as a player', async () => {
