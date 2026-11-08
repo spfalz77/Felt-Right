@@ -42,7 +42,9 @@ export async function newPlayer(browser, name, deviceOpts) {
   context.on('dialog', (d) => d.accept()); // confirm() prompts
   const page = await context.newPage();
   const log = [];
-  page.on('console', (m) => { if (m.type() === 'error') log.push(`[console] ${m.text()}`); });
+  page.on('console', (m) => {
+    if (m.type() === 'error' || m.type() === 'warning') log.push(`[${m.type()}] ${m.text()}`);
+  });
   page.on('pageerror', (e) => log.push(`[pageerror] ${e.message}`));
   await page.goto(APP_URL);
   return { name, email: `${name.toLowerCase()}@e2e.test`, context, page, log };
@@ -86,6 +88,11 @@ export function tableView(p) {
     pot: G.pot,
     chips: Object.fromEntries(G.players.map((x) => [x.id, x.chips])),
     myTurn: typeof isMyTurn === 'function' ? isMyTurn() : false,
+    actionIndex: G.actionIndex,
+    dealerId: G.dealerId,
+    pendingDealerChoice: !!G.pendingDealerChoice,
+    amHost: typeof amHost !== 'undefined' && amHost,
+    overlay: document.getElementById('showdown-overlay')?.dataset.kind || '',
     finished: !!G.tournamentOver,
   }));
 }

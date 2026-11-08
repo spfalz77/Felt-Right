@@ -19,7 +19,7 @@ test('home game: 3 players, play hands, cash out, ledger balances', async ({ bro
   );
   const all = [host, ...guests];
   const fail = (msg) => {
-    const logs = all.map((p) => `--- ${p.name}\n${p.log.slice(-20).join('\n')}`).join('\n');
+    const logs = all.map((p) => `--- ${p.name}\n${p.log.slice(-30).join('\n')}`).join('\n');
     throw new Error(`${msg}\n${logs}`);
   };
 
@@ -78,7 +78,14 @@ test('home game: 3 players, play hands, cash out, ledger balances', async ({ bro
       const hv = views[0];
       const sig = JSON.stringify(views.map((v) => v && [v.hand, v.stage, v.pot]));
       if (sig !== lastSig) { lastSig = sig; lastProgress = Date.now(); }
-      if (Date.now() - lastProgress > 45_000) fail(`Table stalled for 45s: ${sig}`);
+      if (Date.now() - lastProgress > 30_000) {
+        const [db] = await adminSelect('games', `id=eq.${gameId}&select=status,hand_number,state`);
+        const acts = await adminSelect('player_actions', `game_id=eq.${gameId}&select=player_id,action,amount,created_at&order=created_at`);
+        const ids = Object.fromEntries(all.map((p) => [p.id, p.name]));
+        fail(`Table stalled for 30s.\nscreens: ${JSON.stringify(views.map((v, i) => ({ who: all[i].name, ...v })), null, 1)}`
+          + `\ndb: ${JSON.stringify({ status: db.status, hand: db.state?.handNumber, stage: db.state?.stage, pot: db.state?.pot, actionIndex: db.state?.actionIndex, pending: db.state?.pendingDealerChoice, dealer: ids[db.state?.dealerId] })}`
+          + `\nactions: ${JSON.stringify(acts.map((a) => [ids[a.player_id], a.action, a.amount]))}\nplayers: ${JSON.stringify(ids)}`);
+      }
 
       // At the start of each hand (pre-flop on every screen), compare screens.
       const synced = views.every((v) => v && v.hand === hv.hand && v.stage === 'preflop' && v.pot === hv.pot);
