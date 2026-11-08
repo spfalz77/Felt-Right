@@ -101,8 +101,8 @@ export async function makeFriends(requester, addressee) {
   const rp = requester.page;
   await rp.evaluate(() => navTo('friends'));
   await rp.fill('#friend-search', addressee.name);
-  const row = rp.locator('#friend-results-list .list-row').filter({ hasText: addressee.name });
-  await row.getByRole('button', { name: 'Add' }).click();
+  // Match by user id: names can repeat across runs sharing one database
+  await rp.locator(`#friend-results-list button[onclick*="${addressee.id}"]`).click();
 
   const ap = addressee.page;
   await expect(async () => {
@@ -249,8 +249,7 @@ export async function setupHomeGame(browser, names, phones, opts = {}) {
   await expect(hp.locator('#screen-lobby')).toHaveClass(/active/, { timeout: 15_000 });
   const gameId = await hp.evaluate(() => currentLobbyId);
   for (const g of guests) {
-    await hp.locator('#lobby-friend-invite-list .list-row').filter({ hasText: g.name })
-      .getByRole('button', { name: 'Invite' }).click();
+    await hp.locator(`#lobby-friend-invite-list button[onclick*="${g.id}"]`).click();
   }
   for (const g of guests) {
     await expect(async () => {
