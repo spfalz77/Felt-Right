@@ -8,16 +8,17 @@
 // Both are tested with the player quitting on their own turn (the hardest case).
 
 import { test, expect, devices } from '@playwright/test';
-import { setupHomeGame, runTable, cashOutAndCheckLedger, expectNoPageErrors, adminSelect, quitGame, tableView } from './helpers.mjs';
+import {
+  setupHomeGame, runTable, cashOutAndCheckLedger, expectNoPageErrors, adminSelect, quitGame, tableView,
+  chipsOnTable, seated, handStarted as handStartedOn,
+} from './helpers.mjs';
 
 const PHONES = [devices['iPhone 13'], devices['Pixel 7'], devices['iPhone SE']];
 const BETTING = ['preflop', 'flop', 'turn', 'river'];
 
 // Seated stacks + pot + what quitters took home = everything bought in
 function expectChipsAddUp(who, v, total, label) {
-  const seated = Object.values(v.chips).reduce((a, b) => a + b, 0);
-  const takenHome = Object.values(v.cashedOut).reduce((a, b) => a + (b || 0), 0);
-  expect(seated + v.pot + takenHome, `chips add up on ${who}'s screen (${label})`).toBe(total);
+  expect(chipsOnTable(v), `chips add up on ${who}'s screen (${label})`).toBe(total);
 }
 
 test('home game: player quits on their turn, takes their stack home, game carries on', async ({ browser }) => {
@@ -26,11 +27,8 @@ test('home game: player quits on their turn, takes their stack home, game carrie
     setupHomeGame(browser, ['Quinn', 'Max', 'Zed'], PHONES));
   const zed = all[2];
   const TOTAL = 3 * 2000;
-  const seatedViews = (views) => views.filter((v, i) => v && !all[i].offline);
-  const handStarted = (n) => (views) => {
-    const lv = seatedViews(views);
-    return lv.length > 0 && lv.every((v) => v.hand === n && v.stage === 'preflop' && v.pot === lv[0].pot);
-  };
+  const seatedViews = (views) => seated(all, views);
+  const handStarted = (n) => handStartedOn(all, n);
 
   let zedStack = null;
   await test.step('Zed taps Quit on their own turn', async () => {
@@ -73,11 +71,8 @@ test('tournament: player quits on their turn and blinds out (checked/folded righ
     setupHomeGame(browser, ['Tess', 'Abe', 'Wes'], PHONES, { format: 'tournament' }));
   const wes = all[2];
   const TOTAL = 3 * 1500;
-  const seatedViews = (views) => views.filter((v, i) => v && !all[i].offline);
-  const handStarted = (n) => (views) => {
-    const lv = seatedViews(views);
-    return lv.length > 0 && lv.every((v) => v.hand === n && v.stage === 'preflop' && v.pot === lv[0].pot);
-  };
+  const seatedViews = (views) => seated(all, views);
+  const handStarted = (n) => handStartedOn(all, n);
 
   const awayTurns = [];
   let turnStartedAt = null;

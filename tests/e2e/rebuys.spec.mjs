@@ -6,13 +6,11 @@
 //     the ledger must count Cy's re-buy: Ace +$50, Bo −$20, Cy −$30.
 
 import { test, expect, devices } from '@playwright/test';
-import { setupHomeGame, runTable, cashOutAndCheckLedger, expectNoPageErrors, adminSelect, tableView, cards, rigNextHand } from './helpers.mjs';
+import { setupHomeGame, runTable, cashOutAndCheckLedger, expectNoPageErrors, adminSelect, tableView, cards, rigNextHand, chipsOnTable } from './helpers.mjs';
 
 const PHONES = [devices['iPhone 13'], devices['Pixel 7'], devices['iPhone SE']];
 const BOARD = cards('2c 7d 9h 3s 4d');
-// While a hand's result is showing, the pot display still holds what was
-// already paid to the winner, so only count it during play
-const allChips = (v) => Object.values(v.chips).reduce((a, b) => a + b, 0) + (v.stage === 'showdown' ? 0 : v.pot);
+const allChips = chipsOnTable;
 
 async function tapOverlay(p, selector, label) {
   const btn = p.page.locator(`#elim-overlay ${selector}`);

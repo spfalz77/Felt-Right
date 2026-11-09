@@ -74,7 +74,7 @@ export async function newPlayer(browser, name, deviceOpts, { fakeClock = false }
 async function openApp(p) {
   const page = await p.context.newPage();
   page.on('console', (m) => {
-    if (m.type() === 'error' || m.type() === 'warning' || /^\[(void-hand|trace)\]/.test(m.text())) p.log.push(`[${m.type()}] ${m.text()}`);
+    if (m.type() === 'error' || m.type() === 'warning') p.log.push(`[${m.type()}] ${m.text()}`);
   });
   page.on('pageerror', (e) => p.log.push(`[pageerror] ${e.message}`));
   await page.goto(APP_URL);
@@ -272,6 +272,26 @@ async function reportStall(all, gameId, views, what = 'Table stalled') {
     + `\ndb: ${JSON.stringify({ status: db.status, hand: db.state?.handNumber, stage: db.state?.stage, pot: db.state?.pot, actionIndex: db.state?.actionIndex, pending: db.state?.pendingDealerChoice, dealer: ids[db.state?.dealerId] })}`
     + `\nactions: ${JSON.stringify(acts.slice(-40).map((a) => [ids[a.player_id], a.action, a.amount]))}\nplayers: ${JSON.stringify(ids)}\n${logs}`);
 }
+
+/**
+ * Everything on the table: seated stacks + pot + what quitters took home.
+ * While a result is showing, the pot display still holds what was already
+ * paid to the winner, so it's only counted during play.
+ */
+export function chipsOnTable(v) {
+  const seated = Object.values(v.chips).reduce((a, b) => a + b, 0);
+  const takenHome = Object.values(v.cashedOut || {}).reduce((a, b) => a + (b || 0), 0);
+  return seated + takenHome + (v.stage === 'showdown' ? 0 : v.pot);
+}
+
+/** Players still at the table (app open, haven't quit). */
+export const seated = (all, views) => views.filter((v, i) => v && all[i].page && !all[i].offline);
+
+/** done() for runTable: hand n has started (pre-flop, same pot) on every seated screen. */
+export const handStarted = (all, n) => (views) => {
+  const lv = seated(all, views);
+  return lv.length > 0 && lv.every((v) => v.hand === n && v.stage === 'preflop' && v.pot === lv[0].pot);
+};
 
 /** Every screen agrees with the host's stacks, and stacks + pot = total. */
 export function expectScreensAgree(all, views, total, label) {

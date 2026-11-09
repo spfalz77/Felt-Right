@@ -2,8 +2,10 @@ name: E2E (multi-player)
 
 on:
   pull_request:
+    paths-ignore: ['**.md', 'docs/**']
   push:
     branches: [main]
+    paths-ignore: ['**.md', 'docs/**']
   workflow_dispatch:
     inputs:
       hands:
@@ -22,6 +24,13 @@ concurrency:
 
 jobs:
   e2e:
+    # Three machines in parallel, each with its own local Supabase, each running
+    # a third of the tests (about 4 minutes instead of 11)
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    name: e2e (${{ matrix.shard }}/3)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -41,9 +50,22 @@ jobs:
           supabase start -x "$EXCLUDE" || { supabase stop --no-backup || true; sleep 10; supabase start -x "$EXCLUDE"; }
 
       - name: Install test dependencies
+        run: npm ci
+
+      - name: Cache Playwright browsers
+        id: pw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: pw-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install WebKit
         run: |
-          npm ci
-          npx playwright install --with-deps webkit
+          if [ "${{ steps.pw-cache.outputs.cache-hit }}" = "true" ]; then
+            npx playwright install-deps webkit
+          else
+            npx playwright install --with-deps webkit
+          fi
 
       - name: Build app
         run: npm run build
@@ -55,13 +77,13 @@ jobs:
         run: |
           eval "$(supabase status -o env | sed 's/^/export /')"
           SUPABASE_URL="$API_URL" SUPABASE_ANON_KEY="$ANON_KEY" SUPABASE_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY" \
-          E2E_HANDS="${{ github.event.inputs.hands || '3' }}" npm run test:e2e -- ${FILTER:+-g "$FILTER"} --repeat-each "${REPEAT:-1}"
+          E2E_HANDS="${{ github.event.inputs.hands || '3' }}" npm run test:e2e -- ${FILTER:+-g "$FILTER"} --repeat-each "${REPEAT:-1}" --shard ${{ matrix.shard }}/3 --pass-with-no-tests
 
       - name: Upload report, videos and traces
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-report
+          name: e2e-report-${{ matrix.shard }}
           path: |
             playwright-report/
             test-results/
