@@ -10,7 +10,9 @@ import { setupHomeGame, runTable, cashOutAndCheckLedger, expectNoPageErrors, adm
 
 const PHONES = [devices['iPhone 13'], devices['Pixel 7'], devices['iPhone SE']];
 const BOARD = cards('2c 7d 9h 3s 4d');
-const allChips = (v) => Object.values(v.chips).reduce((a, b) => a + b, 0) + v.pot;
+// While a hand's result is showing, the pot display still holds what was
+// already paid to the winner, so only count it during play
+const allChips = (v) => Object.values(v.chips).reduce((a, b) => a + b, 0) + (v.stage === 'showdown' ? 0 : v.pot);
 
 async function tapOverlay(p, selector, label) {
   const btn = p.page.locator(`#elim-overlay ${selector}`);
@@ -43,6 +45,7 @@ test('home game: bust → re-buy; bust → sit out; cash-out counts every buy-in
       },
     }));
   const [hana, ivo, jem] = all;
+  for (const p of all) p.pickHand = (hand) => hand <= 3; // hold the pick for hand 4 (cash out there)
 
   await test.step('hand 1: Jem all-in against Hana, loses, and re-buys', async () => {
     await runTable({
