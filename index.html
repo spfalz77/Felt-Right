@@ -7726,6 +7726,7 @@ function showMuckOrShow(winner, winAmt) {
 
   const overlay = document.getElementById('showdown-overlay');
   overlay.style.display = 'flex';
+  overlay.dataset.kind = 'showdown'; // a result screen: cleared when the next betting round starts
 
   // Build large playing-card visuals for each hole card
   const cardEls = handCards.map((c, i) => {
