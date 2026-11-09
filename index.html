@@ -7131,29 +7131,12 @@ function finalizeChop() {
     // Chat history is preserved across the game's lifetime
   }
 
-  overlay.style.display = 'flex';
-  overlay.innerHTML = `
-    <div class="showdown-bar" style="gap:10px">
-      <div style="font-size:2.5rem">🤝</div>
-      <div class="showdown-result win" style="font-size:1.6rem">Chop!</div>
-      <div style="font-size:0.85rem;color:var(--text-dim);margin-bottom:6px">Game ended by agreement</div>
-      <div style="width:90%;max-width:300px">
-        ${sorted.map((p, i) => `
-          <div style="display:flex;justify-content:space-between;align-items:center;
-            padding:8px 12px;background:rgba(255,255,255,0.05);border-radius:8px;margin-bottom:6px;
-            border:1px solid ${i===0?'var(--gold-dim)':'transparent'}">
-            <div style="display:flex;align-items:center;gap:8px">
-              <span>${['🥇','🥈'][i]||''}</span>
-              <div class="avatar sm">${p.emoji||p.name[0]}</div>
-              <div style="font-weight:500">${p.name}</div>
-            </div>
-            <div style="font-family:'Bebas Neue',sans-serif;color:var(--gold);font-size:1rem">
-              ${p.chips.toLocaleString()}
-            </div>
-          </div>`).join('')}
-      </div>
-      <button class="btn btn-primary" onclick="goHome()" style="margin-top:6px">Done</button>
-    </div>`;
+  // Same results screen as a normal finish (chop payouts + Record to Friends
+  // Ledger). The host used to get a bare "Chop!" card with no ledger button,
+  // so the host's side of the ledger could never be recorded.
+  overlay.style.display = 'none';
+  overlay.dataset.kind = '';
+  showTournamentOverlay(sorted[0]);
 }
 
 function declineChop() {
