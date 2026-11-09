@@ -35,7 +35,10 @@ jobs:
           version: latest
 
       - name: Start local Supabase (applies supabase/migrations)
-        run: supabase start -x studio,imgproxy,edge-runtime,logflare,vector,supavisor,storage-api,postgres-meta
+        # GitHub's runners sometimes have a port still held; stop cleanly and retry once
+        run: |
+          EXCLUDE=studio,imgproxy,edge-runtime,logflare,vector,supavisor,storage-api,postgres-meta
+          supabase start -x "$EXCLUDE" || { supabase stop --no-backup || true; sleep 10; supabase start -x "$EXCLUDE"; }
 
       - name: Install test dependencies
         run: |
