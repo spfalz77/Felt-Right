@@ -11,7 +11,7 @@ import { expect } from '@playwright/test';
 
 export const APP_URL = 'http://felt-right.test/Felt-Right/';
 
-const SUPABASE_URL = process.env.SUPABASE_URL || 'http://127.0.0.1:54321';
+const SUPABASE_URL = process.env.SUPABASE_URL || 'http://127.0.0.1:55321';
 const ANON_KEY = process.env.SUPABASE_ANON_KEY;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 

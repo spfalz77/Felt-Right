@@ -1,13 +1,15 @@
 # Local Supabase settings, used only by `supabase start` for the end-to-end tests.
+# Ports are in the 553xx range: 543xx is sometimes taken on GitHub's runners.
 # The live project is configured in the Supabase dashboard, not here.
 project_id = "felt-right"
 
 [api]
-port = 54321
+port = 55321
 schemas = ["public", "graphql_public"]
 
 [db]
-port = 54322
+port = 55322
+shadow_port = 55320
 major_version = 17
 
 [realtime]
@@ -15,6 +17,7 @@ enabled = true
 
 [studio]
 enabled = false
+port = 55323
 
 [storage]
 enabled = false
@@ -24,6 +27,7 @@ enabled = false
 
 [analytics]
 enabled = false
+port = 55327
 
 [auth]
 enabled = true
