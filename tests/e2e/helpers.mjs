@@ -22,6 +22,7 @@ if (/dcfsbtefwkcbdeqreiyx/.test(SUPABASE_URL)) throw new Error('E2E tests must n
 
 // Tests share one database: keep every sign-up unique
 const RUN = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+let playerSeq = 0;
 
 const indexPath = fileURLToPath(new URL('../../index.html', import.meta.url));
 
@@ -64,7 +65,8 @@ export async function newPlayer(browser, name, deviceOpts, { fakeClock = false }
     return route.fulfill({ status: 404, body: '' });
   });
   context.on('dialog', (d) => d.accept()); // confirm() prompts
-  const p = { name, email: `${name.toLowerCase()}.${RUN}@e2e.test`, context, log: [] };
+  // Unique per player: tests in one run share RUN and may reuse names
+  const p = { name, email: `${name.toLowerCase()}.${RUN}.${++playerSeq}@e2e.test`, context, log: [] };
   await openApp(p);
   return p;
 }
