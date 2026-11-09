@@ -160,6 +160,8 @@ export function tableView(p) {
     away: Object.fromEntries(G.players.map((x) => [x.id, !!x.awayFromTable])),
     cashedOut: Object.fromEntries(G.players.map((x) => [x.id, x.cashedOutCents ?? null])),
     bets: Object.fromEntries(G.players.map((x) => [x.id, x.bet || 0])),
+    broke: Object.fromEntries(G.players.map((x) => [x.id, !!x.broke])),
+    buyIn: Object.fromEntries(G.players.map((x) => [x.id, x.totalBuyInCents ?? null])),
     myCards: (G.players.find((x) => x.id === me.id)?.hand || []).filter((c) => c && c.rank).length,
     screen: document.querySelector('.screen.active')?.id || null,
     // What a finger would hit at the first action button (catches overlays covering the bar)
@@ -293,6 +295,7 @@ export async function setupHomeGame(browser, names, phones, opts = {}) {
   await hp.locator('#screen-home .fab').click();
   await hp.fill('#new-game-name', 'E2E Home Game');
   await hp.locator(opts.format === 'tournament' ? '#format-tournament' : '#format-home').click();
+  if (opts.rebuys) await hp.locator('#rebuys-enabled-checkbox').check();
   await hp.getByRole('button', { name: 'Create Game' }).click();
   await expect(hp.locator('#screen-lobby')).toHaveClass(/active/, { timeout: 15_000 });
   const gameId = await hp.evaluate(() => currentLobbyId);
