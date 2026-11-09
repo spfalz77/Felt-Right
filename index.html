@@ -8479,6 +8479,39 @@ function autoSitOut(p) {
   renderGame();
 }
 
+function cancelAutoDeal() {
+  if (_autoDealTimer) { clearTimeout(_autoDealTimer); _autoDealTimer = null; }
+}
+
+// "Got it" button on the showdown overlay.
+// Host: cancel auto-deal and advance to next hand immediately.
+// Guest: hide my own overlay; the host will sync the next hand state when ready.
+function dismissShowdown() {
+  const overlay = document.getElementById('showdown-overlay');
+  if (overlay) overlay.style.display = 'none';
+
+  // If I'm broke and rebuys are available, show rebuy overlay BEFORE advancing
+  const myP = G?.players?.find(p => p.id === me.id);
+  const rebuyAvailable = myP && myP.broke && !myP.eliminated &&
+    (getFormatConfig().moneyMode || (G?.rebuysEnabled && !G?.rebuyWindowClosed));
+  if (rebuyAvailable) {
+    showRebuyOverlay();
+    // Host: pause auto-deal until rebuy decision is made
+    if (amHost || me.id === 'demo') cancelAutoDeal();
+    return;
+  }
+
+  if (amHost || me.id === 'demo') {
+    cancelAutoDeal();
+    // Guts progression: if there's more to come, continue instead of starting a new hand
+    if (G?.variant === 'guts3' && G?.gutsResults && G.gutsResults.progressionEnded === false) {
+      continueGutsProgression();
+      return;
+    }
+    nextHand();
+  }
+}
+
 function nextHand() {
   cancelAutoDeal();
   document.getElementById('showdown-overlay').style.display = 'none';
