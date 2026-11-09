@@ -161,6 +161,8 @@ export function tableView(p) {
     cashedOut: Object.fromEntries(G.players.map((x) => [x.id, x.cashedOutCents ?? null])),
     bets: Object.fromEntries(G.players.map((x) => [x.id, x.bet || 0])),
     broke: Object.fromEntries(G.players.map((x) => [x.id, !!x.broke])),
+    breakActive: !!G.breakActive,
+    rebuyClosed: !!G.rebuyWindowClosed,
     buyIn: Object.fromEntries(G.players.map((x) => [x.id, x.totalBuyInCents ?? null])),
     myCards: (G.players.find((x) => x.id === me.id)?.hand || []).filter((c) => c && c.rank).length,
     screen: document.querySelector('.screen.active')?.id || null,
