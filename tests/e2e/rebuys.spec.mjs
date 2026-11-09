@@ -24,7 +24,9 @@ async function tapOverlay(p, selector, label) {
       return { stage: G?.stage, hand: G?.handNumber, broke: myP?.broke, elim: myP?.eliminated, chips: myP?.chips,
         rebuysEnabled: G?.rebuysEnabled, windowClosed: G?.rebuyWindowClosed, format: G?.format,
         sd: sd?.style.display + '/' + sd?.dataset.kind, el: el?.style.display + '/' + (el?.innerText || '').slice(0, 80),
-        shown: typeof _rebuyOverlayShown !== 'undefined' ? _rebuyOverlayShown : '?', pending: typeof _rebuyActionPending !== 'undefined' ? _rebuyActionPending : '?' };
+        shown: typeof _rebuyOverlayShown !== 'undefined' ? _rebuyOverlayShown : '?', pending: typeof _rebuyActionPending !== 'undefined' ? _rebuyActionPending : '?',
+        fn: typeof offerRebuyIfBroke,
+        callResult: (() => { try { offerRebuyIfBroke(); return 'sd=' + document.getElementById('showdown-overlay').style.display + ' el=' + document.getElementById('elim-overlay').style.display; } catch (err) { return 'threw: ' + err.message; } })() };
     });
     throw new Error(`${p.name} wasn't offered ${label}: ${JSON.stringify(d)}`);
   }
