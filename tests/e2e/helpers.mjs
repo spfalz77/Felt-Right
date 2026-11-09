@@ -152,6 +152,7 @@ export function tableView(p) {
       return d < 0 ? null : live[(d + 1) % live.length].id;
     })(),
     meId: me.id,
+    gutsDecided: !!G.gutsDecisions?.[me.id],
     folded: Object.fromEntries(G.players.map((x) => [x.id, !!x.folded])),
     eliminated: Object.fromEntries(G.players.map((x) => [x.id, !!x.eliminated])),
     away: Object.fromEntries(G.players.map((x) => [x.id, !!x.awayFromTable])),
@@ -203,7 +204,20 @@ export async function botStep(p, strategy = () => 'checkcall') {
   if (await pick.isVisible().catch(() => false)) {
     // A test can allow the pick only for one hand number, to set up the deal first
     if (p.pickHand != null && v?.hand !== p.pickHand) return null;
-    await tap(pick.first()); return 'picked holdem';
+    // A test can choose the variant per hand (p.pickVariants = { 3: 'omaha' })
+    const variant = p.pickVariants?.[v?.hand] || 'holdem';
+    const btn = page.locator(`button[onclick="dealerPickedVariant('${variant}')"]`);
+    await tap(btn.first()); return `picked ${variant}`;
+  }
+  // 3-Card Guts: everyone decides at once; strategy returns 'in' or 'out'
+  if (v?.stage === 'guts_decision' && !v.gutsDecided) {
+    const choice = strategy(v);
+    if (choice !== 'in' && choice !== 'out') return null;
+    const gkey = `${v.hand}:guts`;
+    if (p.lastTurnKey === gkey && Date.now() - p.lastTapAt < 5_000) return null;
+    p.lastTurnKey = gkey; p.lastTapAt = Date.now();
+    const gbtn = page.locator(`button[onclick="gutsDecide('${choice}')"]`);
+    return (await tap(gbtn.first())) && `guts ${choice}`;
   }
   if (!v || !v.myTurn || !['preflop', 'flop', 'turn', 'river'].includes(v.stage)) return null;
   const plan = strategy(v);
