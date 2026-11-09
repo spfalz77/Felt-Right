@@ -99,6 +99,7 @@ function advanceAction() {
 
 // ── ADVANCE STAGE ────────────────────────────────────────────────────────────
 function runOutToShowdown() {
+  if (G.stage === 'showdown') return; // already running out / paid
   // Return any uncalled bets first (e.g. one player all-in for less)
   returnUncalledBets();
   // All remaining active players are all-in (or can't bet more) — deal remaining community cards

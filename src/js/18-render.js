@@ -78,6 +78,12 @@ function renderGame() {
   // BUT suppress while a showdown overlay or other modal is showing so the player
   // can ack the result first. The rebuy will appear after they dismiss the result.
   const meBroke = G?.players?.find(p => p.id === me.id);
+  // Re-buy applied (or I'm out): close the Out of Chips screen so it doesn't
+  // cover my buttons on my next turn
+  if (_rebuyOverlayShown && !(meBroke?.broke && !meBroke?.eliminated)) {
+    _rebuyActionPending = false;
+    closeRebuyOverlay();
+  }
   if (meBroke && meBroke.broke && !meBroke.eliminated &&
       (getFormatConfig().moneyMode || (G?.rebuysEnabled && !G?.rebuyWindowClosed))) {
     const elimOverlay = document.getElementById('elim-overlay');
@@ -85,6 +91,14 @@ function renderGame() {
     const showdownVisible = showdownOverlay && showdownOverlay.style.display !== 'none';
     if (elimOverlay && elimOverlay.style.display !== 'flex' && !showdownVisible) {
       showRebuyOverlay();
+    } else if (showdownVisible && !_rebuyAutoDismissTimer) {
+      // Give them a moment to see the result, then offer the re-buy (the host
+      // is waiting on this decision; nothing else would prompt them)
+      _rebuyAutoDismissTimer = setTimeout(() => {
+        _rebuyAutoDismissTimer = null;
+        const still = G?.players?.find(p => p.id === me.id);
+        if (still?.broke && !still.eliminated) dismissShowdown();
+      }, 4000);
     }
   }
 
@@ -436,3 +450,5 @@ function updateBetLabel() {
 function canActNow() {
   return isMyTurn() && ['preflop', 'flop', 'turn', 'river'].includes(G?.stage);
 }
+
+let _rebuyAutoDismissTimer = null;

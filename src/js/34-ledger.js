@@ -28,7 +28,8 @@ async function recordGameToLedger(gameId, buyIn, totalPlayers, finalPlacements, 
   const netByUser = {};
   for (const player of G.players) {
     if (!player.id || player.id === 'demo') continue;
-    netByUser[player.id] = -buyIn; // they paid the buy-in
+    // They paid the buy-in plus any re-buys/add-ons (with re-buys on)
+    netByUser[player.id] = G.rebuysEnabled ? -buyInCentsOf(player) / 100 : -buyIn;
   }
   // Distribute payouts
   payouts.forEach((payout, idx) => {

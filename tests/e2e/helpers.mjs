@@ -160,6 +160,8 @@ export function tableView(p) {
     away: Object.fromEntries(G.players.map((x) => [x.id, !!x.awayFromTable])),
     cashedOut: Object.fromEntries(G.players.map((x) => [x.id, x.cashedOutCents ?? null])),
     bets: Object.fromEntries(G.players.map((x) => [x.id, x.bet || 0])),
+    broke: Object.fromEntries(G.players.map((x) => [x.id, !!x.broke])),
+    buyIn: Object.fromEntries(G.players.map((x) => [x.id, x.totalBuyInCents ?? null])),
     myCards: (G.players.find((x) => x.id === me.id)?.hand || []).filter((c) => c && c.rank).length,
     screen: document.querySelector('.screen.active')?.id || null,
     // What a finger would hit at the first action button (catches overlays covering the bar)
@@ -205,7 +207,8 @@ export async function botStep(p, strategy = () => 'checkcall') {
   const pick = page.locator(`button[onclick="dealerPickedVariant('holdem')"]`);
   if (await pick.isVisible().catch(() => false)) {
     // A test can allow the pick only for one hand number, to set up the deal first
-    if (p.pickHand != null && v?.hand !== p.pickHand) return null;
+    // (a hand number, or a function of the hand number)
+    if (typeof p.pickHand === 'function' ? !p.pickHand(v?.hand) : (p.pickHand != null && v?.hand !== p.pickHand)) return null;
     // A test can choose the variant per hand (p.pickVariants = { 3: 'omaha' })
     const variant = p.pickVariants?.[v?.hand] || 'holdem';
     const btn = page.locator(`button[onclick="dealerPickedVariant('${variant}')"]`);
@@ -293,6 +296,7 @@ export async function setupHomeGame(browser, names, phones, opts = {}) {
   await hp.locator('#screen-home .fab').click();
   await hp.fill('#new-game-name', 'E2E Home Game');
   await hp.locator(opts.format === 'tournament' ? '#format-tournament' : '#format-home').click();
+  if (opts.rebuys) await hp.locator('#rebuys-enabled-checkbox').check();
   await hp.getByRole('button', { name: 'Create Game' }).click();
   await expect(hp.locator('#screen-lobby')).toHaveClass(/active/, { timeout: 15_000 });
   const gameId = await hp.evaluate(() => currentLobbyId);
@@ -317,7 +321,11 @@ export async function setupHomeGame(browser, names, phones, opts = {}) {
 /** Host taps End → Cash Out; checks the saved cash-outs and the ledger rows. */
 export async function cashOutAndCheckLedger(host, gameId, { endButton = '#host-endgame-btn' } = {}) {
   const hp = host.page;
-  await hp.locator(endButton).click({ force: true });
+  // The dealer's-choice screen can redraw mid-tap; retry the tap briefly
+  await expect(async () => {
+    await hp.locator(endButton).click({ force: true, timeout: 3_000 });
+    await expect(hp.locator('#modal-cashout')).toHaveClass(/open/, { timeout: 2_000 });
+  }).toPass({ timeout: 20_000 });
   // The sheet must actually slide up on screen (not just exist in the page)
   await expect(hp.locator('#modal-cashout')).toHaveClass(/open/);
   // Small phones scroll the sheet to reach the button, like a person would

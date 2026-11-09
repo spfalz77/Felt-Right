@@ -149,3 +149,20 @@ test('3-card Guts hand names use card names, not numbers', () => {
   assert.equal(evalBest3Card(cards('Ks 7h 2c')).name, 'King high');
   assert.equal(evalBest3Card(cards('Qs Qh 9c')).name, 'Pair of Queens');
 });
+
+test('every function called from an onclick handler exists', () => {
+  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const defined = new Set([...html.matchAll(/(?:^|[\s;])(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/gm)].map((m) => m[1]));
+  const called = new Set([...html.matchAll(/onclick=\\?["'](?:event\.stopPropagation\(\);\s*)?([A-Za-z_$][\w$]*)\(/g)].map((m) => m[1]));
+  const builtins = new Set(['alert', 'confirm', 'navigator', 'window', 'document', 'this', 'location', 'history']);
+  const missing = [...called].filter((n) => !defined.has(n) && !builtins.has(n));
+  assert.deepEqual(missing, [], `onclick handlers call undefined functions: ${missing.join(', ')}`);
+});
+
+test('tournament prize pool counts every buy-in plus re-buys', () => {
+  ctx.gameBuyIn = 20;
+  ctx.G = { players: [{ totalBuyInCents: 0 }, { totalBuyInCents: 0 }, { totalBuyInCents: 3000 }] };
+  try {
+    assert.equal(vm.runInContext('actualPrizePool()', ctx), 70);
+  } finally { ctx.G = null; delete ctx.gameBuyIn; }
+});

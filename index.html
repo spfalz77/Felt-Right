@@ -1416,9 +1416,19 @@ function computePayouts(buyIn, totalPlayers, isChop, actualPoolOverride) {
 
 // Helper: compute the actual prize pool from G state (sums all rebuy/add-on contributions).
 // Returns dollars (not cents).
+// What a player has paid in, in cents: their buy-in plus any re-buys/add-ons.
+// Tournament players start with totalBuyInCents = 0 (it only gets set by a
+// re-buy), so fall back to the game's buy-in.
+function buyInCentsOf(p) {
+  const base = (typeof gameBuyIn !== 'undefined' ? gameBuyIn : 0) || 0;
+  return p.totalBuyInCents || base * 100;
+}
+
 function actualPrizePool() {
   if (!G || !G.players) return 0;
-  const totalCents = G.players.reduce((sum, p) => sum + (p.totalBuyInCents || 0), 0);
+  // Was: sum of totalBuyInCents only, so a tournament pool with one $10
+  // re-buy came out as $30 instead of $70.
+  const totalCents = G.players.reduce((sum, p) => sum + buyInCentsOf(p), 0);
   return totalCents / 100;
 }
 
@@ -4498,6 +4508,7 @@ function guestSubscribeToGame(gameId) {
         if (G.pendingDealerChoice) showDealerChoice();
         if (G.breakActive) showBreakOverlay(); else hideBreakOverlay();
         if (G.handNumber > 0) fetchMyPrivateHand(currentGameId, G.handNumber);
+        if (G.stage === 'showdown') setTimeout(offerRebuyIfBroke, 4500);
       }
     } catch(e) { /* silent */ }
   }, 3000);
@@ -4636,6 +4647,12 @@ function guestSubscribeToGame(gameId) {
         } else if (stillIn.length === 1 && stillIn[0].id !== me.id) {
           setTimeout(() => guestShowFoldWinOverlay(stillIn[0]), 200);
         }
+      }
+
+      // Busted this hand? After a moment to see the result, offer the re-buy.
+      // (The host pauses for this decision, so no further update would prompt it.)
+      if (!amHost && G.stage === 'showdown' && prevStage !== 'showdown') {
+        setTimeout(offerRebuyIfBroke, 4500);
       }
 
       // While the fold-win overlay is open and we're still in showdown stage,
@@ -5722,6 +5739,12 @@ function renderGame() {
   // BUT suppress while a showdown overlay or other modal is showing so the player
   // can ack the result first. The rebuy will appear after they dismiss the result.
   const meBroke = G?.players?.find(p => p.id === me.id);
+  // Re-buy applied (or I'm out): close the Out of Chips screen so it doesn't
+  // cover my buttons on my next turn
+  if (_rebuyOverlayShown && !(meBroke?.broke && !meBroke?.eliminated)) {
+    _rebuyActionPending = false;
+    closeRebuyOverlay();
+  }
   if (meBroke && meBroke.broke && !meBroke.eliminated &&
       (getFormatConfig().moneyMode || (G?.rebuysEnabled && !G?.rebuyWindowClosed))) {
     const elimOverlay = document.getElementById('elim-overlay');
@@ -5729,6 +5752,14 @@ function renderGame() {
     const showdownVisible = showdownOverlay && showdownOverlay.style.display !== 'none';
     if (elimOverlay && elimOverlay.style.display !== 'flex' && !showdownVisible) {
       showRebuyOverlay();
+    } else if (showdownVisible && !_rebuyAutoDismissTimer) {
+      // Give them a moment to see the result, then offer the re-buy (the host
+      // is waiting on this decision; nothing else would prompt them)
+      _rebuyAutoDismissTimer = setTimeout(() => {
+        _rebuyAutoDismissTimer = null;
+        const still = G?.players?.find(p => p.id === me.id);
+        if (still?.broke && !still.eliminated) dismissShowdown();
+      }, 4000);
     }
   }
 
@@ -6080,6 +6111,8 @@ function updateBetLabel() {
 function canActNow() {
   return isMyTurn() && ['preflop', 'flop', 'turn', 'river'].includes(G?.stage);
 }
+
+let _rebuyAutoDismissTimer = null;
 // ── TURN TIMER ────────────────────────────────────────────────────────────────
 const TURN_SECONDS = 30;
 const CIRCUMFERENCE = 2 * Math.PI * 15;
@@ -6922,6 +6955,7 @@ function advanceAction() {
 
 // ── ADVANCE STAGE ────────────────────────────────────────────────────────────
 function runOutToShowdown() {
+  if (G.stage === 'showdown') return; // already running out / paid
   // Return any uncalled bets first (e.g. one player all-in for less)
   returnUncalledBets();
   // All remaining active players are all-in (or can't bet more) — deal remaining community cards
@@ -7233,6 +7267,12 @@ function buildSidePots(players) {
 
 // ── SHOWDOWN ─────────────────────────────────────────────────────────────────
 function doShowdown() {
+  // Pay out each hand once. Payouts are computed from what everyone bet
+  // (totalBet), not from G.pot, so a second call would pay the winners again
+  // and create chips. Several paths can schedule it (all-in run-out, last
+  // street, timers), so guard here.
+  if (G.paidOutHand === G.handNumber) return;
+  G.paidOutHand = G.handNumber;
   G.stage = 'showdown';
   G.actionIndex = -1;
   stopTurnTimer();
@@ -8025,6 +8065,16 @@ function applyRebuy(playerId, addChips, costCents) {
   toast(`${p.name} re-bought (+${addChips.toLocaleString()} chips)`);
 }
 
+
+// Guest: if I'm busted and a re-buy is available, clear the result screen and
+// show Re-Buy / Sit Out (dismissShowdown does that when I'm broke).
+function offerRebuyIfBroke() {
+  const myP = G?.players?.find(p => p.id === me.id);
+  if (!myP?.broke || myP.eliminated) return;
+  if (!(getFormatConfig().moneyMode || (G.rebuysEnabled && !G.rebuyWindowClosed))) return;
+  if (document.getElementById('elim-overlay')?.style.display === 'flex') return;
+  dismissShowdown();
+}
 // ════════════════════════════════════════════════════════════════════════════
 // UNIVERSAL QUIT
 // ════════════════════════════════════════════════════════════════════════════
@@ -8413,17 +8463,43 @@ let _autoDealTimer = null;
 function scheduleAutoDeal(delayMs = 4000) {
   if (_autoDealTimer) return;
   if (!amHost && me.id !== 'demo') return; // only host schedules
-  _autoDealTimer = setTimeout(() => {
+  const tick = () => {
     _autoDealTimer = null;
-    // Defer next hand if a player is mid-rebuy decision (broke + not yet eliminated)
+    // Wait while a busted player decides re-buy / sit out. Keep checking until
+    // they do (this used to give up after one retry and deal anyway). A busted
+    // player whose app is gone, or who doesn't answer in time, is sat out.
     const rebuyAvailable = getFormatConfig().moneyMode || (G?.rebuysEnabled && !G?.rebuyWindowClosed);
-    if (rebuyAvailable && G?.players?.some(p => p.broke && !p.eliminated)) {
-      // Re-check in 2 seconds — once everyone decides, we'll deal
-      _autoDealTimer = setTimeout(() => { _autoDealTimer = null; nextHand(); }, 2000);
-      return;
+    const deciding = rebuyAvailable ? (G?.players || []).filter(p => p.broke && !p.eliminated) : [];
+    if (deciding.length) {
+      const now = Date.now();
+      let satOut = false;
+      deciding.forEach(p => {
+        _brokeSince[p.id] = _brokeSince[p.id] || now;
+        const gone = p.id !== me.id && typeof isPlayerOnline === 'function' && !isPlayerOnline(p.id);
+        if (gone || now - _brokeSince[p.id] > REBUY_DECISION_MS) { autoSitOut(p); satOut = true; }
+      });
+      if (!satOut) { _autoDealTimer = setTimeout(tick, 2000); return; }
     }
+    _brokeSince = {};
     nextHand();
-  }, delayMs);
+  };
+  _autoDealTimer = setTimeout(tick, delayMs);
+}
+
+const REBUY_DECISION_MS = 60000;
+let _brokeSince = {};
+
+// Host-side: sit out a busted player who didn't (or can't) decide.
+function autoSitOut(p) {
+  p.eliminated = true;
+  p.broke = false;
+  if (!getFormatConfig().moneyMode && G.finalPlacements && !G.finalPlacements.some(fp => fp.name === p.name)) {
+    G.finalPlacements.unshift({ name: p.name, emoji: p.emoji });
+  }
+  delete _brokeSince[p.id];
+  toast(`${p.name} sat out (no re-buy)`);
+  syncGameState();
+  renderGame();
 }
 
 function cancelAutoDeal() {
@@ -9384,7 +9460,8 @@ async function recordGameToLedger(gameId, buyIn, totalPlayers, finalPlacements, 
   const netByUser = {};
   for (const player of G.players) {
     if (!player.id || player.id === 'demo') continue;
-    netByUser[player.id] = -buyIn; // they paid the buy-in
+    // They paid the buy-in plus any re-buys/add-ons (with re-buys on)
+    netByUser[player.id] = G.rebuysEnabled ? -buyInCentsOf(player) / 100 : -buyIn;
   }
   // Distribute payouts
   payouts.forEach((payout, idx) => {

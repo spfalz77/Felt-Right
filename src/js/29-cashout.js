@@ -199,17 +199,43 @@ let _autoDealTimer = null;
 function scheduleAutoDeal(delayMs = 4000) {
   if (_autoDealTimer) return;
   if (!amHost && me.id !== 'demo') return; // only host schedules
-  _autoDealTimer = setTimeout(() => {
+  const tick = () => {
     _autoDealTimer = null;
-    // Defer next hand if a player is mid-rebuy decision (broke + not yet eliminated)
+    // Wait while a busted player decides re-buy / sit out. Keep checking until
+    // they do (this used to give up after one retry and deal anyway). A busted
+    // player whose app is gone, or who doesn't answer in time, is sat out.
     const rebuyAvailable = getFormatConfig().moneyMode || (G?.rebuysEnabled && !G?.rebuyWindowClosed);
-    if (rebuyAvailable && G?.players?.some(p => p.broke && !p.eliminated)) {
-      // Re-check in 2 seconds — once everyone decides, we'll deal
-      _autoDealTimer = setTimeout(() => { _autoDealTimer = null; nextHand(); }, 2000);
-      return;
+    const deciding = rebuyAvailable ? (G?.players || []).filter(p => p.broke && !p.eliminated) : [];
+    if (deciding.length) {
+      const now = Date.now();
+      let satOut = false;
+      deciding.forEach(p => {
+        _brokeSince[p.id] = _brokeSince[p.id] || now;
+        const gone = p.id !== me.id && typeof isPlayerOnline === 'function' && !isPlayerOnline(p.id);
+        if (gone || now - _brokeSince[p.id] > REBUY_DECISION_MS) { autoSitOut(p); satOut = true; }
+      });
+      if (!satOut) { _autoDealTimer = setTimeout(tick, 2000); return; }
     }
+    _brokeSince = {};
     nextHand();
-  }, delayMs);
+  };
+  _autoDealTimer = setTimeout(tick, delayMs);
+}
+
+const REBUY_DECISION_MS = 60000;
+let _brokeSince = {};
+
+// Host-side: sit out a busted player who didn't (or can't) decide.
+function autoSitOut(p) {
+  p.eliminated = true;
+  p.broke = false;
+  if (!getFormatConfig().moneyMode && G.finalPlacements && !G.finalPlacements.some(fp => fp.name === p.name)) {
+    G.finalPlacements.unshift({ name: p.name, emoji: p.emoji });
+  }
+  delete _brokeSince[p.id];
+  toast(`${p.name} sat out (no re-buy)`);
+  syncGameState();
+  renderGame();
 }
 
 function cancelAutoDeal() {
