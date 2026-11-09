@@ -321,7 +321,11 @@ export async function setupHomeGame(browser, names, phones, opts = {}) {
 /** Host taps End → Cash Out; checks the saved cash-outs and the ledger rows. */
 export async function cashOutAndCheckLedger(host, gameId, { endButton = '#host-endgame-btn' } = {}) {
   const hp = host.page;
-  await hp.locator(endButton).click({ force: true });
+  // The dealer's-choice screen can redraw mid-tap; retry the tap briefly
+  await expect(async () => {
+    await hp.locator(endButton).click({ force: true, timeout: 3_000 });
+    await expect(hp.locator('#modal-cashout')).toHaveClass(/open/, { timeout: 2_000 });
+  }).toPass({ timeout: 20_000 });
   // The sheet must actually slide up on screen (not just exist in the page)
   await expect(hp.locator('#modal-cashout')).toHaveClass(/open/);
   // Small phones scroll the sheet to reach the button, like a person would
