@@ -7,11 +7,11 @@
 //     knocked out straight away ("ELIMINATED — 3rd of 3"), no re-buy offered.
 
 import { test, expect, devices } from '@playwright/test';
-import { setupHomeGame, runTable, expectNoPageErrors, tableView, cards, rigNextHand } from './helpers.mjs';
+import { setupHomeGame, runTable, expectNoPageErrors, tableView, cards, rigNextHand, chipsOnTable } from './helpers.mjs';
 
 const PHONES = [devices['iPhone 13'], devices['Pixel 7'], devices['iPhone SE']];
 const BOARD = cards('2c 7d 9h 3s 4d');
-const allChips = (v) => Object.values(v.chips).reduce((a, b) => a + b, 0) + (v.stage === 'showdown' ? 0 : v.pot);
+const allChips = chipsOnTable;
 
 test('tournament break: add-on, everyone ready, re-buys close', async ({ browser }) => {
   test.setTimeout(6 * 60_000);

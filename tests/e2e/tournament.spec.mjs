@@ -6,7 +6,7 @@
 // screen, the saved result, and the friends ledger once everyone records it.
 
 import { test, expect, devices } from '@playwright/test';
-import { setupHomeGame, runTable, expectNoPageErrors, adminSelect, tableView, cards, rigNextHand } from './helpers.mjs';
+import { setupHomeGame, runTable, expectNoPageErrors, adminSelect, tableView, cards, rigNextHand, chipsOnTable } from './helpers.mjs';
 
 const PHONES = [devices['iPhone 13'], devices['Pixel 7'], devices['iPhone SE']];
 const TOTAL = 3 * 1500;
@@ -23,7 +23,7 @@ test('tournament: eliminations, final placements, prize and ledger', async ({ br
       },
     }));
   const [ace, bo, cy] = all;
-  const sum = (v) => Object.values(v.chips).reduce((a, b) => a + b, 0) + v.pot;
+  const sum = chipsOnTable;
 
   await test.step('hand 1: Cy all-in against Ace, Bo folds → Cy is out in 3rd', async () => {
     await runTable({
