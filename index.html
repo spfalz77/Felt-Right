@@ -6955,6 +6955,7 @@ function advanceAction() {
 
 // ── ADVANCE STAGE ────────────────────────────────────────────────────────────
 function runOutToShowdown() {
+  if (G.stage === 'showdown') return; // already running out / paid
   // Return any uncalled bets first (e.g. one player all-in for less)
   returnUncalledBets();
   // All remaining active players are all-in (or can't bet more) — deal remaining community cards
@@ -7266,6 +7267,12 @@ function buildSidePots(players) {
 
 // ── SHOWDOWN ─────────────────────────────────────────────────────────────────
 function doShowdown() {
+  // Pay out each hand once. Payouts are computed from what everyone bet
+  // (totalBet), not from G.pot, so a second call would pay the winners again
+  // and create chips. Several paths can schedule it (all-in run-out, last
+  // street, timers), so guard here.
+  if (G.paidOutHand === G.handNumber) return;
+  G.paidOutHand = G.handNumber;
   G.stage = 'showdown';
   G.actionIndex = -1;
   stopTurnTimer();

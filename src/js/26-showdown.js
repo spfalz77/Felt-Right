@@ -1,5 +1,11 @@
 // ── SHOWDOWN ─────────────────────────────────────────────────────────────────
 function doShowdown() {
+  // Pay out each hand once. Payouts are computed from what everyone bet
+  // (totalBet), not from G.pot, so a second call would pay the winners again
+  // and create chips. Several paths can schedule it (all-in run-out, last
+  // street, timers), so guard here.
+  if (G.paidOutHand === G.handNumber) return;
+  G.paidOutHand = G.handNumber;
   G.stage = 'showdown';
   G.actionIndex = -1;
   stopTurnTimer();

@@ -110,7 +110,8 @@ test('tournament with re-buys: prize pool and ledger include the re-buy', async 
     });
     await tapOverlay(moe, '#rebuy-btn', 'Re-Buy');
     await expect.poll(async () => (await tableView(host)).chips[moe.id], { timeout: 15_000, message: 'Moe has 750 chips' }).toBe(750);
-    expect(allChips(await tableView(host)), 'chips include the re-buy').toBe(4500 + 750);
+    const hv1 = await tableView(host);
+    expect(allChips(hv1), `chips include the re-buy: ${JSON.stringify({ stage: hv1.stage, pot: hv1.pot, chips: hv1.chips })}`).toBe(4500 + 750);
   });
 
   await test.step('hand 2: Lux busts and sits out; hand 3: Moe busts again and sits out', async () => {
