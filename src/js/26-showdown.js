@@ -31,7 +31,8 @@ function doShowdown() {
     G.players.forEach(p => {
       if (!p.eliminated && p.chips <= 0) {
         const tournamentRebuyOpen = !isHomeGame && G.rebuysEnabled && !G.rebuyWindowClosed;
-        if (isHomeGame || tournamentRebuyOpen) {
+        // A player who quit (tournament step-away) can't answer a rebuy offer: they're out
+        if ((isHomeGame || tournamentRebuyOpen) && !p.awayFromTable) {
           // Player can re-buy. Mark broke (not eliminated) so overlay offers rebuy.
           p.broke = true;
         } else {
@@ -73,7 +74,7 @@ function doShowdown() {
 
   // ── TRUE SHOWDOWN with side pots ──
   // Build side pots from totalBet contributions
-  const sidePots = buildSidePots(G.players.filter(p => !p.eliminated));
+  const sidePots = buildSidePots(G.players);
 
   // Evaluate each active player's best hand
   const handMap = {};
@@ -152,7 +153,7 @@ function doShowdown() {
   G.players.forEach(p => {
     if (!p.eliminated && p.chips <= 0) {
       const tournamentRebuyOpen = !isHomeGameSD && G.rebuysEnabled && !G.rebuyWindowClosed;
-      if (isHomeGameSD || tournamentRebuyOpen) {
+      if ((isHomeGameSD || tournamentRebuyOpen) && !p.awayFromTable) {
         p.broke = true;
       } else {
         p.eliminated = true;

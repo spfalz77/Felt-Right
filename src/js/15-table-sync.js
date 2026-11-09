@@ -257,6 +257,7 @@ function voidHandInProgress(message) {
 
 // ── ENTER GAME ────────────────────────────────────────────────────────────────
 function enterGame(gameId, state) {
+  document.getElementById('invite-banner')?.remove();
   currentGameId = gameId;
   currentLobbyId = null; // critical: stop the lobby poller from re-firing
   G = JSON.parse(JSON.stringify(state));
@@ -490,13 +491,21 @@ function hostListenForActions(gameId) {
           const p = G.players.find(pl => pl.id === player_id);
           if (p && p.cashedOutCents == null) {
             // Bank what they take home (host's own count, not the client's)
+            const wasUp = G.players[G.actionIndex]?.id === player_id;
             p.cashedOutCents = p.chips || 0;
             p.chips = 0;
             p.eliminated = true;
+            p.folded = true; // out of this hand; what they already bet stays in the pot
+            p.quitHand = G.handNumber;
             p.broke = false;
             p.lastAction = { type: 'quit', label: 'Quit' };
             renderGame();
             Promise.resolve(syncGameState()).then(() => settleHomeGameLedger(currentGameId));
+            // Keep the hand moving: they were on action, or only one player is left in it
+            const inHand = G.players.filter(x => !x.folded && !x.eliminated);
+            if (['preflop', 'flop', 'turn', 'river'].includes(G.stage) && (wasUp || inHand.length === 1)) {
+              setTimeout(advanceAction, 300);
+            }
           }
         }
         return;

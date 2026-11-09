@@ -96,7 +96,7 @@ function renderGame() {
   // Pot display — show side pots if any player is all-in
   const allInPlayers = G.players.filter(p => p.allIn && !p.eliminated);
   if (allInPlayers.length > 0 && G.stage !== 'showdown') {
-    const previewPots = buildSidePots(G.players.filter(p => !p.eliminated));
+    const previewPots = buildSidePots(G.players);
     const potText = previewPots.length > 1
       ? previewPots.map((p, i) => `${i===0?'Main':'Side'}: ${formatChipsCompact(p.amount)}`).join(' · ')
       : `POT: ${formatChips(G.pot)}`;
@@ -204,6 +204,16 @@ function renderGame() {
   const myIdx = G.players.findIndex(p => p.id === me.id);
   const myBadgeEl = document.getElementById('my-pos-badges');
   if (myBadgeEl) myBadgeEl.innerHTML = positionBadges(myIdx);
+
+  // A new betting round is on screen: clear any leftover result overlay from the
+  // last hand (on guests it could stay up and cover the action buttons on
+  // their turn, e.g. after a hand won by everyone else folding)
+  const staleSd = document.getElementById('showdown-overlay');
+  if (staleSd && staleSd.style.display !== 'none' && staleSd.dataset.kind === 'showdown'
+      && ['preflop', 'flop', 'turn', 'river'].includes(G?.stage)) {
+    staleSd.style.display = 'none';
+    staleSd.dataset.kind = '';
+  }
 
   // Action bar
   renderActionBar();

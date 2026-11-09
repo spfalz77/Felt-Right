@@ -5,6 +5,7 @@ let lobbyPlayers = [];
 let _lobbyStatusPoller = null;
 
 async function openLobby(gameId) {
+  document.getElementById('invite-banner')?.remove();
   currentLobbyId = gameId;
   // Subscribe to chat for this game (lobby + game share same chat thread)
   subscribeToChatForGame(gameId);
@@ -384,6 +385,9 @@ async function handleNewInvite(gameId) {
 }
 
 function showInviteBanner(game, hostName) {
+  // Already in a lobby or at a table: don't cover the screen (it sat over the
+  // table's Quit button and turned a Quit tap into a rejoin)
+  if (currentLobbyId || currentGameId) return;
   // Remove any existing banner
   const existing = document.getElementById('invite-banner');
   if (existing) existing.remove();

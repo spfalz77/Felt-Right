@@ -31,6 +31,24 @@ function appHtml() {
     .replace(/const SUPABASE_ANON_KEY\s*=\s*'[^']*'/, `const SUPABASE_ANON_KEY = '${ANON_KEY}'`);
 }
 
+/** Taps Quit on this player's screen (the confirm prompt is accepted). */
+export async function quitGame(p) {
+  const under = await p.page.evaluate(() => {
+    const b = document.getElementById('quit-game-btn');
+    const r = b?.getBoundingClientRect();
+    const el = r && document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+    return { visible: !!r && r.width > 0, top: el ? `${el.tagName}#${el.id}.${el.className}` : null, rect: r && [r.x, r.y, r.width, r.height] };
+  });
+  await p.page.locator('#quit-game-btn').click({ force: true });
+  try {
+    await expect(p.page.locator('#screen-home')).toHaveClass(/active/, { timeout: 15_000 });
+  } catch (e) {
+    const after = await p.page.evaluate(() => ({ screen: document.querySelector('.screen.active')?.id, toast: document.getElementById('toast')?.textContent, stage: G?.stage }));
+    throw new Error(`Quit didn't reach the home screen. Under the button: ${JSON.stringify(under)}; now: ${JSON.stringify(after)}`);
+  }
+  p.offline = true; // bots leave this phone alone from now on
+}
+
 /** Opens a new phone-sized player session with the app loaded. */
 export async function newPlayer(browser, name, deviceOpts, { fakeClock = false } = {}) {
   const context = await browser.newContext({ ...deviceOpts, ignoreHTTPSErrors: true });
@@ -135,8 +153,22 @@ export function tableView(p) {
     })(),
     meId: me.id,
     folded: Object.fromEntries(G.players.map((x) => [x.id, !!x.folded])),
+    eliminated: Object.fromEntries(G.players.map((x) => [x.id, !!x.eliminated])),
+    away: Object.fromEntries(G.players.map((x) => [x.id, !!x.awayFromTable])),
+    cashedOut: Object.fromEntries(G.players.map((x) => [x.id, x.cashedOutCents ?? null])),
+    bets: Object.fromEntries(G.players.map((x) => [x.id, x.bet || 0])),
     myCards: (G.players.find((x) => x.id === me.id)?.hand || []).filter((c) => c && c.rank).length,
     screen: document.querySelector('.screen.active')?.id || null,
+    // What a finger would hit at the first action button (catches overlays covering the bar)
+    barTop: (() => {
+      const b = document.querySelector('#action-bar button');
+      if (!b) return null;
+      const r = b.getBoundingClientRect();
+      const el = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+      return el === b || b.contains(el) ? 'button' : el ? `${el.tagName}#${el.id}.${String(el.className).slice(0, 40)}` : 'nothing';
+    })(),
+    overlays: ['showdown-overlay', 'elim-overlay', 'break-overlay', 'tourney-overlay']
+      .filter((id) => document.getElementById(id)?.style.display === 'flex'),
     dbg: amHost ? {
       enforcer: typeof _hostTurnEnforcer !== 'undefined' && !!_hostTurnEnforcer,
       online: typeof _onlineIds !== 'undefined' ? [..._onlineIds].map((id) => G.players.find((x) => x.id === id)?.name || id) : null,
@@ -232,7 +264,7 @@ export function expectScreensAgree(all, views, total, label) {
 
 /**
  * Three players sign up, become friends, and the first one hosts a home game
- * the others join. Returns once every screen is at the table.
+ * (or a tournament, with opts.format = 'tournament') the others join. Returns once every screen is at the table.
  */
 export async function setupHomeGame(browser, names, phones, opts = {}) {
   const all = await Promise.all(names.map((n, i) => newPlayer(browser, n, phones[i % phones.length], opts)));
@@ -244,7 +276,7 @@ export async function setupHomeGame(browser, names, phones, opts = {}) {
   await hp.evaluate(() => navTo('home'));
   await hp.locator('#screen-home .fab').click();
   await hp.fill('#new-game-name', 'E2E Home Game');
-  await hp.locator('#format-home').click();
+  await hp.locator(opts.format === 'tournament' ? '#format-tournament' : '#format-home').click();
   await hp.getByRole('button', { name: 'Create Game' }).click();
   await expect(hp.locator('#screen-lobby')).toHaveClass(/active/, { timeout: 15_000 });
   const gameId = await hp.evaluate(() => currentLobbyId);
