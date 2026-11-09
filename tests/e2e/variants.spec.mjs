@@ -23,7 +23,7 @@ test('dealer\'s choice: Guts progression and Omaha pay out exactly', async ({ br
         // Consumed by the first deal of each hand: Guts round 1, then the Omaha hand
         await rigNextHand(h, { hands: { Ace: cards('As Ah 2c'), Bo: cards('Ks Kh 3c'), Cy: cards('4d 7s 9c') }, board: [] });
         await rigNextHand(h, {
-          hands: { Ace: cards('Ah Jc Jd 8s'), Bo: cards('Qc Qd 7s 8c'), Cy: cards('Tc Td 4s 4c') },
+          hands: { Ace: cards('Ah Jc Jd 8s'), Bo: cards('Qc Qd 7s 8c'), Cy: cards('10c 10d 4s 4c') },
           board: cards('Kh 9h 6h 3h 2c'),
         });
       },

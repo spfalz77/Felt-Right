@@ -354,9 +354,13 @@ export function expectNoPageErrors(all) {
   }
 }
 
-/** "As Kh 10d" → [{ rank, suit }, ...] */
-export const cards = (str) => str.trim().split(/\s+/)
-  .map((t) => ({ rank: t.slice(0, -1), suit: { s: '♠', h: '♥', d: '♦', c: '♣' }[t.slice(-1)] }));
+/** "As Kh 10d" → [{ rank, suit }, ...]. Ten is "10" (as in the app), never "T". */
+export const cards = (str) => str.trim().split(/\s+/).map((t) => {
+  const rank = t.slice(0, -1);
+  const suit = { s: '♠', h: '♥', d: '♦', c: '♣' }[t.slice(-1)];
+  if (!['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'].includes(rank) || !suit) throw new Error(`Bad card "${t}"`);
+  return { rank, suit };
+});
 
 /** Queue a rigged deal on the host's screen (see applyRiggedHand in 16-deal.js). */
 export function rigNextHand(host, rig) {
