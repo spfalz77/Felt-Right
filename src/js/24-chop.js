@@ -83,7 +83,10 @@ function finalizeChop() {
 
   // Final placements — chip leader gets 1st
   const sorted = [...activePlayers].sort((a, b) => b.chips - a.chips);
-  G.finalPlacements = sorted.map(p => ({ name: p.name, emoji: p.emoji, chips: p.chips }));
+  // Chop players first (chip leader 1st), then those already knocked out, in
+  // the order they finished (finalPlacements already lists them, latest first)
+  const earlier = (G.finalPlacements || []).filter(fp => !sorted.some(p => p.name === fp.name));
+  G.finalPlacements = [...sorted.map(p => ({ name: p.name, emoji: p.emoji, chips: p.chips })), ...earlier];
   G.tournamentOver = true;
   G.chopOfferedBy = null;
 

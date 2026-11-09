@@ -48,6 +48,9 @@ test('tournament: heads-up chop splits the pool; ledger balances', async ({ brow
       const ov = p.page.locator('#tourney-overlay .tourney-result');
       await expect(ov, `${p.name} sees the chop result`).toContainText('Chop', { timeout: 15_000 });
       await expect(ov).toContainText('$30');
+      const rows = ov.locator('.place-row');
+      await expect(rows, 'Cy is still listed, 3rd').toHaveCount(3);
+      await expect(rows.nth(2)).toContainText('Cy');
       const btn = p.page.locator('#record-ledger-btn');
       await btn.scrollIntoViewIfNeeded();
       await btn.click();
