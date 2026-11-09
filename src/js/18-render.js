@@ -85,6 +85,14 @@ function renderGame() {
     const showdownVisible = showdownOverlay && showdownOverlay.style.display !== 'none';
     if (elimOverlay && elimOverlay.style.display !== 'flex' && !showdownVisible) {
       showRebuyOverlay();
+    } else if (showdownVisible && !_rebuyAutoDismissTimer) {
+      // Give them a moment to see the result, then offer the re-buy (the host
+      // is waiting on this decision; nothing else would prompt them)
+      _rebuyAutoDismissTimer = setTimeout(() => {
+        _rebuyAutoDismissTimer = null;
+        const still = G?.players?.find(p => p.id === me.id);
+        if (still?.broke && !still.eliminated) dismissShowdown();
+      }, 4000);
     }
   }
 
@@ -436,3 +444,5 @@ function updateBetLabel() {
 function canActNow() {
   return isMyTurn() && ['preflop', 'flop', 'turn', 'river'].includes(G?.stage);
 }
+
+let _rebuyAutoDismissTimer = null;

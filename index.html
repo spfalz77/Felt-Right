@@ -5729,6 +5729,14 @@ function renderGame() {
     const showdownVisible = showdownOverlay && showdownOverlay.style.display !== 'none';
     if (elimOverlay && elimOverlay.style.display !== 'flex' && !showdownVisible) {
       showRebuyOverlay();
+    } else if (showdownVisible && !_rebuyAutoDismissTimer) {
+      // Give them a moment to see the result, then offer the re-buy (the host
+      // is waiting on this decision; nothing else would prompt them)
+      _rebuyAutoDismissTimer = setTimeout(() => {
+        _rebuyAutoDismissTimer = null;
+        const still = G?.players?.find(p => p.id === me.id);
+        if (still?.broke && !still.eliminated) dismissShowdown();
+      }, 4000);
     }
   }
 
@@ -6080,6 +6088,8 @@ function updateBetLabel() {
 function canActNow() {
   return isMyTurn() && ['preflop', 'flop', 'turn', 'river'].includes(G?.stage);
 }
+
+let _rebuyAutoDismissTimer = null;
 // ── TURN TIMER ────────────────────────────────────────────────────────────────
 const TURN_SECONDS = 30;
 const CIRCUMFERENCE = 2 * Math.PI * 15;
@@ -8413,50 +8423,43 @@ let _autoDealTimer = null;
 function scheduleAutoDeal(delayMs = 4000) {
   if (_autoDealTimer) return;
   if (!amHost && me.id !== 'demo') return; // only host schedules
-  _autoDealTimer = setTimeout(() => {
+  const tick = () => {
     _autoDealTimer = null;
-    // Defer next hand if a player is mid-rebuy decision (broke + not yet eliminated)
+    // Wait while a busted player decides re-buy / sit out. Keep checking until
+    // they do (this used to give up after one retry and deal anyway). A busted
+    // player whose app is gone, or who doesn't answer in time, is sat out.
     const rebuyAvailable = getFormatConfig().moneyMode || (G?.rebuysEnabled && !G?.rebuyWindowClosed);
-    if (rebuyAvailable && G?.players?.some(p => p.broke && !p.eliminated)) {
-      // Re-check in 2 seconds — once everyone decides, we'll deal
-      _autoDealTimer = setTimeout(() => { _autoDealTimer = null; nextHand(); }, 2000);
-      return;
+    const deciding = rebuyAvailable ? (G?.players || []).filter(p => p.broke && !p.eliminated) : [];
+    if (deciding.length) {
+      const now = Date.now();
+      let satOut = false;
+      deciding.forEach(p => {
+        _brokeSince[p.id] = _brokeSince[p.id] || now;
+        const gone = p.id !== me.id && typeof isPlayerOnline === 'function' && !isPlayerOnline(p.id);
+        if (gone || now - _brokeSince[p.id] > REBUY_DECISION_MS) { autoSitOut(p); satOut = true; }
+      });
+      if (!satOut) { _autoDealTimer = setTimeout(tick, 2000); return; }
     }
+    _brokeSince = {};
     nextHand();
-  }, delayMs);
+  };
+  _autoDealTimer = setTimeout(tick, delayMs);
 }
 
-function cancelAutoDeal() {
-  if (_autoDealTimer) { clearTimeout(_autoDealTimer); _autoDealTimer = null; }
-}
+const REBUY_DECISION_MS = 60000;
+let _brokeSince = {};
 
-// "Got it" button on the showdown overlay.
-// Host: cancel auto-deal and advance to next hand immediately.
-// Guest: hide my own overlay; the host will sync the next hand state when ready.
-function dismissShowdown() {
-  const overlay = document.getElementById('showdown-overlay');
-  if (overlay) overlay.style.display = 'none';
-
-  // If I'm broke and rebuys are available, show rebuy overlay BEFORE advancing
-  const myP = G?.players?.find(p => p.id === me.id);
-  const rebuyAvailable = myP && myP.broke && !myP.eliminated &&
-    (getFormatConfig().moneyMode || (G?.rebuysEnabled && !G?.rebuyWindowClosed));
-  if (rebuyAvailable) {
-    showRebuyOverlay();
-    // Host: pause auto-deal until rebuy decision is made
-    if (amHost || me.id === 'demo') cancelAutoDeal();
-    return;
+// Host-side: sit out a busted player who didn't (or can't) decide.
+function autoSitOut(p) {
+  p.eliminated = true;
+  p.broke = false;
+  if (!getFormatConfig().moneyMode && G.finalPlacements && !G.finalPlacements.some(fp => fp.name === p.name)) {
+    G.finalPlacements.unshift({ name: p.name, emoji: p.emoji });
   }
-
-  if (amHost || me.id === 'demo') {
-    cancelAutoDeal();
-    // Guts progression: if there's more to come, continue instead of starting a new hand
-    if (G?.variant === 'guts3' && G?.gutsResults && G.gutsResults.progressionEnded === false) {
-      continueGutsProgression();
-      return;
-    }
-    nextHand();
-  }
+  delete _brokeSince[p.id];
+  toast(`${p.name} sat out (no re-buy)`);
+  syncGameState();
+  renderGame();
 }
 
 function nextHand() {
