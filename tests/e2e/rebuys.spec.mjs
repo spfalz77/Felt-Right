@@ -14,7 +14,20 @@ const allChips = (v) => Object.values(v.chips).reduce((a, b) => a + b, 0) + v.po
 
 async function tapOverlay(p, selector, label) {
   const btn = p.page.locator(`#elim-overlay ${selector}`);
-  await expect(btn, `${p.name} is offered: ${label}`).toBeVisible({ timeout: 15_000 });
+  try {
+    await expect(btn, `${p.name} is offered: ${label}`).toBeVisible({ timeout: 15_000 });
+  } catch (e) {
+    const d = await p.page.evaluate(() => {
+      const myP = G?.players?.find((x) => x.id === me.id);
+      const sd = document.getElementById('showdown-overlay');
+      const el = document.getElementById('elim-overlay');
+      return { stage: G?.stage, hand: G?.handNumber, broke: myP?.broke, elim: myP?.eliminated, chips: myP?.chips,
+        rebuysEnabled: G?.rebuysEnabled, windowClosed: G?.rebuyWindowClosed, format: G?.format,
+        sd: sd?.style.display + '/' + sd?.dataset.kind, el: el?.style.display + '/' + (el?.innerText || '').slice(0, 80),
+        shown: typeof _rebuyOverlayShown !== 'undefined' ? _rebuyOverlayShown : '?', pending: typeof _rebuyActionPending !== 'undefined' ? _rebuyActionPending : '?' };
+    });
+    throw new Error(`${p.name} wasn't offered ${label}: ${JSON.stringify(d)}`);
+  }
   await btn.click({ force: true });
 }
 
