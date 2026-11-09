@@ -37,6 +37,9 @@ test('tournament: eliminations, final placements, prize and ledger', async ({ br
       expect(v.chips[cy.id], 'Cy has no chips').toBe(0);
       expect(sum(v), `chips add up on ${p.name}'s screen`).toBe(TOTAL);
     }
+    // Cy is told they're out, and where they finished
+    await expect(cy.page.locator('#elim-overlay .elim-banner')).toContainText('ELIMINATED', { timeout: 15_000 });
+    await expect(cy.page.locator('#elim-overlay .elim-banner')).toContainText('3rd of 3');
   });
 
   await test.step('hand 2: Ace and Bo all-in → Ace wins the tournament', async () => {
