@@ -173,9 +173,19 @@ function computePayouts(buyIn, totalPlayers, isChop, actualPoolOverride) {
 
 // Helper: compute the actual prize pool from G state (sums all rebuy/add-on contributions).
 // Returns dollars (not cents).
+// What a player has paid in, in cents: their buy-in plus any re-buys/add-ons.
+// Tournament players start with totalBuyInCents = 0 (it only gets set by a
+// re-buy), so fall back to the game's buy-in.
+function buyInCentsOf(p) {
+  const base = (typeof gameBuyIn !== 'undefined' ? gameBuyIn : 0) || 0;
+  return p.totalBuyInCents || base * 100;
+}
+
 function actualPrizePool() {
   if (!G || !G.players) return 0;
-  const totalCents = G.players.reduce((sum, p) => sum + (p.totalBuyInCents || 0), 0);
+  // Was: sum of totalBuyInCents only, so a tournament pool with one $10
+  // re-buy came out as $30 instead of $70.
+  const totalCents = G.players.reduce((sum, p) => sum + buyInCentsOf(p), 0);
   return totalCents / 100;
 }
 

@@ -158,3 +158,11 @@ test('every function called from an onclick handler exists', () => {
   const missing = [...called].filter((n) => !defined.has(n) && !builtins.has(n));
   assert.deepEqual(missing, [], `onclick handlers call undefined functions: ${missing.join(', ')}`);
 });
+
+test('tournament prize pool counts every buy-in plus re-buys', () => {
+  ctx.gameBuyIn = 20;
+  ctx.G = { players: [{ totalBuyInCents: 0 }, { totalBuyInCents: 0 }, { totalBuyInCents: 3000 }] };
+  try {
+    assert.equal(vm.runInContext('actualPrizePool()', ctx), 70);
+  } finally { ctx.G = null; delete ctx.gameBuyIn; }
+});
