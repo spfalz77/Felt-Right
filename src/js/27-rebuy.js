@@ -219,3 +219,13 @@ function applyRebuy(playerId, addChips, costCents) {
   toast(`${p.name} re-bought (+${addChips.toLocaleString()} chips)`);
 }
 
+
+// Guest: if I'm busted and a re-buy is available, clear the result screen and
+// show Re-Buy / Sit Out (dismissShowdown does that when I'm broke).
+function offerRebuyIfBroke() {
+  const myP = G?.players?.find(p => p.id === me.id);
+  if (!myP?.broke || myP.eliminated) return;
+  if (!(getFormatConfig().moneyMode || (G.rebuysEnabled && !G.rebuyWindowClosed))) return;
+  if (document.getElementById('elim-overlay')?.style.display === 'flex') return;
+  dismissShowdown();
+}

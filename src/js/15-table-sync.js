@@ -849,6 +849,7 @@ function guestSubscribeToGame(gameId) {
         if (G.pendingDealerChoice) showDealerChoice();
         if (G.breakActive) showBreakOverlay(); else hideBreakOverlay();
         if (G.handNumber > 0) fetchMyPrivateHand(currentGameId, G.handNumber);
+        if (G.stage === 'showdown') setTimeout(offerRebuyIfBroke, 4500);
       }
     } catch(e) { /* silent */ }
   }, 3000);
@@ -987,6 +988,12 @@ function guestSubscribeToGame(gameId) {
         } else if (stillIn.length === 1 && stillIn[0].id !== me.id) {
           setTimeout(() => guestShowFoldWinOverlay(stillIn[0]), 200);
         }
+      }
+
+      // Busted this hand? After a moment to see the result, offer the re-buy.
+      // (The host pauses for this decision, so no further update would prompt it.)
+      if (!amHost && G.stage === 'showdown' && prevStage !== 'showdown') {
+        setTimeout(offerRebuyIfBroke, 4500);
       }
 
       // While the fold-win overlay is open and we're still in showdown stage,
