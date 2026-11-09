@@ -78,6 +78,12 @@ function renderGame() {
   // BUT suppress while a showdown overlay or other modal is showing so the player
   // can ack the result first. The rebuy will appear after they dismiss the result.
   const meBroke = G?.players?.find(p => p.id === me.id);
+  // Re-buy applied (or I'm out): close the Out of Chips screen so it doesn't
+  // cover my buttons on my next turn
+  if (_rebuyOverlayShown && !(meBroke?.broke && !meBroke?.eliminated)) {
+    _rebuyActionPending = false;
+    closeRebuyOverlay();
+  }
   if (meBroke && meBroke.broke && !meBroke.eliminated &&
       (getFormatConfig().moneyMode || (G?.rebuysEnabled && !G?.rebuyWindowClosed))) {
     const elimOverlay = document.getElementById('elim-overlay');
