@@ -142,3 +142,10 @@ test('side pots: chips bet by a player who quit this hand stay in the pot', () =
     for (const pot of pots) assert.ok(!pot.eligible.some((p) => (p.id || p) === 'q'), 'quitter cannot win');
   } finally { ctx.G = null; }
 });
+
+test('3-card Guts hand names use card names, not numbers', () => {
+  assert.equal(evalBest3Card(cards('As Ah 2c')).name, 'Pair of Aces');
+  assert.equal(evalBest3Card(cards('6s 6h 6c')).name, 'Three Sixes');
+  assert.equal(evalBest3Card(cards('Ks 7h 2c')).name, 'King high');
+  assert.equal(evalBest3Card(cards('Qs Qh 9c')).name, 'Pair of Queens');
+});

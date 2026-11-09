@@ -11,7 +11,7 @@ import { expect } from '@playwright/test';
 
 export const APP_URL = 'http://felt-right.test/Felt-Right/';
 
-const SUPABASE_URL = process.env.SUPABASE_URL || 'http://127.0.0.1:54321';
+const SUPABASE_URL = process.env.SUPABASE_URL || 'http://127.0.0.1:55321';
 const ANON_KEY = process.env.SUPABASE_ANON_KEY;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -22,6 +22,7 @@ if (/dcfsbtefwkcbdeqreiyx/.test(SUPABASE_URL)) throw new Error('E2E tests must n
 
 // Tests share one database: keep every sign-up unique
 const RUN = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+let playerSeq = 0;
 
 const indexPath = fileURLToPath(new URL('../../index.html', import.meta.url));
 
@@ -64,7 +65,8 @@ export async function newPlayer(browser, name, deviceOpts, { fakeClock = false }
     return route.fulfill({ status: 404, body: '' });
   });
   context.on('dialog', (d) => d.accept()); // confirm() prompts
-  const p = { name, email: `${name.toLowerCase()}.${RUN}@e2e.test`, context, log: [] };
+  // Unique per player: tests in one run share RUN and may reuse names
+  const p = { name, email: `${name.toLowerCase()}.${RUN}.${++playerSeq}@e2e.test`, context, log: [] };
   await openApp(p);
   return p;
 }
@@ -152,6 +154,7 @@ export function tableView(p) {
       return d < 0 ? null : live[(d + 1) % live.length].id;
     })(),
     meId: me.id,
+    gutsDecided: !!G.gutsDecisions?.[me.id],
     folded: Object.fromEntries(G.players.map((x) => [x.id, !!x.folded])),
     eliminated: Object.fromEntries(G.players.map((x) => [x.id, !!x.eliminated])),
     away: Object.fromEntries(G.players.map((x) => [x.id, !!x.awayFromTable])),
@@ -203,7 +206,20 @@ export async function botStep(p, strategy = () => 'checkcall') {
   if (await pick.isVisible().catch(() => false)) {
     // A test can allow the pick only for one hand number, to set up the deal first
     if (p.pickHand != null && v?.hand !== p.pickHand) return null;
-    await tap(pick.first()); return 'picked holdem';
+    // A test can choose the variant per hand (p.pickVariants = { 3: 'omaha' })
+    const variant = p.pickVariants?.[v?.hand] || 'holdem';
+    const btn = page.locator(`button[onclick="dealerPickedVariant('${variant}')"]`);
+    await tap(btn.first()); return `picked ${variant}`;
+  }
+  // 3-Card Guts: everyone decides at once; strategy returns 'in' or 'out'
+  if (v?.stage === 'guts_decision' && !v.gutsDecided) {
+    const choice = strategy(v);
+    if (choice !== 'in' && choice !== 'out') return null;
+    const gkey = `${v.hand}:guts`;
+    if (p.lastTurnKey === gkey && Date.now() - p.lastTapAt < 5_000) return null;
+    p.lastTurnKey = gkey; p.lastTapAt = Date.now();
+    const gbtn = page.locator(`button[onclick="gutsDecide('${choice}')"]`);
+    return (await tap(gbtn.first())) && `guts ${choice}`;
   }
   if (!v || !v.myTurn || !['preflop', 'flop', 'turn', 'river'].includes(v.stage)) return null;
   const plan = strategy(v);
@@ -340,9 +356,13 @@ export function expectNoPageErrors(all) {
   }
 }
 
-/** "As Kh 10d" → [{ rank, suit }, ...] */
-export const cards = (str) => str.trim().split(/\s+/)
-  .map((t) => ({ rank: t.slice(0, -1), suit: { s: '♠', h: '♥', d: '♦', c: '♣' }[t.slice(-1)] }));
+/** "As Kh 10d" → [{ rank, suit }, ...]. Ten is "10" (as in the app), never "T". */
+export const cards = (str) => str.trim().split(/\s+/).map((t) => {
+  const rank = t.slice(0, -1);
+  const suit = { s: '♠', h: '♥', d: '♦', c: '♣' }[t.slice(-1)];
+  if (!['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'].includes(rank) || !suit) throw new Error(`Bad card "${t}"`);
+  return { rank, suit };
+});
 
 /** Queue a rigged deal on the host's screen (see applyRiggedHand in 16-deal.js). */
 export function rigNextHand(host, rig) {
