@@ -16,7 +16,7 @@ import {
 
 const PHONES = [devices['iPhone 13'], devices['Pixel 7'], devices['iPhone SE']];
 const TOTAL = 3 * 2000;
-const AUTO_ACT_LIMIT_MS = 15_000; // grace + host check interval + sync, with room to spare
+const AUTO_ACT_LIMIT_MS = 20_000; // 12s missing from presence + host check interval + sync
 
 test('home game: disconnected player is checked/folded quickly, rejoins after closing and after reloading', async ({ browser }) => {
   test.setTimeout(7 * 60_000);

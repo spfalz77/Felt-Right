@@ -6455,6 +6455,8 @@ const PLAYER_TIMEOUT_MS = 25000; // 25s without ping = disconnected
 function startPresence(gameId) {
   if (!sb || me.id === 'demo') return;
   stopPresence(); // clean up any existing
+  _presenceStartedAt = Date.now();
+  _presenceSeenAt = {};
 
   _presenceChannel = sb.channel(`presence:${gameId}`, {
     config: { presence: { key: me.id } }
@@ -6464,6 +6466,8 @@ function startPresence(gameId) {
     if (!_presenceChannel) return;
     const state = _presenceChannel.presenceState();
     _onlineIds = new Set(Object.keys(state));
+    const now = Date.now();
+    _onlineIds.forEach(id => { _presenceSeenAt[id] = now; });
 
     // Update G.players disconnected flag IN MEMORY ONLY — do NOT push to DB
     // Presence updates should not trigger syncGameState (that restarts UI timers)
@@ -6497,11 +6501,19 @@ function startPresence(gameId) {
 
 
 
-// True unless presence has synced and this player isn't in it. Before the first
-// presence sync we don't know, so assume online (never auto-act on a guess).
+// A player counts as gone only after being missing from presence for
+// PRESENCE_GONE_MS in a row. Presence can lag or briefly drop someone who is
+// still there (weak signal, busy server), and the host auto-acts for players
+// who are gone, so a momentary gap must not count. Before the first presence
+// sync we don't know, so assume online.
+const PRESENCE_GONE_MS = 12000;
+let _presenceSeenAt = {};
+let _presenceStartedAt = 0;
 function isPlayerOnline(playerId) {
   if (!_onlineIds || !_onlineIds.size) return true;
-  return _onlineIds.has(playerId);
+  if (_onlineIds.has(playerId)) return true;
+  const lastSeen = _presenceSeenAt[playerId] || _presenceStartedAt || 0;
+  return Date.now() - lastSeen < PRESENCE_GONE_MS;
 }
 // ── PAUSE SYSTEM (manual host toggle) ─────────────────────────────────────────
 // G.paused = true when host has paused the game
