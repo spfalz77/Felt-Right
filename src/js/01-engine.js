@@ -323,6 +323,12 @@ function cmpScore(a, b) {
 //   1: High card
 // Note: A straight beats a flush in this house rule (unusual but per rules).
 // Returns { rank, name, tieVals, usedHoleIdx }
+// 14 → 'Aces' / 'Ace', 6 → 'Sixes' / 'Six', for 3-card hand names
+const RANK_WORDS = {2:['Two','Twos'],3:['Three','Threes'],4:['Four','Fours'],5:['Five','Fives'],6:['Six','Sixes'],
+  7:['Seven','Sevens'],8:['Eight','Eights'],9:['Nine','Nines'],10:['Ten','Tens'],11:['Jack','Jacks'],
+  12:['Queen','Queens'],13:['King','Kings'],14:['Ace','Aces']};
+const rankWord = (v, plural) => (RANK_WORDS[v] || [String(v), `${v}s`])[plural ? 1 : 0];
+
 function evalBest3Card(hole) {
   if (!hole || hole.length !== 3) return null;
   // Map ranks to numeric values. A=14, K=13, ..., 2=2. A can also be low for A-2-3.
@@ -347,7 +353,7 @@ function evalBest3Card(hole) {
 
   // Three of a kind
   if (countVals[0] === 3) {
-    return { rank: 5, name: `Three ${vals[0]}s`, tieVals: [vals[0]], usedHoleIdx: [0,1,2] };
+    return { rank: 5, name: `Three ${rankWord(vals[0], true)}`, tieVals: [vals[0]], usedHoleIdx: [0,1,2] };
   }
   // Straight (beats flush per house rule)
   if (isStraight) {
@@ -362,9 +368,9 @@ function evalBest3Card(hole) {
   if (countVals[0] === 2) {
     const pairVal = parseInt(Object.keys(counts).find(k => counts[k]===2));
     const kicker = parseInt(Object.keys(counts).find(k => counts[k]===1));
-    return { rank: 2, name: `Pair of ${pairVal}s`, tieVals: [pairVal, kicker], usedHoleIdx: [0,1,2] };
+    return { rank: 2, name: `Pair of ${rankWord(pairVal, true)}`, tieVals: [pairVal, kicker], usedHoleIdx: [0,1,2] };
   }
   // High card
-  return { rank: 1, name: `${sortedVals[0]} high`, tieVals: sortedVals, usedHoleIdx: [0,1,2] };
+  return { rank: 1, name: `${rankWord(sortedVals[0])} high`, tieVals: sortedVals, usedHoleIdx: [0,1,2] };
 }
 
