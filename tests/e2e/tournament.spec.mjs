@@ -47,7 +47,19 @@ test('tournament: eliminations, final placements, prize and ledger', async ({ br
     });
     for (const p of all) {
       const ov = p.page.locator('#tourney-overlay');
-      await expect(ov, `${p.name} sees the final results`).toBeVisible({ timeout: 15_000 });
+      try {
+        await expect(ov, `${p.name} sees the final results`).toBeVisible({ timeout: 15_000 });
+      } catch (e) {
+        const d = await p.page.evaluate(() => {
+          const o = document.getElementById('tourney-overlay');
+          const r = o.getBoundingClientRect();
+          return { screen: document.querySelector('.screen.active')?.id, display: o.style.display, rect: [r.width, r.height],
+            html: o.innerHTML.length, stage: G?.stage, over: G?.tournamentOver, amHost,
+            overlays: ['showdown-overlay', 'elim-overlay'].filter((id) => document.getElementById(id)?.style.display === 'flex'),
+            sdKind: document.getElementById('showdown-overlay')?.dataset.kind };
+        });
+        throw new Error(`${p.name} doesn't see the results: ${JSON.stringify(d)}`);
+      }
       await expect(ov).toContainText(p === ace ? 'You Won!' : 'Ace Wins!');
       // Placements in order, with the prize next to 1st
       const rows = ov.locator('.place-row');
