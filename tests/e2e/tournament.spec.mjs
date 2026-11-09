@@ -46,7 +46,8 @@ test('tournament: eliminations, final placements, prize and ledger', async ({ br
       done: (views) => views.every((v) => v && v.finished),
     });
     for (const p of all) {
-      const ov = p.page.locator('#tourney-overlay');
+      // The wrapper has no height; the results panel inside fills the table
+      const ov = p.page.locator('#tourney-overlay .tourney-result');
       try {
         await expect(ov, `${p.name} sees the final results`).toBeVisible({ timeout: 15_000 });
       } catch (e) {
@@ -80,7 +81,7 @@ test('tournament: eliminations, final placements, prize and ledger', async ({ br
       const btn = p.page.locator('#record-ledger-btn');
       await btn.scrollIntoViewIfNeeded();
       await btn.click();
-      await expect(p.page.locator('#tourney-overlay')).toContainText('Recorded to ledger', { timeout: 10_000 });
+      await expect(p.page.locator('#tourney-overlay .tourney-result')).toContainText('Recorded to ledger', { timeout: 10_000 });
     }
     const rows = await adminSelect('payout_ledger', `game_id=eq.${gameId}&select=user_id,opponent_id,amount`);
     const net = (id) => rows.filter((r) => r.user_id === id).reduce((a, r) => a + Number(r.amount), 0);
