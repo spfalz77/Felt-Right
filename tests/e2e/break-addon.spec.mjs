@@ -3,8 +3,8 @@
 //   - The break pauses the table on every screen.
 //   - Cy takes the add-on ($10 → 750 chips); chips on the table go up by 750.
 //   - Everyone taps Ready → play resumes and re-buys close.
-//   - Bo then busts (scripted all-in against Cy) and is offered only Sit Out
-//     ("Re-Buys Closed"); after sitting out Bo is out of the tournament.
+//   - Bo then busts (scripted all-in against Cy): with re-buys closed Bo is
+//     knocked out straight away ("ELIMINATED — 3rd of 3"), no re-buy offered.
 
 import { test, expect, devices } from '@playwright/test';
 import { setupHomeGame, runTable, expectNoPageErrors, tableView, cards, rigNextHand } from './helpers.mjs';
@@ -51,7 +51,7 @@ test('tournament break: add-on, everyone ready, re-buys close', async ({ browser
     for (const p of all) await expect(p.page.locator('#break-overlay')).toBeHidden({ timeout: 15_000 });
   });
 
-  await test.step('Bo busts after the break: only Sit Out is offered, then Bo is out', async () => {
+  await test.step('Bo busts after the break: knocked out, no re-buy offered', async () => {
     const hv = await tableView(host);
     const bustHand = hv.hand + 1; // the current hand finishes first
     await rigNextHand(host, { hands: { Cy: cards('As Ah'), Bo: cards('Kc Kd'), Ace: cards('Qc Qd') }, board: BOARD });
@@ -60,12 +60,12 @@ test('tournament break: add-on, everyone ready, re-buys close', async ({ browser
       strategy: (p, v) => (v.hand < bustHand ? 'checkcall' : v.hand > bustHand ? 'idle' : p === ace ? 'fold' : 'allin'),
       done: (views) => views[0]?.broke[bo.id] === true || views[0]?.eliminated[bo.id] === true,
     });
+    // Re-buys are closed, so busting means out: no re-buy offer, straight to the result
     const banner = bo.page.locator('#elim-overlay .elim-banner');
-    await expect(banner, 'Bo sees the out-of-chips screen').toContainText('OUT OF CHIPS', { timeout: 15_000 });
-    await expect(banner).toContainText('Re-Buys Closed');
-    await expect(bo.page.locator('#elim-overlay #rebuy-btn')).toHaveCount(0);
-    await bo.page.locator('#elim-overlay #sit-out-btn').click({ force: true });
-    await expect.poll(async () => (await tableView(host)).eliminated[bo.id], { timeout: 15_000, message: 'Bo is out' }).toBe(true);
+    await expect(banner, 'Bo is told they are out').toContainText('ELIMINATED', { timeout: 15_000 });
+    await expect(banner).toContainText('3rd of 3');
+    await expect(bo.page.locator('#elim-overlay #rebuy-btn'), 'no re-buy offered').toHaveCount(0);
+    expect((await tableView(host)).eliminated[bo.id], 'Bo is out').toBe(true);
     expect(allChips(await tableView(host)), 'chips add up (buy-ins + add-on)').toBe(4500 + 750);
   });
 
