@@ -76,7 +76,7 @@ These are estimates of build time with Claude (hours of focused work, including 
 **Total: about 30–40 hours of build time, as 7 PRs over roughly 5–7 working sessions.** The live site keeps the current engine until phase 6, so you can keep playing throughout.
 
 ### Cost and performance
-- **Supabase Edge Functions:** the Free plan includes 500k invocations a month. One move is one call, so a 100-hand night with 3–6 players (about 1–3k calls) is far under that. pg_cron `tick_all` adds about 43k calls a month. Moving to **Pro ($25/mo, roadmap step 3) first is recommended** anyway, since the Free plan pauses after a week idle.
+- **Supabase Edge Functions:** the Free plan includes 500k invocations a month. One move is one call, so a 100-hand night with 3–6 players (about 1–3k calls) is far under that. pg_cron `tick_all` adds about 43k calls a month, so the Free plan is enough. Pro is optional and comes last (see Decisions).
 - **Latency:** each move is a round trip of about 100–300 ms, where today the host applies its own moves instantly. The UI shows the tap at once and confirms on the next state.
 - **Cold starts:** the first call after idle can take about 0.5–1 s. Acceptable at the start of a game.
 
@@ -86,11 +86,11 @@ These are estimates of build time with Claude (hours of focused work, including 
 - **Clock skew:** deadlines are judged on server time only. Phone timers are just for display and for calling `tick`.
 - **Half-migrated state:** the flag keeps the old path working until cutover, and games started under one model finish under it (`games.rules_version`).
 
-## Decisions needed from you before phase 1
-1. **Edge Function (recommended) or Postgres functions?** Postgres would avoid a second runtime but means rewriting hand evaluation and Guts in SQL.
-2. **Tournament ledger written automatically by the server (recommended)?** Or keep the per-player "Record to Friends Ledger" button?
-3. **Move to Supabase Pro before or during this work (recommended)?**
-4. **Anything from your live play session** that changes the rules. Add them below, and they'll be built into phase 3 instead of being ported twice.
+## Decisions (answered 2026-11-08)
+1. **Rules run in a Supabase Edge Function.** ✅ Yes. Hand evaluation and Guts are reused from the existing JS engine.
+2. **The server writes the tournament ledger automatically.** ✅ Yes. The per-player "Record to Friends Ledger" button goes away in phase 5.
+3. **Supabase Pro:** not needed for this migration; the Free plan covers it. If you do it, do it **last**, after cutover. The reasons it's still worth considering are no auto-pause, daily backups of the ledger, and 7-day logs; see the roadmap doc.
+4. **Anything from your live play session** that changes the rules goes in the list below, so it's built into phase 3 instead of being ported twice.
 
 ## Adjustments from live play
 _(Fill in after playing. Each item: what happened, what it should do instead.)_
@@ -98,7 +98,7 @@ _(Fill in after playing. Each item: what happened, what it should do instead.)_
 -
 
 ## How to execute (for Claude)
-1. Read this file and `claude/roadmap-and-decisions.md` in the project. Confirm the decisions above are answered and fold in the "Adjustments" list.
+1. Read this file and `claude/roadmap-and-decisions.md` in the project. The decisions are answered; fold in the "Adjustments" list.
 2. Do **one phase per PR**, on branch `server-rules-phase-N`. Keep the live site on the old path until phase 6 (`SERVER_RULES` off in the deployed build).
 3. Each phase:
    - Run `npm run build && npm test && npm run check` locally.
