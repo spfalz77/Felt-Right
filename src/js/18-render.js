@@ -215,6 +215,8 @@ function renderGame() {
     staleSd.dataset.kind = '';
   }
 
+  maybeShowMyElimination();
+
   // Action bar
   renderActionBar();
 

@@ -286,7 +286,20 @@ function nextHand() {
   setTimeout(dealNewHand, 400);
 }
 
+// Tournament: tell this player they're out, once per game. The host reaches
+// showEliminated() from nextHand(); guests only learn it from a state update,
+// so renderGame() calls this on every screen.
+let _elimShownFor = null;
+function maybeShowMyElimination() {
+  if (!G || !currentGameId || me?.id === 'demo' || getFormatConfig().moneyMode || G.tournamentOver) return;
+  const myP = G.players?.find(p => p.id === me.id);
+  if (!myP?.eliminated || myP.awayFromTable) return;
+  if (_elimShownFor === currentGameId) return;
+  showEliminated();
+}
+
 function showEliminated() {
+  _elimShownFor = currentGameId;
   const remaining = G.players.filter(p => !p.eliminated).length;
   const myPlace = remaining + 1;
   const overlay = document.getElementById('elim-overlay');
