@@ -31,7 +31,7 @@ test('dealer\'s choice: Guts progression and Omaha pay out exactly', async ({ br
   const [ace, bo, cy] = all;
   const byName = (v) => ({ Ace: v.chips[ace.id], Bo: v.chips[bo.id], Cy: v.chips[cy.id] });
   // Guts round 1 is hand 1, round 2 bumps to hand 2; the next dealer's choice is hand 3
-  for (const p of all) { p.pickVariants = { 1: 'guts3', 3: 'omaha' }; p.pickHand = undefined; }
+  for (const p of all) { p.pickVariants = { 1: 'guts3', 3: 'omaha' }; p.pickHand = 1; }
 
   await test.step('Guts: two rounds, then the progression ends', async () => {
     await runTable({
@@ -50,6 +50,7 @@ test('dealer\'s choice: Guts progression and Omaha pay out exactly', async ({ br
   });
 
   await test.step('Omaha: exactly-two-cards rule decides the winner', async () => {
+    for (const p of all) p.pickHand = 3;
     await runTable({
       all, gameId,
       strategy: (p, v) => (v.hand === 3 && v.variant === 'omaha' ? 'checkcall' : 'idle'),
