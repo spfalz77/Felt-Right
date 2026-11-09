@@ -292,6 +292,7 @@ export async function setupHomeGame(browser, names, phones, opts = {}) {
     }).toPass({ timeout: 30_000 });
   }
   await expect(hp.locator('#lobby-player-count')).toContainText(String(all.length), { timeout: 15_000 });
+  if (opts.beforeStart) await opts.beforeStart(host);
   await hp.locator('#lobby-start-btn').click();
   for (const p of all) await expect(p.page.locator('#screen-game')).toHaveClass(/active/, { timeout: 30_000 });
   return { all, host, guests, gameId };
