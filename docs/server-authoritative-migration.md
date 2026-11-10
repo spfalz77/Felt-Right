@@ -1,6 +1,6 @@
 # Server-authoritative game rules — migration plan
 
-_Status: **in progress.** Phases 0–3 done (PRs #19–#22, 2026-11-10); phase 4 in review (PR #23). Next: phase 5, which changes the live database. Written 2026-11-08, after PR #16. Roadmap step 2._
+_Status: **in progress.** Phases 0–4 done (PRs #19–#23, 2026-11-10). Next: phase 5, which changes the live database. Written 2026-11-08, after PR #16. Roadmap step 2._
 _To run it, ask Claude to "execute docs/server-authoritative-migration.md, phase N". Each phase is one PR, and each phase is merged only when the full E2E suite is green._
 
 ## Why
@@ -68,7 +68,7 @@ phone ──(action + JWT)──▶ Edge Function `table` ──▶ Postgres
   - Deliberate rule fixes on the server: a check is rejected when there's a bet to call; an all-in for less than the current bet no longer lowers the bet everyone else must match; cards are shuffled with a cryptographic generator.
 - ✅ **Phase 2 (PR #21):** behind `SERVER_RULES` (off on live), every phone plays a server-run game through the guest code path. The host calls `start`; moves go to the function (`postAction`); a phone calls `tick` only when a deadline in state has passed, using the server's clock from each reply. Host-only buttons follow the lobby owner (`isTableHost()`), and server games never migrate the host. E2E helpers use the `rig` / `clock_offset` hooks. A CI job runs the phone tests on server rules.
 - ✅ **Phase 3 (PR #22):** Guts (antes, in/out, pot matching), the first break with add-on, tournament heads-up chop, pause / resume, and show or muck after a fold win, all on the server. Each saved table carries a sequence number (`v` on the server, `syncSeq` on phone-run games), and phones ignore any copy older than the one on screen. Also fixed a lobby race where a guest who joined just before the host's subscription came up never appeared.
-- 🔄 **Phase 4 (PR #23):** turn deadlines, Away auto-act, heartbeats (`game_presence`) and a pg_cron backstop that ticks active server tables once a minute through pg_net. The cron job does nothing until the Vault secrets are set in phase 6. On server rules, closing the host's app hands the table to nobody: their turns are auto-acted and they rejoin as host.
+- ✅ **Phase 4 (PR #23):** turn deadlines, Away auto-act, heartbeats (`game_presence`) and a pg_cron backstop that ticks active server tables once a minute through pg_net. The cron job does nothing until the Vault secrets are set in phase 6. On server rules, closing the host's app hands the table to nobody: their turns are auto-acted and they rejoin as host. The function also keeps each player's own move count in `state.moves` (server games write no `player_actions` rows).
 
 ## Phases and estimates
 
