@@ -4043,6 +4043,7 @@ function syncGameState() {
       _syncDirty = false;
       if (!G || !currentGameId) break;
       const gameId = currentGameId;
+      G.syncSeq = (G.syncSeq || 0) + 1; // phones ignore any copy older than the one they show
       const { error } = await sb.from('games')
         .update({ state: redactForSync(G), hand_number: G.handNumber, last_host_seen: new Date().toISOString() })
         .eq('id', gameId);
@@ -4490,6 +4491,13 @@ function applyRemoteAction(playerId, action, amount) {
 // ── GUEST: receive state updates from host ────────────────────────────────────
 let _guestStatePoller = null;
 
+// Each saved table carries a sequence number (server games: v; phone-run: syncSeq)
+function stateSeq(state) { return state ? (state.v ?? state.syncSeq ?? null) : null; }
+function isOlderState(incoming, current) {
+  const a = stateSeq(incoming), b = stateSeq(current);
+  return a != null && b != null && a < b;
+}
+
 function tableSignature(state) {
   if (!state || !Array.isArray(state.players)) return '';
   return JSON.stringify({ ...state, players: state.players.map(({ hand, ...rest }) => rest) });
@@ -4508,6 +4516,7 @@ function guestSubscribeToGame(gameId) {
     try {
       const { data } = await sb.from('games').select('state, host_id').eq('id', currentGameId).maybeSingle();
       if (!data?.state || !Array.isArray(data.state.players)) return;
+      if (isOlderState(data.state, G)) return; // fetched before a newer update arrived
       // Apply whenever the saved table differs from what's on screen (cards
       // aside: this phone's own cards come from private_hands). Comparing the
       // whole table means a stale copy can't stick: the next poll corrects it.
@@ -4536,6 +4545,7 @@ function guestSubscribeToGame(gameId) {
       const row = payload.new;
       // Ignore updates without a table (e.g. settings saved before the first deal)
       if (!row.state || !Array.isArray(row.state.players)) return;
+      if (isOlderState(row.state, G)) return; // arrived after a newer copy
 
       const prevHandNumber = G?.handNumber || 0;
       const prevActionIndex = G?.actionIndex;
@@ -10109,7 +10119,7 @@ document.addEventListener('visibilitychange', async () => {
   try {
     // Pull latest state fresh from the DB — subscription may have missed events while hidden
     const { data } = await sb.from('games').select('state, host_id, status').eq('id', currentGameId).maybeSingle();
-    if (!data?.state) return;
+    if (!data?.state || isOlderState(data.state, G)) return;
 
     // If host changed while we were away, update role
     if (isServerState(data.state)) {
