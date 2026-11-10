@@ -186,3 +186,8 @@ test('shared engine modules (as the server imports them) match the app build', (
   assert.equal(pots.reduce((a, p) => a + p.amount, 0), 710);
   assert.equal(new cardsMod.makeDeck().length, 52);
 });
+
+test('the built app parses (no duplicate declarations or syntax errors)', () => {
+  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  for (const m of html.matchAll(/<script>([\s\S]*?)<\/script>/g)) new Function(m[1]);
+});
