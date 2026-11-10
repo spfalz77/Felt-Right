@@ -2665,19 +2665,21 @@ async function openLobby(gameId) {
           .select('id, status, seat_index')
           .eq('game_id', gameId).eq('user_id', me.id).maybeSingle();
 
-        if (!myRow) {
+        if (!myRow || myRow.status === 'invited') {
           const { data: seated } = await sb.from('game_players')
             .select('seat_index').eq('game_id', gameId).eq('status', 'joined');
-          await sb.from('game_players').insert({
+          // Upsert: the host's invite row can land between the read above and
+          // this write; a plain insert would then fail and leave us not joined
+          const { error: joinErr } = await sb.from('game_players').upsert({
             game_id: gameId, user_id: me.id,
             seat_index: (seated||[]).length, status: 'joined'
-          });
-        } else if (myRow.status === 'invited') {
-          const { data: seated } = await sb.from('game_players')
-            .select('seat_index').eq('game_id', gameId).eq('status', 'joined');
-          await sb.from('game_players').update({
-            status: 'joined', seat_index: (seated||[]).length
-          }).eq('id', myRow.id);
+          }, { onConflict: 'game_id,user_id' });
+          if (joinErr) {
+            console.warn('openLobby join error:', joinErr);
+            toast('Could not join the game. Try again.');
+            currentLobbyId = null;
+            return;
+          }
         }
         await loadGames();
       }
