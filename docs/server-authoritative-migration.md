@@ -66,7 +66,9 @@ phone ──(action + JWT)──▶ Edge Function `table` ──▶ Postgres
   - Already in the engine, ahead of plan: dealer's choice (Hold'em/Omaha), re-buy / sit out with the 60s limit, quit (both formats), cash-out with void, blind clock, `tick` for next-hand / dealer's-choice / re-buy deadlines.
   - Still to add in phase 3: Guts, first break + add-on, chop, pause, reveal/muck. Phase 4: turn deadlines and heartbeats.
   - Deliberate rule fixes on the server: a check is rejected when there's a bet to call; an all-in for less than the current bet no longer lowers the bet everyone else must match; cards are shuffled with a cryptographic generator.
-- ⏭ **Phase 2 notes (from reading the app):** in server mode every phone runs the existing *guest* code path (it already renders purely from `games.state`). Needed: `SERVER_RULES` flag; host calls `start`; all `player_actions` inserts routed to the function; a per-phone `tick` only when a deadline in state has passed; blind level read from state; host-only buttons keyed on `host_id` instead of `amHost`; the guest "host offline → migrate" watcher switched off; E2E helpers use the server `rig` / `clock_offset` hooks.
+- ✅ **Phase 2 (PR #21):** behind `SERVER_RULES` (off on live), every phone plays a server-run game through the guest code path. The host calls `start`; moves go to the function (`postAction`); a phone calls `tick` only when a deadline in state has passed, using the server's clock from each reply. Host-only buttons follow the lobby owner (`isTableHost()`), and server games never migrate the host. E2E helpers use the `rig` / `clock_offset` hooks. A CI job runs the phone tests on server rules.
+- ✅ **Phase 3 (PR #22):** Guts (antes, in/out, pot matching), the first break with add-on, tournament heads-up chop, pause / resume, and show or muck after a fold win, all on the server. Each saved table carries a sequence number (`v` on the server, `syncSeq` on phone-run games), and phones ignore any copy older than the one on screen. Also fixed a lobby race where a guest who joined just before the host's subscription came up never appeared.
+- 🔄 **Phase 4 (PR #23):** turn deadlines, Away auto-act, heartbeats (`game_presence`) and a pg_cron backstop that ticks active server tables once a minute through pg_net. The cron job does nothing until the Vault secrets are set in phase 6. On server rules, closing the host's app hands the table to nobody: their turns are auto-acted and they rejoin as host.
 
 ## Phases and estimates
 
@@ -85,7 +87,7 @@ These are estimates of build time with Claude (hours of focused work, including 
 **Total: about 30–40 hours of build time, as 7 PRs over roughly 5–7 working sessions.** The live site keeps the current engine until phase 6, so you can keep playing throughout.
 
 ### Cost and performance
-- **Supabase Edge Functions:** the Free plan includes 500k invocations a month. One move is one call, so a 100-hand night with 3–6 players (about 1–3k calls) is far under that. pg_cron `tick_all` adds about 43k calls a month, so the Free plan is enough. Pro is optional and comes last (see Decisions).
+- **Supabase Edge Functions:** the Free plan includes 500k invocations a month. One move is one call, so a 100-hand night with 3–6 players (about 1–3k calls) is far under that. The pg_cron backstop calls `tick_all` once a minute only while a server game is active (at most about 43k calls a month if one never ended), so the Free plan is enough. Pro is optional and comes last (see Decisions).
 - **Latency:** each move is a round trip of about 100–300 ms, where today the host applies its own moves instantly. The UI shows the tap at once and confirms on the next state.
 - **Cold starts:** the first call after idle can take about 0.5–1 s. Acceptable at the start of a game.
 
