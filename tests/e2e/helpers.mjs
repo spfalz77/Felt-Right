@@ -416,3 +416,16 @@ export async function adminSelect(table, query) {
   if (!res.ok) throw new Error(`${table}: ${res.status} ${await res.text()}`);
   return res.json();
 }
+
+/** Taps Record to Friends Ledger (the results screen can redraw mid-tap; retry). */
+export async function tapRecordLedger(p) {
+  await expect(async () => {
+    const btn = p.page.locator('#record-ledger-btn');
+    if (!(await btn.count())) {
+      if (await p.page.locator('#tourney-overlay').getByText('Recorded to ledger').count()) return;
+      throw new Error('Record to Friends Ledger button not shown yet');
+    }
+    await btn.scrollIntoViewIfNeeded({ timeout: 2_000 });
+    await btn.click({ timeout: 2_000 });
+  }).toPass({ timeout: 15_000 });
+}

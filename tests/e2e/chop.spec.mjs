@@ -5,7 +5,7 @@
 // Ace +$10, Bo +$10, Cy −$20.
 
 import { test, expect, devices } from '@playwright/test';
-import { setupHomeGame, runTable, expectNoPageErrors, adminSelect, tableView, cards, rigNextHand } from './helpers.mjs';
+import { setupHomeGame, runTable, expectNoPageErrors, adminSelect, tableView, cards, rigNextHand, tapRecordLedger } from './helpers.mjs';
 
 const PHONES = [devices['iPhone 13'], devices['Pixel 7'], devices['iPhone SE']];
 const BOARD = cards('2c 7d 9h 3s 4d');
@@ -51,9 +51,7 @@ test('tournament: heads-up chop splits the pool; ledger balances', async ({ brow
       const rows = ov.locator('.place-row');
       await expect(rows, 'Cy is still listed, 3rd').toHaveCount(3);
       await expect(rows.nth(2)).toContainText('Cy');
-      const btn = p.page.locator('#record-ledger-btn');
-      await btn.scrollIntoViewIfNeeded();
-      await btn.click();
+      await tapRecordLedger(p);
       await expect(ov).toContainText('Recorded to ledger', { timeout: 10_000 });
     }
     const rows = await adminSelect('payout_ledger', `game_id=eq.${gameId}&select=user_id,opponent_id,amount`);
