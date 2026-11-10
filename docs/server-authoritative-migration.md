@@ -1,6 +1,6 @@
 # Server-authoritative game rules — migration plan
 
-_Status: **in progress.** Phases 0–1 done (PRs #19, #20, 2026-11-10). Next: phase 2. Written 2026-11-08, after PR #16. Roadmap step 2._
+_Status: **in progress.** Phases 0–3 done (PRs #19–#22, 2026-11-10); phase 4 in review (PR #23). Next: phase 5, which changes the live database. Written 2026-11-08, after PR #16. Roadmap step 2._
 _To run it, ask Claude to "execute docs/server-authoritative-migration.md, phase N". Each phase is one PR, and each phase is merged only when the full E2E suite is green._
 
 ## Why
