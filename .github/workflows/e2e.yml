@@ -49,7 +49,7 @@ jobs:
         run: |
           eval "$(supabase status -o env | sed 's/^/export /')"
           SUPABASE_URL="$API_URL" SUPABASE_ANON_KEY="$ANON_KEY" SUPABASE_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY" \
-          node --test tests/server/
+          node --test tests/server/*.test.mjs
       - name: Function logs
         if: always()
         run: tail -n 150 /tmp/functions.log || true
