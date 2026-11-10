@@ -2,6 +2,8 @@
 // START GAME
 // ════════════════════════════════════════════════════════════════════════════
 function startGame() {
+  // Server-run game: the server seats everyone and deals (38-server-rules.js)
+  if (SERVER_RULES && sb && currentLobbyId && me.id !== 'demo') { serverStartGame(); return; }
   // lobbyPlayers already contains only joined/playing/waiting (invited filtered out)
   let playerSource = lobbyPlayers;
 

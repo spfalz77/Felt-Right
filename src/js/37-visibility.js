@@ -17,7 +17,9 @@ document.addEventListener('visibilitychange', async () => {
     if (!data?.state) return;
 
     // If host changed while we were away, update role
-    if (data.host_id === me.id && !amHost) {
+    if (isServerState(data.state)) {
+      gameHostId = data.host_id; // server game: no table host
+    } else if (data.host_id === me.id && !amHost) {
       amHost = true;
       startHostHeartbeat(currentGameId);
       hostListenForActions(currentGameId);

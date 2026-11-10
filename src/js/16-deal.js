@@ -71,7 +71,7 @@ function showDealerChoice() {
   if (amHost) startDealerChoiceTimer();
 
   // The picker covers the table header, so the host's End button lives here too
-  const hostEndBtn = amHost && me.id !== 'demo' && getFormatConfig().moneyMode ? `
+  const hostEndBtn = isTableHost() && me.id !== 'demo' && getFormatConfig().moneyMode ? `
         <button id="dc-endgame-btn" onclick="openCashOutModal()" style="background:none;border:none;
           color:var(--text-dim);font-size:0.78rem;text-decoration:underline;cursor:pointer;margin-top:10px">
           End game &amp; cash out</button>` : '';
@@ -177,7 +177,7 @@ function dealerPickedVariant(variant) {
     // Variant encoded in `amount`: 1=holdem, 2=omaha, 3=guts3 (target_id is a UUID column).
     const variantCode = { holdem: 1, omaha: 2, guts3: 3 }[variant] || 1;
     if (sb && currentGameId) {
-      sb.from('player_actions').insert({
+      postAction({
         game_id: currentGameId,
         player_id: me.id,
         action: 'pick_variant',

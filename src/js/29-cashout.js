@@ -8,7 +8,7 @@
 let _cashOutState = null;
 
 function openCashOutModal() {
-  if (!G || !amHost) return;
+  if (!G || !isTableHost()) return;
   if (!getFormatConfig().moneyMode) {
     toast('Cash out only applies to home games');
     return;
@@ -107,7 +107,15 @@ function updateCashOutTotals() {
 }
 
 async function confirmCashOut() {
-  if (!_cashOutState || !amHost) return;
+  if (!_cashOutState || !isTableHost()) return;
+  if (isServerGame()) {
+    // The server voids any hand in progress, cashes everyone out and writes the
+    // ledger; the end screen appears when the finished state arrives.
+    closeModal('modal-cashout');
+    const { error } = await callTable(currentGameId, 'end_game');
+    if (error) toast(error);
+    return;
+  }
   const players = _cashOutState.players;
   // Build a placements-like array sorted by net P/L (highest = 1st place)
   const withNet = players.map(p => ({
@@ -142,7 +150,8 @@ function showHomeGameEnd() {
   overlay.style.display = 'flex';
   const cashOuts = G.cashOuts || [];
   const ledgerKey = `fr_ledger_recorded_${currentGameId}`;
-  const alreadyRecorded = sessionStorage.getItem(ledgerKey);
+  // A server game's ledger is written by the server as part of cashing out
+  const alreadyRecorded = isServerGame() || sessionStorage.getItem(ledgerKey);
   const ledgerBtnHtml = (gameBuyIn > 0 && me.id !== 'demo' && !alreadyRecorded) ? `
     <button id="record-ledger-btn" onclick="onRecordHomeGameLedger()" style="background:none;
       border:1px solid var(--gold-dim);color:var(--gold);
@@ -477,6 +486,7 @@ async function onRecordLedgerClicked() {
 
 function goHome() {
   G = null; currentGameId = null; currentLobbyId = null; amHost = false;
+  stopServerTicker(); gameHostId = null;
   _gamePaused = false;
   stopBlindTimer();
   stopTurnTimer();

@@ -166,7 +166,7 @@ function offerChopShortcut() {
     renderGame(); // host triggers their own overlay via render
   } else if (sb && currentGameId) {
     // Guest: send via player_actions; host will set the flag
-    sb.from('player_actions').insert({
+    postAction({
       game_id: currentGameId,
       player_id: me.id,
       action: 'chop_offer',

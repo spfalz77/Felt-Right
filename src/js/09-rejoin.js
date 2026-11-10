@@ -15,7 +15,9 @@ async function rejoinActiveGame(gameId, gameRef) {
     const { data, error } = await sb.from('games').select('state,host_id,blind_config,buy_in_amount,game_format,game_variant').eq('id', gameId).single();
     if (error || !data?.state) { toast('Could not load game'); return; }
 
-    amHost = data.host_id === me.id;
+    const serverRun = isServerState(data.state);
+    amHost = !serverRun && data.host_id === me.id;
+    gameHostId = data.host_id;
     if (data.blind_config) {
       BLIND_LEVELS = data.blind_config.levels || BLIND_LEVELS;
       blindDurationSeconds = data.blind_config.duration || blindDurationSeconds;
@@ -27,6 +29,7 @@ async function rejoinActiveGame(gameId, gameRef) {
     if (data.game_variant) gameVariant = data.game_variant;
     currentGameId = gameId;
     G = data.state;
+    if (serverRun) enterServerGame(gameId);
 
     // Close chat panel if it was open (so it doesn't cover the rejoined game)
     const chatPanel = document.getElementById('chat-panel');
@@ -54,7 +57,7 @@ async function rejoinActiveGame(gameId, gameRef) {
       // Clear any stale auto-action from previous session
       _autoAction = null;
       guestSubscribeToGame(gameId);
-      startDisconnectWatcher(gameId);
+      if (!serverRun) startDisconnectWatcher(gameId);
       // Fetch our private hole cards before first render
       if (G.handNumber > 0) await fetchMyPrivateHand(gameId, G.handNumber);
       renderGame();
@@ -76,7 +79,7 @@ async function rejoinActiveGame(gameId, gameRef) {
         syncGameState();
         renderGame();
       } else if (sb && currentGameId) {
-        sb.from('player_actions').insert({
+        postAction({
           game_id: currentGameId,
           player_id: me.id,
           action: 'sit_back',

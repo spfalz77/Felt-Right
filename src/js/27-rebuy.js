@@ -124,7 +124,7 @@ function requestRebuy() {
     closeRebuyOverlay();
   } else if (sb && currentGameId) {
     // Encode rebuy: amount field carries the chip amount, target_id is unused
-    sb.from('player_actions').insert({
+    postAction({
       game_id: currentGameId,
       player_id: me.id,
       action: 'rebuy',
@@ -170,7 +170,7 @@ function declineRebuy() {
       }
     }
   } else if (sb && currentGameId) {
-    sb.from('player_actions').insert({
+    postAction({
       game_id: currentGameId,
       player_id: me.id,
       action: 'sit_out',
