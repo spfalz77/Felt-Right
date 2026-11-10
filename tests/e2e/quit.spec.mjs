@@ -10,7 +10,7 @@
 import { test, expect, devices } from '@playwright/test';
 import {
   setupHomeGame, runTable, cashOutAndCheckLedger, expectNoPageErrors, adminSelect, quitGame, tableView,
-  chipsOnTable, seated, handStarted as handStartedOn,
+  chipsOnTable, seated, handStarted as handStartedOn, SERVER_RULES,
 } from './helpers.mjs';
 
 const PHONES = [devices['iPhone 13'], devices['Pixel 7'], devices['iPhone SE']];
@@ -114,7 +114,10 @@ test('tournament: player quits on their turn and blinds out (checked/folded righ
     const hv = await tableView(host);
     expect(hv.away[wes.id], 'Wes is marked away').toBe(true);
     expect(hv.eliminated[wes.id], 'Wes is still in the tournament (blinding out)').toBe(false);
-    expect(awayTurns.length, 'Wes had turns while away').toBeGreaterThan(1);
+    // On the phone-run engine the host's screen shows Wes on action for a moment
+    // each turn. The server checks/folds an away player inside the same move,
+    // so no screen ever shows those turns; only the turn Wes quit on is seen.
+    expect(awayTurns.length, 'Wes had turns while away').toBeGreaterThan(SERVER_RULES ? 0 : 1);
     for (const t of awayTurns) {
       expect(t.ms, 'host acted for Wes right away').toBeLessThan(3_000);
       // Check when allowed, fold when facing a bet. (A check's label is cleared
