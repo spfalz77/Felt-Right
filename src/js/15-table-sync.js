@@ -842,7 +842,14 @@ function guestSubscribeToGame(gameId) {
       // Apply if anything material changed
       const turnMoved = (data.state.actionIndex ?? -1) !== (G?.actionIndex ?? -1)
         || !!data.state.pendingDealerChoice !== !!G?.pendingDealerChoice
-        || !!data.state.tournamentOver !== !!G?.tournamentOver;
+        || !!data.state.tournamentOver !== !!G?.tournamentOver
+        || !!data.state.breakActive !== !!G?.breakActive
+        || !!data.state.paused !== !!G?.paused
+        || !!data.state.pauseQueued !== !!G?.pauseQueued
+        || (data.state.chopOfferedBy || null) !== (G?.chopOfferedBy || null)
+        || Object.keys(data.state.gutsDecisions || {}).length !== Object.keys(G?.gutsDecisions || {}).length
+        || JSON.stringify(data.state.breakReady || []) !== JSON.stringify(G?.breakReady || [])
+        || JSON.stringify(data.state.revealedHands || {}) !== JSON.stringify(G?.revealedHands || {});
       if (srvHand !== myHand || srvStage !== myStage || srvPot !== myPot || turnMoved) {
         G = data.state;
         applyMyPrivateHand();

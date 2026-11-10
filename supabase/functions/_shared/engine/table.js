@@ -10,7 +10,7 @@
 // ctx = { now: ms since epoch, rng: () => [0,1), hostId, allowTestHooks, effects: {} }
 // Nothing here touches the network, the DOM or the clock.
 
-import { makeDeck, evalBest, cmpScore } from './cards.js';
+import { makeDeck, evalBest, evalBest3Card, cmpScore } from './cards.js';
 import { FORMATS, VARIANTS, blindsAt } from './config.js';
 import { buildSidePots } from './side-pots.js';
 
@@ -18,6 +18,8 @@ export const FIRST_DEAL_MS = 2000;          // start → first hand
 export const NEXT_HAND_MS = 6000;           // result on screen → next hand
 export const DEALER_CHOICE_MS = 25000;      // dealer picks the variant, else Hold'em
 export const REBUY_DECISION_MS = 60000;     // busted player: re-buy or sit out, else sat out
+export const RESUME_DEAL_MS = 1500;         // pause/break over → next hand
+export const BREAK_AFTER_LEVELS = 4;        // tournament with re-buys: first break, then re-buys close
 
 const BETTING = ['preflop', 'flop', 'turn', 'river'];
 const RAISES = ['raise', 'twobet', 'twobb', 'threebb', 'pot', 'allin'];
@@ -86,9 +88,13 @@ export function redact(G) {
   const out = JSON.parse(JSON.stringify(G));
   delete out.deck;
   delete out.rig;
+  const gutsShown = new Set(((G.gutsResults && G.gutsResults.handScores) || []).map((h) => h.id));
+  const isGuts = (VARIANTS[G.variant] || {}).style === 'guts';
   out.players.forEach((p, i) => {
     const src = G.players[i];
-    const show = G.stage === 'showdown' && !src.folded && !src.eliminated && !G.wonByFold;
+    const show = G.stage === 'showdown' && (isGuts
+      ? gutsShown.has(src.id)
+      : !src.folded && !src.eliminated && !G.wonByFold);
     if (!show) p.hand = (p.hand || []).map(() => ({ hidden: true }));
   });
   return out;
@@ -105,7 +111,32 @@ export function privateHands(G) {
 function advanceBlindClock(G, ctx) {
   if (!fmt(G).blindsEscalate || G.paused || G.breakActive || G.tournamentOver) return;
   const ms = G.blindDuration * 1000;
-  while (ctx.now - G.levelStartedAt >= ms) { G.blindLevel++; G.levelStartedAt += ms; }
+  while (ctx.now - G.levelStartedAt >= ms) {
+    G.blindLevel++; G.levelStartedAt += ms;
+    // Tournament with re-buys: first break after 4 levels; re-buys close when it ends
+    if (G.blindLevel >= BREAK_AFTER_LEVELS && G.rebuysEnabled && !G.rebuyWindowClosed && !G.breakTaken) {
+      startBreak(G, ctx);
+      return;
+    }
+  }
+}
+
+function startBreak(G, ctx) {
+  G.breakActive = true;
+  G.breakTaken = true;
+  G.breakReady = [];
+  G.breakAddOns = [];
+  G.breakStartedAt = ctx.now;
+}
+
+function endBreak(G, ctx) {
+  G.breakActive = false;
+  G.rebuyWindowClosed = true;
+  G.breakReady = [];
+  G.levelStartedAt = ctx.now;
+  // Anyone still deciding on a re-buy can't any more: they're out
+  G.players.filter((p) => p.broke && !p.eliminated).forEach((p) => sitOut(G, p));
+  if (!isBetting(G) && G.stage !== 'guts_decision') G.nextDealAt = ctx.now + RESUME_DEAL_MS;
 }
 export const currentBlinds = (G) => blindsAt(G.blindLevels, fmt(G).blindsEscalate ? G.blindLevel : 0);
 
@@ -153,8 +184,10 @@ function dealNewHand(G, ctx) {
     // Home game with one stack left: nothing to deal; the host ends the game.
     return;
   }
+  if (G.gutsResults && G.gutsResults.progressionEnded === false) { continueGuts(G, ctx); return; }
   G.gutsResults = null;
   G.gutsDecisions = {};
+  G.gutsRollCount = 0;
   G.wonByFold = false;
   G.lastResult = null;
   G.stage = 'deal';
@@ -209,6 +242,7 @@ function proceedToDeal(G, ctx) {
   G.dealSeq++;
 
   const blinds = currentBlinds(G);
+  if (vCfg.style === 'guts') { startGutsRound(G, blinds.big, ctx); return; }
   G.currentBet = blinds.big;
   const dealerPos = G.players.findIndex((p) => p.id === G.dealerId);
   let sbIdx, bbIdx;
@@ -244,6 +278,125 @@ export function queueRig(G, rig, ctx) {
   if (!ctx.allowTestHooks) return fail('test hooks are off');
   G.rig.push(rig);
   return OK;
+}
+
+// ── 3-Card Guts (home games) ───────────────────────────────────────────────
+// Everyone antes the big blind and decides in or out at once (20s, else out).
+//   nobody in → everyone antes again, new cards
+//   one in    → takes the pot; the progression ends
+//   two+ in   → best hand takes the pot; each other "in" player matches it
+//               (up to their stack) into the next round's pot, same dealer
+const gutsEligible = (G) => G.players.filter((p) => !p.eliminated && !p.broke && p.hand && p.hand.length);
+
+function postAntes(G, amount, ctx) {
+  G.currentBet = 0;
+  G.players.forEach((p) => {
+    if (p.folded || p.eliminated) return;
+    const paid = Math.min(amount, p.chips);
+    p.chips -= paid; p.totalBet += paid; G.pot += paid;
+    if (p.chips === 0) { p.allIn = true; markBroke(G, p, ctx); }
+  });
+}
+
+function markBroke(G, p, ctx) {
+  if (rebuyOpen(G) && !p.awayFromTable) { p.broke = true; p.brokeAt = ctx.now; }
+}
+
+function startGutsRound(G, ante, ctx) {
+  postAntes(G, ante, ctx);
+  G.stage = 'guts_decision';
+  G.gutsDecisions = {};
+  G.gutsResults = null;
+  G.gutsDeadlineMs = ctx.now + ((VARIANTS.guts3.decisionTimerSec || 20) * 1000);
+  G.actionIndex = -1;
+  G.turnStartAt = null;
+}
+
+// New cards for everyone still in (re-roll or next round of a progression)
+function dealGutsCards(G, ctx) {
+  G.deck = makeDeck(ctx.rng);
+  G.players.forEach((p) => {
+    p.hand = [];
+    p.folded = p.eliminated || p.broke || p.chips <= 0;
+    p.allIn = false;
+    if (!p.folded) for (let i = 0; i < 3; i++) p.hand.push(G.deck.pop());
+  });
+  G.dealSeq++;
+}
+
+function continueGuts(G, ctx) {
+  const can = G.players.filter((p) => !p.eliminated && !p.broke && p.chips > 0);
+  if (can.length < 2) {
+    // Nobody left to play the next round against: the carried pot goes to whoever is left
+    if (can.length === 1) can[0].chips += G.pot;
+    G.pot = 0;
+    G.gutsResults = Object.assign({}, G.gutsResults, { progressionEnded: true });
+    dealNewHand(G, ctx);
+    return;
+  }
+  G.handNumber++;
+  G.pendingDealerChoice = false;
+  G.gutsRollCount = (G.gutsRollCount || 0) + 1;
+  G.players.forEach((p) => { p.bet = 0; p.lastAction = null; });
+  dealGutsCards(G, ctx);
+  startGutsRound(G, currentBlinds(G).big, ctx);
+}
+
+function gutsDecide(G, p, choice, ctx) {
+  if (G.stage !== 'guts_decision') return fail('no guts decision in progress');
+  if (!gutsEligible(G).includes(p)) return fail('not in this round');
+  if (G.gutsDecisions[p.id]) return fail('already decided');
+  G.gutsDecisions[p.id] = choice;
+  if (gutsEligible(G).every((x) => G.gutsDecisions[x.id])) resolveGuts(G, ctx);
+  return OK;
+}
+
+function resolveGuts(G, ctx) {
+  const eligible = gutsEligible(G);
+  const ins = eligible.filter((p) => G.gutsDecisions[p.id] === 'in');
+  if (ins.length === 0) {
+    G.handNumber++;
+    G.gutsRollCount = (G.gutsRollCount || 0) + 1;
+    dealGutsCards(G, ctx);
+    startGutsRound(G, currentBlinds(G).big, ctx);
+    return;
+  }
+  const pot = G.pot;
+  if (ins.length === 1) {
+    const w = ins[0];
+    w.chips += pot;
+    G.pot = 0;
+    G.gutsResults = { winnerId: w.id, winnerName: w.name, winnerEmoji: w.emoji, winAmount: pot, losers: [], uncontested: true, progressionEnded: true };
+    G.lastResult = { hand: G.handNumber, winnings: { [w.id]: pot }, pots: [{ amount: pot, winners: [w.id], hand: null }] };
+  } else {
+    const scored = ins.map((p) => ({ p, score: evalBest3Card(p.hand) })).sort((a, b) => cmpScore(b.score, a.score));
+    const w = scored[0].p;
+    const match = Math.round(pot * (VARIANTS.guts3.matchPotFraction || 1));
+    w.chips += pot;
+    G.pot = 0;
+    const losers = [];
+    for (const { p } of scored.slice(1)) {
+      const paid = Math.min(match, p.chips);
+      p.chips -= paid; G.pot += paid;
+      if (p.chips <= 0) markBroke(G, p, ctx);
+      losers.push({ id: p.id, name: p.name, emoji: p.emoji, paid, owedFull: match });
+    }
+    G.gutsResults = {
+      winnerId: w.id, winnerName: w.name, winnerEmoji: w.emoji, winAmount: pot, losers,
+      handScores: scored.map(({ p, score }) => ({ id: p.id, name: p.name, emoji: p.emoji, hand: p.hand, score })),
+      carryToNext: G.pot, uncontested: false, progressionEnded: false,
+    };
+    G.lastResult = { hand: G.handNumber, winnings: { [w.id]: pot }, pots: [{ amount: pot, winners: [w.id], hand: scored[0].score.name }] };
+  }
+  G.stage = 'showdown';
+  G.paidOutHand = G.handNumber;
+  afterHand(G, ctx);
+}
+
+// End of a hand (any variant): queue the next deal, or pause if one was asked for
+function afterHand(G, ctx) {
+  G.nextDealAt = ctx.now + NEXT_HAND_MS;
+  if (G.pauseQueued) { G.pauseQueued = false; G.paused = true; G.nextDealAt = null; }
 }
 
 // ── Turn order ─────────────────────────────────────────────────────────────
@@ -374,7 +527,7 @@ function showdown(G, ctx) {
     if (rebuyOpen(G) && !p.awayFromTable) { p.broke = true; p.brokeAt = ctx.now; }
     else { p.eliminated = true; addPlacement(G, p); }
   });
-  G.nextDealAt = ctx.now + NEXT_HAND_MS;
+  afterHand(G, ctx);
 }
 
 function endTournament(G) {
@@ -382,6 +535,22 @@ function endTournament(G) {
   if (winner) addPlacement(G, winner);
   G.stage = 'finished';
   G.tournamentOver = true;
+  G.nextDealAt = null;
+}
+
+// ── Chop (tournament, heads-up) ────────────────────────────────────────────
+const chopPlayers = (G) => G.players.filter((p) => !p.eliminated && p.chips > 0);
+
+function finalizeChop(G) {
+  voidHand(G); // chips in a hand in progress go back first
+  const sorted = [...chopPlayers(G)].sort((a, b) => b.chips - a.chips);
+  const earlier = (G.finalPlacements || []).filter((fp) => !sorted.some((p) => p.name === fp.name));
+  G.finalPlacements = [...sorted.map((p) => ({ name: p.name, emoji: p.emoji, chips: p.chips })), ...earlier];
+  G.chopOfferedBy = null;
+  G.chopped = true;
+  G.tournamentOver = true;
+  G.stage = 'finished';
+  G.actionIndex = -1;
   G.nextDealAt = null;
 }
 
@@ -444,7 +613,6 @@ export function applyAction(G, playerId, action, amount, ctx) {
   if (action === 'pick_variant') {
     if (!G.pendingDealerChoice) return fail('no variant to pick');
     if (G.dealerId !== playerId) return fail('only the dealer picks');
-    if (amount === 'guts3') return fail('guts is not on the server yet');
     pickVariant(G, amount, ctx);
     return OK;
   }
@@ -477,7 +645,71 @@ export function applyAction(G, playerId, action, amount, ctx) {
     return OK;
   }
 
+  if (action === 'guts_in' || action === 'guts_out') return gutsDecide(G, p, action === 'guts_in' ? 'in' : 'out', ctx);
+
+  if (action === 'pause') { // anyone may ask; mid-hand it waits for the hand to end
+    if (G.paused) return OK;
+    if (isBetting(G) || G.stage === 'guts_decision') G.pauseQueued = true;
+    else { G.paused = true; G.pauseQueued = false; G.nextDealAt = null; }
+    return OK;
+  }
+  if (action === 'pause_cancel' || action === 'resume') {
+    if (!isHost) return fail('only the host can do that');
+    if (action === 'pause_cancel') { G.pauseQueued = false; return OK; }
+    if (!G.paused) return OK;
+    G.paused = false;
+    G.levelStartedAt = ctx.now;
+    G.nextDealAt = ctx.now + RESUME_DEAL_MS;
+    return OK;
+  }
+
+  if (action === 'break_ready' || action === 'break_end' || action === 'add_on') {
+    if (!G.breakActive) return fail('not on a break');
+    if (action === 'break_end') { if (!isHost) return fail('only the host can end the break'); endBreak(G, ctx); return OK; }
+    if (p.eliminated) return fail('out of the tournament');
+    if (action === 'add_on') {
+      if (p.broke) return fail('re-buy instead');
+      if (G.breakAddOns.includes(p.id)) return fail('add-on already used');
+      const chips = Math.floor(FORMATS.tournament.startingChips / 2);
+      const cost = Math.floor(G.buyIn * 100 / 2);
+      p.chips += chips;
+      p.totalBuyInCents = (p.totalBuyInCents || G.buyIn * 100) + cost;
+      G.breakAddOns.push(p.id);
+      (G.eventLog = G.eventLog || []).push({ kind: 'addon', playerId, playerName: p.name, amount: cost, chipsAdded: chips, hand: G.handNumber });
+      return OK;
+    }
+    if (!G.breakReady.includes(p.id)) G.breakReady.push(p.id);
+    if (G.players.filter((x) => !x.eliminated).every((x) => G.breakReady.includes(x.id))) endBreak(G, ctx);
+    return OK;
+  }
+
+  if (action.startsWith('chop_')) {
+    if (fmt(G).moneyMode) return fail('chop is for tournaments');
+    const two = chopPlayers(G);
+    if (two.length !== 2 || !two.includes(p)) return fail('chop is for the last two players');
+    if (action === 'chop_offer') { if (!G.chopOfferedBy) { G.chopOfferedBy = p.id; G.chopOfferedAt = new Date(ctx.now).toISOString(); G.chopDeclined = false; } return OK; }
+    if (!G.chopOfferedBy) return fail('no chop offer');
+    if (action === 'chop_cancel') { if (G.chopOfferedBy === p.id) G.chopOfferedBy = null; return OK; }
+    if (G.chopOfferedBy === p.id) return fail('waiting for the other player');
+    if (action === 'chop_accept') { finalizeChop(G); return OK; }
+    if (action === 'chop_decline') { G.chopOfferedBy = null; G.chopDeclined = true; return OK; }
+    return fail(`unknown action: ${action}`);
+  }
+
+  if (action === 'reveal' || action === 'muck') {
+    if (action === 'muck') { G.winnerMucked = true; return OK; }
+    if (!p.hand || !p.hand.length) return fail('no cards to show');
+    if (!(p.folded || G.stage === 'showdown')) return fail('finish the hand first');
+    const idx = Array.isArray(amount) ? amount.filter((i) => Number.isInteger(i) && i >= 0 && i < p.hand.length) : null;
+    G.revealedHands = G.revealedHands || {};
+    G.revealedHands[p.id] = idx && idx.length ? idx.map((i) => p.hand[i]) : p.hand;
+    G.winnerMucked = false;
+    return OK;
+  }
+
   if (action === 'fold' || action === 'check' || action === 'call' || RAISES.includes(action)) {
+    if (G.breakActive) return fail('on a break');
+    if (G.paused) return fail('the game is paused');
     if (!isBetting(G)) return fail('no betting round in progress');
     if (G.players[G.actionIndex] !== p) return fail('not your turn');
     const r = bet(G, p, action, amount);
@@ -552,6 +784,8 @@ function quit(G, p, ctx) {
     if (isBetting(G)) {
       const inHand = G.players.filter((x) => !x.folded && !x.eliminated);
       if (wasUp || inHand.length === 1) advanceAction(G, ctx);
+    } else if (G.stage === 'guts_decision') {
+      if (gutsEligible(G).every((x) => G.gutsDecisions[x.id])) resolveGuts(G, ctx);
     } else if (G.pendingDealerChoice && G.dealerId === p.id) {
       // The dealer left before choosing: deal again with the next dealer
       G.pendingDealerChoice = false;
@@ -577,6 +811,12 @@ export function tick(G, ctx) {
   advanceBlindClock(G, ctx);
   let changed = level !== G.blindLevel;
 
+  if (G.breakActive) return changed;
+  if (G.stage === 'guts_decision' && G.gutsDeadlineMs && ctx.now >= G.gutsDeadlineMs) {
+    gutsEligible(G).forEach((p) => { if (!G.gutsDecisions[p.id]) G.gutsDecisions[p.id] = 'out'; });
+    resolveGuts(G, ctx);
+    return true;
+  }
   if (G.pendingDealerChoice && G.dealerChoiceDeadline && ctx.now >= G.dealerChoiceDeadline) {
     pickVariant(G, 'holdem', ctx);
     G.autoPicked = G.handNumber;

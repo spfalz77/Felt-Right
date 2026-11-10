@@ -2,6 +2,7 @@
 // G.paused = true when host has paused the game
 // G.pauseQueued = true when host tapped pause but hand in progress — will pause after hand
 function pauseGame() {
+  if (G && serverHostControl('pause')) return;
   if (!G || G.paused || !amHost) return;
 
   // If hand in progress, queue the pause for end-of-hand
@@ -30,6 +31,7 @@ function applyPause() {
 }
 
 function cancelQueuedPause() {
+  if (G && serverHostControl('pause_cancel')) return;
   if (!G || !amHost || !G.pauseQueued) return;
   G.pauseQueued = false;
   syncGameState();
@@ -38,6 +40,7 @@ function cancelQueuedPause() {
 }
 
 function resumeGame() {
+  if (G && serverHostControl('resume')) return;
   if (!G || !G.paused || !amHost) return;
 
   // Start a fresh hand from current chip counts / seat positions
@@ -131,7 +134,7 @@ function showPauseOverlay() {
   el.style.display = 'flex';
 
   // Auto-refresh overlay every 1s so host sees online status changes quickly
-  if (amHost) {
+  if (isTableHost()) {
     clearInterval(_pauseOverlayRefresher);
     _pauseOverlayRefresher = setInterval(renderPauseOverlayContent, 1000);
   }
@@ -167,7 +170,7 @@ function renderPauseOverlayContent() {
       GAME PAUSED
     </div>
     <div style="color:var(--text-dim);font-size:0.85rem;margin-bottom:16px;max-width:320px;line-height:1.5">
-      ${amHost
+      ${isTableHost()
         ? 'Resume when everyone is ready.'
         : `Host paused the game. Tap I'm Back so they know you're ready.`}
     </div>
@@ -180,7 +183,7 @@ function renderPauseOverlayContent() {
       ${playerStatusHTML}
     </div>
 
-    ${amHost
+    ${isTableHost()
       ? `<button class="btn btn-primary" onclick="resumeGame()" style="min-width:240px;margin-bottom:12px">
           Resume Game
         </button>
@@ -210,6 +213,11 @@ function hidePauseOverlay() {
 }
 
 async function endGameForAll() {
+  if (G && isServerGame() && getFormatConfig().moneyMode) {
+    if (!isTableHost() || !confirm('End the game for everyone? This cannot be undone.')) return;
+    serverHostControl('end_game');
+    return;
+  }
   if (!amHost || !G || !currentGameId) return;
   if (!confirm('End the game for everyone? This cannot be undone.')) return;
   try {

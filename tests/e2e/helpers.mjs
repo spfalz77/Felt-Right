@@ -429,3 +429,14 @@ export async function tapRecordLedger(p) {
     await btn.click({ timeout: 2_000 });
   }).toPass({ timeout: 15_000 });
 }
+
+/**
+ * Jumps time forward for timers on this player's table. Phone-run game: the
+ * phone's own clock (it runs the timers). Server-run game: the server's clock
+ * (test stack only); anything that came due is applied right away.
+ */
+export async function skipTime(p, ms) {
+  if (!SERVER_RULES) { await p.page.clock.fastForward(ms); return; }
+  const r = await p.page.evaluate((x) => callTable(currentGameId, 'clock_offset', x), ms);
+  if (r?.error) throw new Error(`clock_offset failed: ${r.error}`);
+}

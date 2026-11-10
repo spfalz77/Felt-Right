@@ -4,7 +4,7 @@
 // table's own End button.
 
 import { test, expect, devices } from '@playwright/test';
-import { setupHomeGame, runTable, expectScreensAgree, cashOutAndCheckLedger, expectNoPageErrors } from './helpers.mjs';
+import { setupHomeGame, runTable, expectScreensAgree, cashOutAndCheckLedger, expectNoPageErrors, skipTime } from './helpers.mjs';
 
 const PHONES = [devices['iPhone 13'], devices['Pixel 7'], devices['iPhone SE']];
 const TOTAL = 3 * 2000;
@@ -23,7 +23,7 @@ test("dealer's choice: no pick → Hold'em after 25s; host can end the game from
     // Every screen shows the picker, and says what happens if nobody picks
     for (const p of all) await expect(p.page.locator('#showdown-overlay')).toContainText("Hold'em is dealt");
 
-    await host.page.clock.fastForward(26_000);
+    await skipTime(host, 26_000);
     await runTable({
       all, gameId,
       strategy: () => 'idle',
@@ -42,7 +42,7 @@ test("dealer's choice: no pick → Hold'em after 25s; host can end the game from
     await expect(host.page.locator('#dc-endgame-btn')).toBeInViewport();
     await cashOutAndCheckLedger(host, gameId, { endButton: '#dc-endgame-btn' });
     // Ending the game must not leave the auto-deal timer running
-    await host.page.clock.fastForward(30_000);
+    await skipTime(host, 30_000);
     await host.page.waitForTimeout(1_500);
     expect(await host.page.evaluate(() => G.stage), 'no hand dealt after the game ended').toBe('finished');
   });

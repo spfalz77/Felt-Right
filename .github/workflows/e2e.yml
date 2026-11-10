@@ -100,7 +100,7 @@ jobs:
         run: |
           eval "$(supabase status -o env | sed 's/^/export /')"
           SUPABASE_URL="$API_URL" SUPABASE_ANON_KEY="$ANON_KEY" SUPABASE_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY" \
-          E2E_SERVER_RULES=1 npx playwright test home-game side-pots tournament.spec quit rebuys --repeat-each "${REPEAT:-1}"
+          E2E_SERVER_RULES=1 npx playwright test home-game side-pots tournament.spec quit rebuys variants chop dealer-choice break-addon --repeat-each "${REPEAT:-1}"
       - name: Function logs
         if: always()
         run: tail -n 200 /tmp/functions.log || true

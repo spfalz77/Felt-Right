@@ -263,3 +263,160 @@ test('500 random hands never create or lose a chip, and never stall', () => {
     }
   }
 });
+
+// ── Phase 3: Guts, break + add-on, chop, pause, show/muck ──────────────────
+
+function homeAtPicker(t) {
+  t.wait(T.FIRST_DEAL_MS);
+  assert.equal(t.G.pendingDealerChoice, true);
+}
+
+test('Guts progression: two in → match the pot; next round one in → takes it all', () => {
+  const t = table({ format: 'home' });
+  T.queueRig(t.G, { hands: { Ace: cards('As Ah 2c'), Bo: cards('Ks Kh 3c'), Cy: cards('4d 7s 9c') }, board: [] }, t.ctx);
+  homeAtPicker(t);
+  t.must(t.G.dealerId, 'pick_variant', 'guts3');
+  assert.equal(t.G.stage, 'guts_decision');
+  assert.equal(t.G.pot, 30);
+  assert.ok(T.redact(t.G).players.every((p) => p.hand.length === 3 && p.hand.every((c) => c.hidden)));
+  t.must('Ace', 'guts_in');
+  assert.equal(t.act('Ace', 'guts_out').error, 'already decided');
+  t.must('Bo', 'guts_in');
+  assert.equal(t.G.stage, 'guts_decision', 'waits for everyone');
+  t.must('Cy', 'guts_out');
+  assert.equal(t.G.stage, 'showdown');
+  assert.deepEqual(t.chips(), { Ace: 2020, Bo: 1960, Cy: 1990 });
+  assert.equal(t.G.pot, 30, "Bo's match carries to the next round");
+  const shown = T.redact(t.G).players;
+  assert.ok(shown.find((p) => p.id === 'Cy').hand.every((c) => c.hidden), 'an out player keeps their cards hidden');
+  assert.ok(shown.find((p) => p.id === 'Bo').hand.every((c) => c.rank));
+  t.wait(T.NEXT_HAND_MS);
+  assert.equal(t.G.pendingDealerChoice, false, 'same dealer, no new pick');
+  assert.equal(t.G.stage, 'guts_decision');
+  assert.equal(t.G.handNumber, 2);
+  assert.equal(t.G.pot, 60);
+  t.must('Ace', 'guts_in'); t.must('Bo', 'guts_out'); t.must('Cy', 'guts_out');
+  assert.equal(t.G.gutsResults.progressionEnded, true);
+  assert.deepEqual(t.chips(), { Ace: 2070, Bo: 1950, Cy: 1980 });
+  t.wait(T.NEXT_HAND_MS);
+  assert.equal(t.G.pendingDealerChoice, true, 'progression over → next dealer picks');
+  assert.equal(t.G.handNumber, 3);
+  assert.equal(t.total(), 6000);
+});
+
+test('Guts: nobody in → re-ante and new cards; 20s with no answer counts as out', () => {
+  const t = table({ format: 'home' });
+  homeAtPicker(t);
+  t.must(t.G.dealerId, 'pick_variant', 'guts3');
+  ['Ace', 'Bo', 'Cy'].forEach((n) => t.must(n, 'guts_out'));
+  assert.equal(t.G.stage, 'guts_decision');
+  assert.equal(t.G.pot, 60);
+  assert.equal(t.G.handNumber, 2);
+  t.must('Ace', 'guts_in');
+  assert.equal(t.wait(19_999), false);
+  assert.equal(t.wait(1), true);
+  assert.equal(t.G.stage, 'showdown');
+  assert.equal(t.G.gutsResults.uncontested, true);
+  assert.equal(t.chips().Ace, 2040);
+  assert.equal(t.total(), 6000);
+});
+
+test('Guts: 200 random rounds never create or lose a chip', () => {
+  const pick = rngFrom(4242);
+  const t = table({ format: 'home', names: ['A', 'B', 'C', 'D'], seed: 9 });
+  let bought = 0;
+  for (let r = 0; r < 200; r++) {
+    t.wait(T.NEXT_HAND_MS);
+    for (const p of t.G.players.filter((x) => x.broke && !x.eliminated)) { t.must(p.id, 'rebuy'); bought += 2000; }
+    t.wait(T.NEXT_HAND_MS);
+    if (t.G.pendingDealerChoice) t.must(t.G.dealerId, 'pick_variant', 'guts3');
+    if (t.G.stage !== 'guts_decision') continue;
+    for (const p of t.G.players) if (!t.G.gutsDecisions[p.id] && t.G.stage === 'guts_decision' && p.hand.length && !p.broke && !p.eliminated) t.act(p.id, pick() < 0.5 ? 'guts_in' : 'guts_out');
+    assert.equal(t.total(), 8000 + bought, `round ${r}`);
+    assert.ok(t.G.players.every((p) => p.chips >= 0));
+  }
+});
+
+test('tournament break after 4 levels: add-on once, everyone ready ends it, re-buys close', () => {
+  const t = table({ rebuys: true });
+  t.deal();
+  for (let i = 0; i < 4; i++) { t.ctx.now += 600_000; T.tick(t.G, t.ctx); }
+  assert.equal(t.G.breakActive, true);
+  assert.equal(t.G.blindLevel, 4);
+  const who = t.actor();
+  assert.equal(t.act(who, 'call').error, 'on a break');
+  t.ctx.now += 3_600_000;
+  T.tick(t.G, t.ctx);
+  assert.equal(t.G.blindLevel, 4, 'blind clock stopped during the break');
+  t.must('Cy', 'add_on');
+  assert.equal(t.act('Cy', 'add_on').error, 'add-on already used');
+  assert.equal(t.G.players.find((p) => p.id === 'Cy').totalBuyInCents, 3000);
+  assert.equal(t.total(), 4500 + 750);
+  t.must('Ace', 'break_ready'); t.must('Bo', 'break_ready');
+  assert.equal(t.G.breakActive, true);
+  t.must('Cy', 'break_ready');
+  assert.equal(t.G.breakActive, false);
+  assert.equal(t.G.rebuyWindowClosed, true);
+  t.must(t.actor(), 'call'); // the hand carries on
+  t.playHand(() => 'allin');
+  // With re-buys closed, a bust is a knockout
+  assert.ok(t.G.players.every((p) => !p.broke));
+});
+
+test('host ends the break; nobody else can', () => {
+  const t = table({ rebuys: true });
+  t.deal();
+  t.G.levelStartedAt -= 4 * 600_000;
+  T.tick(t.G, t.ctx);
+  assert.equal(t.G.breakActive, true);
+  assert.equal(t.act('Bo', 'break_end').error, 'only the host can end the break');
+  t.must('Ace', 'break_end');
+  assert.equal(t.G.breakActive, false);
+});
+
+test('heads-up chop: offer, decline, offer again, accept → placements by chips, game over', () => {
+  const t = table();
+  T.queueRig(t.G, { hands: { Ace: cards('As Ah'), Bo: cards('Qc Qd'), Cy: cards('Kc Kd') }, board: BOARD }, t.ctx);
+  t.deal();
+  assert.equal(t.act('Bo', 'chop_offer').error, 'chop is for the last two players');
+  t.playHand((who) => (who === 'Bo' ? 'fold' : 'allin'));
+  t.deal();
+  t.must('Bo', 'chop_offer');
+  assert.equal(t.act('Bo', 'chop_accept').error, 'waiting for the other player');
+  t.must('Ace', 'chop_decline');
+  assert.equal(t.G.chopOfferedBy, null);
+  t.must('Bo', 'chop_offer');
+  t.must('Ace', 'chop_accept');
+  assert.equal(t.G.tournamentOver, true);
+  assert.deepEqual(t.G.finalPlacements.map((p) => p.name), ['Ace', 'Bo', 'Cy']);
+  assert.equal(t.total(), 4500, 'the hand in progress was voided first');
+});
+
+test('pause: mid-hand it waits for the hand to end; only the host resumes', () => {
+  const t = table(); t.deal();
+  t.must('Bo', 'pause');
+  assert.equal(t.G.pauseQueued, true);
+  t.playHand(() => 'fold');
+  assert.equal(t.G.paused, true);
+  assert.equal(t.wait(60_000), false, 'nothing deals while paused');
+  assert.equal(t.act('Bo', 'resume').error, 'only the host can do that');
+  t.must('Ace', 'resume');
+  t.wait(T.RESUME_DEAL_MS);
+  assert.equal(t.G.stage, 'preflop');
+  assert.equal(t.G.handNumber, 2);
+});
+
+test('show or muck: fold winner shows chosen cards; folded player reveals theirs', () => {
+  const t = table(); t.deal();
+  const order = [];
+  t.playHand((who) => { order.push(who); return order.length < 3 ? 'fold' : 'check'; });
+  const winner = t.G.players.find((p) => !p.folded);
+  const folded = t.G.players.find((p) => p.folded);
+  assert.equal(T.redact(t.G).players.find((p) => p.id === winner.id).hand[0].hidden, true);
+  t.must(winner.id, 'reveal', [1]);
+  assert.deepEqual(t.G.revealedHands[winner.id], [winner.hand[1]]);
+  t.must(folded.id, 'reveal');
+  assert.equal(t.G.revealedHands[folded.id].length, 2);
+  t.must(winner.id, 'muck');
+  assert.equal(t.G.winnerMucked, true);
+});

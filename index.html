@@ -3510,7 +3510,7 @@ function showBreakOverlay() {
         ${playerRows}
       </div>
 
-      ${(amHost || me.id === 'demo') ? `
+      ${(isTableHost() || me.id === 'demo') ? `
         <button class="btn btn-ghost btn-sm" onclick="endBreak()" style="margin-top:8px">
           Resume Game (Host)
         </button>` : ''}
@@ -3564,6 +3564,7 @@ function applyBreakReady(playerId) {
 // End the break, close the rebuy window, and resume play.
 function endBreak() {
   if (!G || !G.breakActive) return;
+  if (serverHostControl('break_end')) return;
   if (!amHost && me.id !== 'demo') {
     toast('Only the host can resume');
     return;
@@ -4511,7 +4512,14 @@ function guestSubscribeToGame(gameId) {
       // Apply if anything material changed
       const turnMoved = (data.state.actionIndex ?? -1) !== (G?.actionIndex ?? -1)
         || !!data.state.pendingDealerChoice !== !!G?.pendingDealerChoice
-        || !!data.state.tournamentOver !== !!G?.tournamentOver;
+        || !!data.state.tournamentOver !== !!G?.tournamentOver
+        || !!data.state.breakActive !== !!G?.breakActive
+        || !!data.state.paused !== !!G?.paused
+        || !!data.state.pauseQueued !== !!G?.pauseQueued
+        || (data.state.chopOfferedBy || null) !== (G?.chopOfferedBy || null)
+        || Object.keys(data.state.gutsDecisions || {}).length !== Object.keys(G?.gutsDecisions || {}).length
+        || JSON.stringify(data.state.breakReady || []) !== JSON.stringify(G?.breakReady || [])
+        || JSON.stringify(data.state.revealedHands || {}) !== JSON.stringify(G?.revealedHands || {});
       if (srvHand !== myHand || srvStage !== myStage || srvPot !== myPot || turnMoved) {
         G = data.state;
         applyMyPrivateHand();
@@ -5718,7 +5726,7 @@ function renderGame() {
   // Show/hide host pause button (host only)
   const pauseBtn = document.getElementById('host-pause-btn');
   if (pauseBtn) {
-    if (amHost && !G?.paused) {
+    if (isTableHost() && !G?.paused) {
       pauseBtn.style.display = 'inline-block';
       if (G?.pauseQueued) {
         pauseBtn.textContent = '⏸ Pausing…';
@@ -6571,6 +6579,7 @@ function isPlayerOnline(playerId) {
 // G.paused = true when host has paused the game
 // G.pauseQueued = true when host tapped pause but hand in progress — will pause after hand
 function pauseGame() {
+  if (G && serverHostControl('pause')) return;
   if (!G || G.paused || !amHost) return;
 
   // If hand in progress, queue the pause for end-of-hand
@@ -6599,6 +6608,7 @@ function applyPause() {
 }
 
 function cancelQueuedPause() {
+  if (G && serverHostControl('pause_cancel')) return;
   if (!G || !amHost || !G.pauseQueued) return;
   G.pauseQueued = false;
   syncGameState();
@@ -6607,6 +6617,7 @@ function cancelQueuedPause() {
 }
 
 function resumeGame() {
+  if (G && serverHostControl('resume')) return;
   if (!G || !G.paused || !amHost) return;
 
   // Start a fresh hand from current chip counts / seat positions
@@ -6700,7 +6711,7 @@ function showPauseOverlay() {
   el.style.display = 'flex';
 
   // Auto-refresh overlay every 1s so host sees online status changes quickly
-  if (amHost) {
+  if (isTableHost()) {
     clearInterval(_pauseOverlayRefresher);
     _pauseOverlayRefresher = setInterval(renderPauseOverlayContent, 1000);
   }
@@ -6736,7 +6747,7 @@ function renderPauseOverlayContent() {
       GAME PAUSED
     </div>
     <div style="color:var(--text-dim);font-size:0.85rem;margin-bottom:16px;max-width:320px;line-height:1.5">
-      ${amHost
+      ${isTableHost()
         ? 'Resume when everyone is ready.'
         : `Host paused the game. Tap I'm Back so they know you're ready.`}
     </div>
@@ -6749,7 +6760,7 @@ function renderPauseOverlayContent() {
       ${playerStatusHTML}
     </div>
 
-    ${amHost
+    ${isTableHost()
       ? `<button class="btn btn-primary" onclick="resumeGame()" style="min-width:240px;margin-bottom:12px">
           Resume Game
         </button>
@@ -6779,6 +6790,11 @@ function hidePauseOverlay() {
 }
 
 async function endGameForAll() {
+  if (G && isServerGame() && getFormatConfig().moneyMode) {
+    if (!isTableHost() || !confirm('End the game for everyone? This cannot be undone.')) return;
+    serverHostControl('end_game');
+    return;
+  }
   if (!amHost || !G || !currentGameId) return;
   if (!confirm('End the game for everyone? This cannot be undone.')) return;
   try {
@@ -7834,6 +7850,7 @@ function showSelectedCards() {
       player_id: me.id,
       action: 'reveal',
       amount: null,
+      cardIndexes: sel.map((on, i) => (on ? i : -1)).filter((i) => i >= 0),
       created_at: new Date().toISOString(),
     }).then(() => {});
   }
@@ -10214,11 +10231,15 @@ function toServerAction(row) {
   if (a === 'pick_variant') return ['pick_variant', _variantByCode[row.amount] || 'holdem'];
   if (a === 'rebuy' || a === 'sit_out' || a === 'sit_back') return [a, null];
   if (a === 'step_away' || a === 'quit_cashout' || a === 'quit') return ['quit', null];
+  if (['guts_in', 'guts_out', 'break_ready', 'add_on', 'chop_offer', 'chop_accept', 'chop_decline', 'chop_cancel', 'muck'].includes(a)) return [a, null];
+  if (a === 'pause_request') return ['pause', null];
+  if (a === 'reveal') return ['reveal', row.cardIndexes || null]; // which cards to show (all if none given)
   return null;
 }
 
 async function postAction(row) {
   if (isServerGame() && row.game_id === currentGameId) {
+    // (cardIndexes is a server-only extra; player_actions has no such column)
     const mapped = toServerAction(row);
     if (mapped) {
       const { error } = await callTable(row.game_id, mapped[0], mapped[1]);
@@ -10226,7 +10247,17 @@ async function postAction(row) {
       return { error: error ? { message: error } : null };
     }
   }
-  return sb.from('player_actions').insert(row);
+  const { cardIndexes, ...insertRow } = row;
+  return sb.from('player_actions').insert(insertRow);
+}
+
+// Host-only controls in a server game go straight to the table.
+// Returns true when it handled the call (the caller then stops).
+function serverHostControl(action) {
+  if (!isServerGame()) return false;
+  if (!isTableHost()) return true;
+  callTable(currentGameId, action).then(({ error }) => { if (error) toast(error); });
+  return true;
 }
 
 // Host taps Start: the server seats everyone and runs the game from here.
@@ -10276,8 +10307,14 @@ function startServerTicker(gameId) {
   _serverTicker = setInterval(() => {
     if (!G || currentGameId !== gameId || !isServerGame()) { stopServerTicker(); return; }
     if (G.tournamentOver || G.paused) return;
-    const due = [G.nextDealAt, G.pendingDealerChoice ? G.dealerChoiceDeadline : null]
-      .some((t) => t && serverNow() >= t);
+    const levelEndsAt = G.format === 'tournament' && !G.breakActive && G.levelStartedAt && G.blindDuration
+      ? G.levelStartedAt + G.blindDuration * 1000 : null;
+    const due = [
+      G.breakActive ? null : G.nextDealAt,
+      G.pendingDealerChoice ? G.dealerChoiceDeadline : null,
+      G.stage === 'guts_decision' ? G.gutsDeadlineMs : null,
+      levelEndsAt,
+    ].some((t) => t && serverNow() >= t);
     if (!due || Date.now() - _lastTickAt < 2000) return;
     _lastTickAt = Date.now();
     callTable(gameId, 'tick');
