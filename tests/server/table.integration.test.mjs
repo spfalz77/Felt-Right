@@ -220,7 +220,7 @@ test('turns time out on the server clock; the minute backstop moves tables nobod
   const before = (await t.state()).state.actionIndex;
   const g = await admin(`/rest/v1/game_secrets?game_id=eq.${t.gameId}&select=state`);
   const st = g.data[0].state;
-  st.turnDeadline = 0; // already due
+  st.turnDeadline = 1; // already due (0 would mean no deadline)
   await admin(`/rest/v1/game_secrets?game_id=eq.${t.gameId}`, { method: 'PATCH', body: { state: st } });
   const r = await http('/functions/v1/table', { token: SERVICE, key: SERVICE, method: 'POST', body: { action: 'tick_all' } });
   assert.equal(r.status, 200, JSON.stringify(r.data));
@@ -232,8 +232,9 @@ test('heartbeats: a player with no heartbeat for 12s is checked/folded 5s into t
   const t = await lobby('tournament', ['Ann', 'Ben', 'Cat']);
   await t.must(t.host, 'start');
   for (const p of t.players) {
-    const r = await http('/rest/v1/game_presence', { token: p.token, method: 'POST', body: { game_id: t.gameId, user_id: p.id } });
-    assert.equal(r.status, 201, JSON.stringify(r.data));
+    // (the helpers already send heartbeats, so this is an upsert)
+    const r = await http('/rest/v1/game_presence', { token: p.token, method: 'POST', headers: { Prefer: 'resolution=merge-duplicates' }, body: { game_id: t.gameId, user_id: p.id } });
+    assert.ok([200, 201].includes(r.status), JSON.stringify(r.data));
   }
   // Players can't write someone else's heartbeat
   const forged = await http('/rest/v1/game_presence', { token: t.players[0].token, method: 'POST', headers: { Prefer: 'resolution=merge-duplicates' }, body: { game_id: t.gameId, user_id: t.players[1].id } });
