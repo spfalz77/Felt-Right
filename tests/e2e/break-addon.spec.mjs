@@ -42,9 +42,13 @@ test('tournament break: add-on, everyone ready, re-buys close', async ({ browser
     await expect.poll(async () => allChips(await tableView(host)), { timeout: 15_000, message: 'add-on chips on the table' }).toBe(before + 750);
     expect((await tableView(host)).buyIn[cy.id], "Cy's buy-in now includes the add-on ($20 + $10)").toBe(3000);
     for (const p of all) {
+      // Tap Ready until the host has it (the overlay redraws, and the last tap ends the break)
       await expect(async () => {
-        await p.page.locator('#break-ready-btn').click({ force: true, timeout: 3_000 });
-      }).toPass({ timeout: 15_000 });
+        const st = await host.page.evaluate(() => ({ on: !!G.breakActive, ready: G.breakReady || [] }));
+        if (!st.on || st.ready.includes(p.id)) return;
+        await p.page.locator('#break-ready-btn').click({ force: true, timeout: 2_000 }).catch(() => {});
+        throw new Error('not ready yet');
+      }).toPass({ timeout: 20_000 });
     }
     await expect.poll(async () => (await tableView(host)).breakActive, { timeout: 15_000, message: 'break over' }).toBe(false);
     expect((await tableView(host)).rebuyClosed, 're-buys closed after the break').toBe(true);

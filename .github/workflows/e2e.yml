@@ -23,6 +23,37 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The `table` Edge Function over HTTP: real signed-in users, no browser
+  server:
+    name: server rules (Edge Function)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Start local Supabase (applies supabase/migrations)
+        run: |
+          EXCLUDE=studio,imgproxy,logflare,vector,supavisor,storage-api,postgres-meta
+          supabase start -x "$EXCLUDE" || { supabase stop --no-backup || true; sleep 10; supabase start -x "$EXCLUDE"; }
+      - name: Serve the table function with test hooks on
+        run: |
+          echo "ALLOW_TEST_HOOKS=1" > /tmp/functions.env
+          nohup supabase functions serve --env-file /tmp/functions.env > /tmp/functions.log 2>&1 &
+          sleep 8
+      - name: Run server integration tests
+        run: |
+          eval "$(supabase status -o env | sed 's/^/export /')"
+          SUPABASE_URL="$API_URL" SUPABASE_ANON_KEY="$ANON_KEY" SUPABASE_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY" \
+          node --test tests/server/*.test.mjs
+      - name: Function logs
+        if: always()
+        run: tail -n 150 /tmp/functions.log || true
+
   e2e:
     # Three machines in parallel, each with its own local Supabase, each running
     # a third of the tests (about 4 minutes instead of 11)
