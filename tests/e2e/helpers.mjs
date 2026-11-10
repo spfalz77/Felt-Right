@@ -139,7 +139,9 @@ export async function makeFriends(requester, addressee) {
 /** Snapshot of the table as one player's screen sees it. */
 export function tableView(p) {
   if (!p.page) return Promise.resolve(null);
-  return p.page.evaluate(() => (typeof G === 'undefined' || !G ? null : {
+  return p.page.evaluate(() => (typeof G === 'undefined' || !G ? null : !Array.isArray(G.players) ? (() => {
+    throw new Error(`G has no players: ${JSON.stringify(G).slice(0, 400)} screen=${document.querySelector('.screen.active')?.id}`);
+  })() : {
     hand: G.handNumber,
     stage: G.stage,
     variant: G.variant,
