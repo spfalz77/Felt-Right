@@ -820,6 +820,11 @@ function applyRemoteAction(playerId, action, amount) {
 // ── GUEST: receive state updates from host ────────────────────────────────────
 let _guestStatePoller = null;
 
+function tableSignature(state) {
+  if (!state || !Array.isArray(state.players)) return '';
+  return JSON.stringify({ ...state, players: state.players.map(({ hand, ...rest }) => rest) });
+}
+
 function guestSubscribeToGame(gameId) {
   if (gameSubscription) gameSubscription.unsubscribe();
 
@@ -833,24 +838,10 @@ function guestSubscribeToGame(gameId) {
     try {
       const { data } = await sb.from('games').select('state, host_id').eq('id', currentGameId).maybeSingle();
       if (!data?.state || !Array.isArray(data.state.players)) return;
-      const srvHand = data.state.handNumber || 0;
-      const myHand = G?.handNumber || 0;
-      const srvStage = data.state.stage;
-      const myStage = G?.stage;
-      const srvPot = data.state.pot || 0;
-      const myPot = G?.pot || 0;
-      // Apply if anything material changed
-      const turnMoved = (data.state.actionIndex ?? -1) !== (G?.actionIndex ?? -1)
-        || !!data.state.pendingDealerChoice !== !!G?.pendingDealerChoice
-        || !!data.state.tournamentOver !== !!G?.tournamentOver
-        || !!data.state.breakActive !== !!G?.breakActive
-        || !!data.state.paused !== !!G?.paused
-        || !!data.state.pauseQueued !== !!G?.pauseQueued
-        || (data.state.chopOfferedBy || null) !== (G?.chopOfferedBy || null)
-        || Object.keys(data.state.gutsDecisions || {}).length !== Object.keys(G?.gutsDecisions || {}).length
-        || JSON.stringify(data.state.breakReady || []) !== JSON.stringify(G?.breakReady || [])
-        || JSON.stringify(data.state.revealedHands || {}) !== JSON.stringify(G?.revealedHands || {});
-      if (srvHand !== myHand || srvStage !== myStage || srvPot !== myPot || turnMoved) {
+      // Apply whenever the saved table differs from what's on screen (cards
+      // aside: this phone's own cards come from private_hands). Comparing the
+      // whole table means a stale copy can't stick: the next poll corrects it.
+      if (tableSignature(data.state) !== tableSignature(G)) {
         G = data.state;
         applyMyPrivateHand();
         renderGame();
