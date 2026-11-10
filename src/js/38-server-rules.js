@@ -59,11 +59,15 @@ function toServerAction(row) {
   if (a === 'pick_variant') return ['pick_variant', _variantByCode[row.amount] || 'holdem'];
   if (a === 'rebuy' || a === 'sit_out' || a === 'sit_back') return [a, null];
   if (a === 'step_away' || a === 'quit_cashout' || a === 'quit') return ['quit', null];
+  if (['guts_in', 'guts_out', 'break_ready', 'add_on', 'chop_offer', 'chop_accept', 'chop_decline', 'chop_cancel', 'muck'].includes(a)) return [a, null];
+  if (a === 'pause_request') return ['pause', null];
+  if (a === 'reveal') return ['reveal', row.cardIndexes || null]; // which cards to show (all if none given)
   return null;
 }
 
 async function postAction(row) {
   if (isServerGame() && row.game_id === currentGameId) {
+    // (cardIndexes is a server-only extra; player_actions has no such column)
     const mapped = toServerAction(row);
     if (mapped) {
       const { error } = await callTable(row.game_id, mapped[0], mapped[1]);
@@ -71,7 +75,17 @@ async function postAction(row) {
       return { error: error ? { message: error } : null };
     }
   }
-  return sb.from('player_actions').insert(row);
+  const { cardIndexes, ...insertRow } = row;
+  return sb.from('player_actions').insert(insertRow);
+}
+
+// Host-only controls in a server game go straight to the table.
+// Returns true when it handled the call (the caller then stops).
+function serverHostControl(action) {
+  if (!isServerGame()) return false;
+  if (!isTableHost()) return true;
+  callTable(currentGameId, action).then(({ error }) => { if (error) toast(error); });
+  return true;
 }
 
 // Host taps Start: the server seats everyone and runs the game from here.
@@ -121,8 +135,14 @@ function startServerTicker(gameId) {
   _serverTicker = setInterval(() => {
     if (!G || currentGameId !== gameId || !isServerGame()) { stopServerTicker(); return; }
     if (G.tournamentOver || G.paused) return;
-    const due = [G.nextDealAt, G.pendingDealerChoice ? G.dealerChoiceDeadline : null]
-      .some((t) => t && serverNow() >= t);
+    const levelEndsAt = G.format === 'tournament' && !G.breakActive && G.levelStartedAt && G.blindDuration
+      ? G.levelStartedAt + G.blindDuration * 1000 : null;
+    const due = [
+      G.breakActive ? null : G.nextDealAt,
+      G.pendingDealerChoice ? G.dealerChoiceDeadline : null,
+      G.stage === 'guts_decision' ? G.gutsDeadlineMs : null,
+      levelEndsAt,
+    ].some((t) => t && serverNow() >= t);
     if (!due || Date.now() - _lastTickAt < 2000) return;
     _lastTickAt = Date.now();
     callTable(gameId, 'tick');

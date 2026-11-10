@@ -14,7 +14,7 @@ document.addEventListener('visibilitychange', async () => {
   try {
     // Pull latest state fresh from the DB — subscription may have missed events while hidden
     const { data } = await sb.from('games').select('state, host_id, status').eq('id', currentGameId).maybeSingle();
-    if (!data?.state) return;
+    if (!data?.state || isOlderState(data.state, G)) return;
 
     // If host changed while we were away, update role
     if (isServerState(data.state)) {

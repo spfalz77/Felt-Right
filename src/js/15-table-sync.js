@@ -373,6 +373,7 @@ function syncGameState() {
       _syncDirty = false;
       if (!G || !currentGameId) break;
       const gameId = currentGameId;
+      G.syncSeq = (G.syncSeq || 0) + 1; // phones ignore any copy older than the one they show
       const { error } = await sb.from('games')
         .update({ state: redactForSync(G), hand_number: G.handNumber, last_host_seen: new Date().toISOString() })
         .eq('id', gameId);
@@ -820,6 +821,18 @@ function applyRemoteAction(playerId, action, amount) {
 // ── GUEST: receive state updates from host ────────────────────────────────────
 let _guestStatePoller = null;
 
+// Each saved table carries a sequence number (server games: v; phone-run: syncSeq)
+function stateSeq(state) { return state ? (state.v ?? state.syncSeq ?? null) : null; }
+function isOlderState(incoming, current) {
+  const a = stateSeq(incoming), b = stateSeq(current);
+  return a != null && b != null && a < b;
+}
+
+function tableSignature(state) {
+  if (!state || !Array.isArray(state.players)) return '';
+  return JSON.stringify({ ...state, players: state.players.map(({ hand, ...rest }) => rest) });
+}
+
 function guestSubscribeToGame(gameId) {
   if (gameSubscription) gameSubscription.unsubscribe();
 
@@ -833,17 +846,11 @@ function guestSubscribeToGame(gameId) {
     try {
       const { data } = await sb.from('games').select('state, host_id').eq('id', currentGameId).maybeSingle();
       if (!data?.state || !Array.isArray(data.state.players)) return;
-      const srvHand = data.state.handNumber || 0;
-      const myHand = G?.handNumber || 0;
-      const srvStage = data.state.stage;
-      const myStage = G?.stage;
-      const srvPot = data.state.pot || 0;
-      const myPot = G?.pot || 0;
-      // Apply if anything material changed
-      const turnMoved = (data.state.actionIndex ?? -1) !== (G?.actionIndex ?? -1)
-        || !!data.state.pendingDealerChoice !== !!G?.pendingDealerChoice
-        || !!data.state.tournamentOver !== !!G?.tournamentOver;
-      if (srvHand !== myHand || srvStage !== myStage || srvPot !== myPot || turnMoved) {
+      if (isOlderState(data.state, G)) return; // fetched before a newer update arrived
+      // Apply whenever the saved table differs from what's on screen (cards
+      // aside: this phone's own cards come from private_hands). Comparing the
+      // whole table means a stale copy can't stick: the next poll corrects it.
+      if (tableSignature(data.state) !== tableSignature(G)) {
         G = data.state;
         applyMyPrivateHand();
         renderGame();
@@ -868,6 +875,7 @@ function guestSubscribeToGame(gameId) {
       const row = payload.new;
       // Ignore updates without a table (e.g. settings saved before the first deal)
       if (!row.state || !Array.isArray(row.state.players)) return;
+      if (isOlderState(row.state, G)) return; // arrived after a newer copy
 
       const prevHandNumber = G?.handNumber || 0;
       const prevActionIndex = G?.actionIndex;

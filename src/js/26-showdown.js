@@ -556,6 +556,7 @@ function showSelectedCards() {
       player_id: me.id,
       action: 'reveal',
       amount: null,
+      cardIndexes: sel.map((on, i) => (on ? i : -1)).filter((i) => i >= 0),
       created_at: new Date().toISOString(),
     }).then(() => {});
   }

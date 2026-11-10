@@ -372,14 +372,19 @@ export async function cashOutAndCheckLedger(host, gameId, { endButton = '#host-e
   const buyIns = cashOuts.reduce((a, c) => a + c.buyInCents, 0);
   expect(stacks, 'final stacks add up to the buy-ins').toBe(buyIns);
 
-  const rows = await adminSelect('payout_ledger', `game_id=eq.${gameId}&select=user_id,opponent_id,amount`);
+  // The ledger is settled by a DB call right after the game is saved as finished
+  const anyNet = cashOuts.some((c) => c.netCents !== 0);
+  let rows = [];
+  await expect.poll(async () => {
+    rows = await adminSelect('payout_ledger', `game_id=eq.${gameId}&select=user_id,opponent_id,amount`);
+    return !anyNet || rows.length > 0;
+  }, { timeout: 15_000, message: 'ledger rows written' }).toBe(true);
   const total = rows.reduce((a, r) => a + Number(r.amount), 0);
   expect(Math.abs(total), 'ledger nets to zero').toBeLessThan(0.005);
   for (const r of rows) {
     const mirror = rows.find((m) => m.user_id === r.opponent_id && m.opponent_id === r.user_id);
     expect(mirror && Number(mirror.amount), 'every ledger row has its mirror').toBe(-Number(r.amount));
   }
-  if (cashOuts.some((c) => c.netCents !== 0)) expect(rows.length, 'ledger rows written').toBeGreaterThan(0);
   return { cashOuts, rows };
 }
 
@@ -428,4 +433,15 @@ export async function tapRecordLedger(p) {
     await btn.scrollIntoViewIfNeeded({ timeout: 2_000 });
     await btn.click({ timeout: 2_000 });
   }).toPass({ timeout: 15_000 });
+}
+
+/**
+ * Jumps time forward for timers on this player's table. Phone-run game: the
+ * phone's own clock (it runs the timers). Server-run game: the server's clock
+ * (test stack only); anything that came due is applied right away.
+ */
+export async function skipTime(p, ms) {
+  if (!SERVER_RULES) { await p.page.clock.fastForward(ms); return; }
+  const r = await p.page.evaluate((x) => callTable(currentGameId, 'clock_offset', x), ms);
+  if (r?.error) throw new Error(`clock_offset failed: ${r.error}`);
 }

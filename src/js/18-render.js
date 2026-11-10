@@ -38,7 +38,7 @@ function renderGame() {
   // Show/hide host pause button (host only)
   const pauseBtn = document.getElementById('host-pause-btn');
   if (pauseBtn) {
-    if (amHost && !G?.paused) {
+    if (isTableHost() && !G?.paused) {
       pauseBtn.style.display = 'inline-block';
       if (G?.pauseQueued) {
         pauseBtn.textContent = '⏸ Pausing…';

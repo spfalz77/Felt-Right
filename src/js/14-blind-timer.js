@@ -158,7 +158,7 @@ function showBreakOverlay() {
         ${playerRows}
       </div>
 
-      ${(amHost || me.id === 'demo') ? `
+      ${(isTableHost() || me.id === 'demo') ? `
         <button class="btn btn-ghost btn-sm" onclick="endBreak()" style="margin-top:8px">
           Resume Game (Host)
         </button>` : ''}
@@ -212,6 +212,7 @@ function applyBreakReady(playerId) {
 // End the break, close the rebuy window, and resume play.
 function endBreak() {
   if (!G || !G.breakActive) return;
+  if (serverHostControl('break_end')) return;
   if (!amHost && me.id !== 'demo') {
     toast('Only the host can resume');
     return;

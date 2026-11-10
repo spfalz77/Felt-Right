@@ -7,7 +7,7 @@
 //     knocked out straight away ("ELIMINATED — 3rd of 3"), no re-buy offered.
 
 import { test, expect, devices } from '@playwright/test';
-import { setupHomeGame, runTable, expectNoPageErrors, tableView, cards, rigNextHand, chipsOnTable } from './helpers.mjs';
+import { setupHomeGame, runTable, expectNoPageErrors, tableView, cards, rigNextHand, chipsOnTable, skipTime } from './helpers.mjs';
 
 const PHONES = [devices['iPhone 13'], devices['Pixel 7'], devices['iPhone SE']];
 const BOARD = cards('2c 7d 9h 3s 4d');
@@ -27,7 +27,7 @@ test('tournament break: add-on, everyone ready, re-buys close', async ({ browser
   await test.step('4 blind levels pass → the first break starts on every screen', async () => {
     await runTable({ all, gameId, strategy: () => 'idle', done: (views) => views[0]?.hand === 1 && views[0].stage === 'preflop' });
     for (let i = 0; i < 6 && !(await tableView(host)).breakActive; i++) {
-      await host.page.clock.fastForward(61_000);
+      await skipTime(host, 61_000);
       await host.page.waitForTimeout(1_500);
     }
     expect((await tableView(host)).breakActive, 'break started after 4 levels').toBe(true);

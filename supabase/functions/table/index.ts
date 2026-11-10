@@ -76,6 +76,7 @@ Deno.serve(async (req) => {
       }
       if (!changed) return json({ ok: true, changed: false, version: row.version, now: ctx.now });
 
+      G.v = row.version + 1; // phones ignore any copy older than the one they show
       const { data: saved, error: saveErr } = await admin.rpc("save_table", {
         p_game_id: game_id,
         p_expect_version: row.version,
@@ -136,6 +137,7 @@ async function start(
   // Test stack only: scripted deals queued in the lobby, before the game existed
   if (TEST_HOOKS && Array.isArray(settings?.rigs)) for (const r of settings!.rigs) T.queueRig(G, r, ctx);
 
+  G.v = 1;
   const { data: saved, error } = await admin.rpc("save_table", {
     p_game_id: game.id, p_expect_version: null, p_state: G, p_public: T.redact(G), p_hands: null,
   });
