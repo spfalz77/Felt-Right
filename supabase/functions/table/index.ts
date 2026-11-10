@@ -136,14 +136,15 @@ async function start(
   // Test stack only: scripted deals queued in the lobby, before the game existed
   if (TEST_HOOKS && Array.isArray(settings?.rigs)) for (const r of settings!.rigs) T.queueRig(G, r, ctx);
 
-  await admin.from("games").update({
-    blind_config: { levels: G.blindLevels, duration: G.blindDuration, rebuys_enabled: G.rebuysEnabled },
-    buy_in_amount: buyIn,
-  }).eq("id", game.id);
   const { data: saved, error } = await admin.rpc("save_table", {
     p_game_id: game.id, p_expect_version: null, p_state: G, p_public: T.redact(G), p_hands: null,
   });
   if (error) throw error;
   if (!saved) return json({ error: "game already started" }, 409);
+  // After the game exists (an earlier update would reach phones with an empty state)
+  await admin.from("games").update({
+    blind_config: { levels: G.blindLevels, duration: G.blindDuration, rebuys_enabled: G.rebuysEnabled },
+    buy_in_amount: buyIn,
+  }).eq("id", game.id);
   return json({ ok: true, changed: true, version: 1, now: ctx.now });
 }

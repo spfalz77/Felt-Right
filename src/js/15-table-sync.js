@@ -832,7 +832,7 @@ function guestSubscribeToGame(gameId) {
     }
     try {
       const { data } = await sb.from('games').select('state, host_id').eq('id', currentGameId).maybeSingle();
-      if (!data?.state) return;
+      if (!data?.state || !Array.isArray(data.state.players)) return;
       const srvHand = data.state.handNumber || 0;
       const myHand = G?.handNumber || 0;
       const srvStage = data.state.stage;
@@ -866,7 +866,8 @@ function guestSubscribeToGame(gameId) {
       filter: `id=eq.${gameId}`,
     }, payload => {
       const row = payload.new;
-      if (!row.state) return;
+      // Ignore updates without a table (e.g. settings saved before the first deal)
+      if (!row.state || !Array.isArray(row.state.players)) return;
 
       const prevHandNumber = G?.handNumber || 0;
       const prevActionIndex = G?.actionIndex;
