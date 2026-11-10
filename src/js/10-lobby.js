@@ -143,34 +143,13 @@ async function openLobby(gameId) {
     const invitedPlayers = (data || []).filter(p => p.status === 'invited');
     renderLobbySeats();
     renderInvitedList(invitedPlayers);
+    _lobbyRosterSig = (data || []).map(p => p.user_id + ':' + p.status).join(',');
 
     // Subscribe — watch both new joins and status updates
     if (lobbySubscription) lobbySubscription.unsubscribe();
     lobbySubscription = sb.channel(`lobby:${gameId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'game_players', filter: `game_id=eq.${gameId}` },
-        async () => {
-          const { data: fresh } = await sb.from('game_players')
-            .select('*,user:users(id,display_name,avatar_emoji)')
-            .eq('game_id', gameId).order('joined_at');
-
-          const hostId = myGames.find(g => g.id === gameId)?.host_id;
-          const newLobby = (fresh||[])
-            .filter(p => p.status === 'joined' || p.status === 'playing' || p.status === 'waiting')
-            .sort((a, b) => {
-              if (a.user_id === hostId) return -1;
-              if (b.user_id === hostId) return 1;
-              return new Date(a.joined_at||0) - new Date(b.joined_at||0);
-            });
-
-          const previousIds = new Set(lobbyPlayers.map(p => p.user_id));
-          lobbyPlayers = newLobby;
-          const invitedPlayers = (fresh||[]).filter(p => p.status === 'invited');
-          renderLobbySeats();
-          renderInvitedList(invitedPlayers);
-
-          const joiner = newLobby.find(p => !previousIds.has(p.user_id) && p.user_id !== me.id);
-          if (joiner) toast(`${joiner.user?.display_name||'Someone'} joined!`);
-        })
+        () => refreshLobbyRoster(gameId))
       .subscribe();
 
     // Also watch for game status change (host started) - guests only
@@ -187,6 +166,8 @@ async function openLobby(gameId) {
       if (alreadyEntered) { clearInterval(_lobbyStatusPoller); return; }
       if (currentLobbyId !== gameId) { clearInterval(_lobbyStatusPoller); return; }
       try {
+        // A join that landed before the subscription was up would otherwise never show
+        refreshLobbyRoster(gameId);
         const { data } = await sb.from('games').select('status, host_id, state').eq('id', gameId).maybeSingle();
         if (!data) {
           // Game might have been deleted — go home
@@ -468,3 +449,32 @@ function copyLobbyLink() {
   navigator.clipboard?.writeText(url).then(() => toast('Link copied!'));
 }
 
+// Re-reads who's in the lobby and redraws the seats (realtime event or poll).
+// Toasts only for someone new, and only redraws when the roster changed.
+let _lobbyRosterSig = '';
+async function refreshLobbyRoster(gameId) {
+  const { data: fresh } = await sb.from('game_players')
+    .select('*,user:users(id,display_name,avatar_emoji)')
+    .eq('game_id', gameId).order('joined_at');
+  if (currentLobbyId !== gameId || !fresh) return;
+  const sig = fresh.map(p => p.user_id + ':' + p.status).join(',');
+  if (sig === _lobbyRosterSig) return;
+  _lobbyRosterSig = sig;
+
+  const hostId = myGames.find(g => g.id === gameId)?.host_id;
+  const newLobby = fresh
+    .filter(p => p.status === 'joined' || p.status === 'playing' || p.status === 'waiting')
+    .sort((a, b) => {
+      if (a.user_id === hostId) return -1;
+      if (b.user_id === hostId) return 1;
+      return new Date(a.joined_at||0) - new Date(b.joined_at||0);
+    });
+
+  const previousIds = new Set(lobbyPlayers.map(p => p.user_id));
+  lobbyPlayers = newLobby;
+  renderLobbySeats();
+  renderInvitedList(fresh.filter(p => p.status === 'invited'));
+
+  const joiner = newLobby.find(p => !previousIds.has(p.user_id) && p.user_id !== me.id);
+  if (joiner) toast(`${joiner.user?.display_name||'Someone'} joined!`);
+}
