@@ -14,6 +14,7 @@ export const APP_URL = 'http://felt-right.test/Felt-Right/';
 const SUPABASE_URL = process.env.SUPABASE_URL || 'http://127.0.0.1:55321';
 const ANON_KEY = process.env.SUPABASE_ANON_KEY;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+export const SERVER_RULES = process.env.E2E_SERVER_RULES === '1';
 
 if (!ANON_KEY) throw new Error('SUPABASE_ANON_KEY is not set (run: supabase status -o env)');
 
@@ -29,7 +30,9 @@ const indexPath = fileURLToPath(new URL('../../index.html', import.meta.url));
 function appHtml() {
   return readFileSync(indexPath, 'utf8')
     .replace(/const SUPABASE_URL\s*=\s*'[^']*'/, `const SUPABASE_URL = '${SUPABASE_URL}'`)
-    .replace(/const SUPABASE_ANON_KEY\s*=\s*'[^']*'/, `const SUPABASE_ANON_KEY = '${ANON_KEY}'`);
+    .replace(/const SUPABASE_ANON_KEY\s*=\s*'[^']*'/, `const SUPABASE_ANON_KEY = '${ANON_KEY}'`)
+    // E2E_SERVER_RULES=1: games are run by the `table` Edge Function
+    .replace(/const SERVER_RULES = false;/, `const SERVER_RULES = ${SERVER_RULES};`);
 }
 
 /** Taps Quit on this player's screen (the confirm prompt is accepted). */
@@ -136,7 +139,9 @@ export async function makeFriends(requester, addressee) {
 /** Snapshot of the table as one player's screen sees it. */
 export function tableView(p) {
   if (!p.page) return Promise.resolve(null);
-  return p.page.evaluate(() => (typeof G === 'undefined' || !G ? null : {
+  return p.page.evaluate(() => (typeof G === 'undefined' || !G ? null : !Array.isArray(G.players) ? (() => {
+    throw new Error(`G has no players: ${JSON.stringify(G).slice(0, 400)} screen=${document.querySelector('.screen.active')?.id}`);
+  })() : {
     hand: G.handNumber,
     stage: G.stage,
     variant: G.variant,
@@ -395,8 +400,11 @@ export const cards = (str) => str.trim().split(/\s+/).map((t) => {
 });
 
 /** Queue a rigged deal on the host's screen (see applyRiggedHand in 16-deal.js). */
-export function rigNextHand(host, rig) {
-  return host.page.evaluate((r) => { (window.__feltRightRiggedHands ||= []).push(r); }, rig);
+export async function rigNextHand(host, rig) {
+  // Phone-run game: queued on the host's screen. Server-run game: sent to the
+  // server (before the start, the host's Start sends the queue along).
+  const r = await host.page.evaluate((x) => queueRiggedDeal(x), rig);
+  if (r?.error) throw new Error(`rig failed: ${r.error}`);
 }
 
 /** Service-role REST query against the local stack (bypasses RLS). */
@@ -407,4 +415,17 @@ export async function adminSelect(table, query) {
   });
   if (!res.ok) throw new Error(`${table}: ${res.status} ${await res.text()}`);
   return res.json();
+}
+
+/** Taps Record to Friends Ledger (the results screen can redraw mid-tap; retry). */
+export async function tapRecordLedger(p) {
+  await expect(async () => {
+    const btn = p.page.locator('#record-ledger-btn');
+    if (!(await btn.count())) {
+      if (await p.page.locator('#tourney-overlay').getByText('Recorded to ledger').count()) return;
+      throw new Error('Record to Friends Ledger button not shown yet');
+    }
+    await btn.scrollIntoViewIfNeeded({ timeout: 2_000 });
+    await btn.click({ timeout: 2_000 });
+  }).toPass({ timeout: 15_000 });
 }

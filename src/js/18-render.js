@@ -59,7 +59,7 @@ function renderGame() {
   // Show/hide host End Home Game button (host only, home game format only)
   const endBtn = document.getElementById('host-endgame-btn');
   if (endBtn) {
-    endBtn.style.display = (amHost && !G?.paused && !G?.tournamentOver && getFormatConfig().moneyMode) ? 'inline-block' : 'none';
+    endBtn.style.display = (isTableHost() && !G?.paused && !G?.tournamentOver && getFormatConfig().moneyMode) ? 'inline-block' : 'none';
   }
 
   // History button is available to all players in home games

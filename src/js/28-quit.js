@@ -50,7 +50,7 @@ async function quitGame() {
       }
     } else if (sb && currentGameId) {
       try {
-        await sb.from('player_actions').insert({
+        await postAction({
           game_id: currentGameId,
           player_id: me.id,
           action: 'step_away',
@@ -88,7 +88,7 @@ async function quitGame() {
       }
     } else if (sb && currentGameId) {
       try {
-        await sb.from('player_actions').insert({
+        await postAction({
           game_id: currentGameId,
           player_id: me.id,
           action: 'sit_out',
@@ -128,7 +128,7 @@ async function quitGame() {
     }
   } else if (sb && currentGameId) {
     try {
-      await sb.from('player_actions').insert({
+      await postAction({
         game_id: currentGameId,
         player_id: me.id,
         action: 'quit_cashout',

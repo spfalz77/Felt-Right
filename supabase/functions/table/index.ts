@@ -74,7 +74,7 @@ Deno.serve(async (req) => {
         const r = T.applyAction(G, userId, action, amount, ctx);
         if (!r.ok) return json({ error: r.error }, 409);
       }
-      if (!changed) return json({ ok: true, changed: false, version: row.version });
+      if (!changed) return json({ ok: true, changed: false, version: row.version, now: ctx.now });
 
       const { data: saved, error: saveErr } = await admin.rpc("save_table", {
         p_game_id: game_id,
@@ -90,7 +90,8 @@ Deno.serve(async (req) => {
         const { error } = await admin.rpc("settle_home_game_ledger", { p_game_id: game_id });
         if (error) console.error("settle_home_game_ledger", error);
       }
-      return json({ ok: true, changed: true, version: row.version + 1 });
+      // `now` (server clock) lets phones judge deadlines on the server's time
+      return json({ ok: true, changed: true, version: row.version + 1, now: ctx.now });
     }
     return json({ error: "busy, try again" }, 503);
   } catch (e) {
@@ -104,17 +105,17 @@ function inGame(G: { players: { id: string }[] }, game: { host_id: string }, use
 }
 
 // Host starts the game from the lobby: seat everyone who joined, shuffle seats.
-// settings (optional, from the host's lobby screen): { levels, duration, rebuys, buyIn }
+// settings (optional, from the host's lobby screen): { levels, duration, rebuys, buyIn, rigs? }
 async function start(
   game: { id: string; host_id: string; status: string; blind_config: Record<string, unknown> | null; buy_in_amount: number | null; game_format: string; game_variant: string },
   userId: string,
-  settings?: { levels?: unknown; duration?: unknown; rebuys?: unknown; buyIn?: unknown },
+  settings?: { levels?: unknown; duration?: unknown; rebuys?: unknown; buyIn?: unknown; rigs?: unknown },
 ) {
   if (game.host_id !== userId) return json({ error: "only the host can start the game" }, 403);
   if (game.status !== "lobby") return json({ error: "game already started" }, 409);
   const { data: seats } = await admin.from("game_players")
     .select("user_id, seat_index, joined_at, user:users(display_name, avatar_emoji)")
-    .eq("game_id", game.id).eq("status", "joined").order("seat_index").order("joined_at");
+    .eq("game_id", game.id).in("status", ["joined", "playing", "waiting"]).order("seat_index").order("joined_at");
   if (!seats || seats.length < 2) return json({ error: `need at least 2 players, only ${seats?.length ?? 0} joined` }, 409);
 
   const cfg = game.blind_config || {};
@@ -132,14 +133,18 @@ async function start(
     rebuysEnabled: !!rebuys, blindLevels: levels, blindDuration: duration, buyIn,
   }, ctx);
 
-  await admin.from("games").update({
-    blind_config: { levels: G.blindLevels, duration: G.blindDuration, rebuys_enabled: G.rebuysEnabled },
-    buy_in_amount: buyIn,
-  }).eq("id", game.id);
+  // Test stack only: scripted deals queued in the lobby, before the game existed
+  if (TEST_HOOKS && Array.isArray(settings?.rigs)) for (const r of settings!.rigs) T.queueRig(G, r, ctx);
+
   const { data: saved, error } = await admin.rpc("save_table", {
     p_game_id: game.id, p_expect_version: null, p_state: G, p_public: T.redact(G), p_hands: null,
   });
   if (error) throw error;
   if (!saved) return json({ error: "game already started" }, 409);
-  return json({ ok: true, changed: true, version: 1 });
+  // After the game exists (an earlier update would reach phones with an empty state)
+  await admin.from("games").update({
+    blind_config: { levels: G.blindLevels, duration: G.blindDuration, rebuys_enabled: G.rebuysEnabled },
+    buy_in_amount: buyIn,
+  }).eq("id", game.id);
+  return json({ ok: true, changed: true, version: 1, now: ctx.now });
 }

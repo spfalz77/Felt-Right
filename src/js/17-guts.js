@@ -139,7 +139,7 @@ function gutsDecide(choice) {
   } else {
     // Guest: submit via player_actions. action='guts_in' or 'guts_out'
     if (sb && currentGameId) {
-      sb.from('player_actions').insert({
+      postAction({
         game_id: currentGameId,
         player_id: me.id,
         action: choice === 'in' ? 'guts_in' : 'guts_out',

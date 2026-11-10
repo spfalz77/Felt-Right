@@ -261,6 +261,8 @@ function enterGame(gameId, state) {
   currentGameId = gameId;
   currentLobbyId = null; // critical: stop the lobby poller from re-firing
   G = JSON.parse(JSON.stringify(state));
+  const serverRun = isServerState(G);
+  if (serverRun) enterServerGame(gameId); // every phone follows the guest path
 
   // Close chat panel if open (so the guest isn't stuck on chat when the host starts the game)
   const chatPanel = document.getElementById('chat-panel');
@@ -298,7 +300,8 @@ function enterGame(gameId, state) {
     }
   } else {
     guestSubscribeToGame(gameId);
-    startDisconnectWatcher(gameId);
+    if (!serverRun) startDisconnectWatcher(gameId); // nobody to take over from in a server game
+    if (serverRun && G.handNumber > 0) fetchMyPrivateHand(gameId, G.handNumber).then(() => { applyMyPrivateHand(); renderGame(); });
     renderGame();
   }
 }
@@ -636,7 +639,7 @@ async function nudgePlayer(targetId, targetName) {
   toast(`Nudged ${targetName}`);
 
   try {
-    await sb.from('player_actions').insert({
+    await postAction({
       game_id: gameId,
       player_id: me.id,
       action: 'nudge',
@@ -829,7 +832,7 @@ function guestSubscribeToGame(gameId) {
     }
     try {
       const { data } = await sb.from('games').select('state, host_id').eq('id', currentGameId).maybeSingle();
-      if (!data?.state) return;
+      if (!data?.state || !Array.isArray(data.state.players)) return;
       const srvHand = data.state.handNumber || 0;
       const myHand = G?.handNumber || 0;
       const srvStage = data.state.stage;
@@ -837,7 +840,10 @@ function guestSubscribeToGame(gameId) {
       const srvPot = data.state.pot || 0;
       const myPot = G?.pot || 0;
       // Apply if anything material changed
-      if (srvHand !== myHand || srvStage !== myStage || srvPot !== myPot) {
+      const turnMoved = (data.state.actionIndex ?? -1) !== (G?.actionIndex ?? -1)
+        || !!data.state.pendingDealerChoice !== !!G?.pendingDealerChoice
+        || !!data.state.tournamentOver !== !!G?.tournamentOver;
+      if (srvHand !== myHand || srvStage !== myStage || srvPot !== myPot || turnMoved) {
         G = data.state;
         applyMyPrivateHand();
         renderGame();
@@ -860,7 +866,8 @@ function guestSubscribeToGame(gameId) {
       filter: `id=eq.${gameId}`,
     }, payload => {
       const row = payload.new;
-      if (!row.state) return;
+      // Ignore updates without a table (e.g. settings saved before the first deal)
+      if (!row.state || !Array.isArray(row.state.players)) return;
 
       const prevHandNumber = G?.handNumber || 0;
       const prevActionIndex = G?.actionIndex;
@@ -869,7 +876,9 @@ function guestSubscribeToGame(gameId) {
 
       // Host changed (migration happened) — update our role accordingly
       let justPromoted = false;
-      if (row.host_id && row.host_id !== me.id && amHost) {
+      if (isServerState(row.state)) {
+        gameHostId = row.host_id; // a server game has no table host to migrate
+      } else if (row.host_id && row.host_id !== me.id && amHost) {
         // I used to be host but am not anymore — downgrade to guest cleanly
         amHost = false;
         stopHostHeartbeat();
@@ -1111,7 +1120,7 @@ function guestSubscribeToGame(gameId) {
 async function submitAction(action, amount) {
   if (!sb || !currentGameId || amHost || me.id === 'demo') return;
   try {
-    await sb.from('player_actions').insert({
+    await postAction({
       game_id: currentGameId,
       player_id: me.id,
       action,

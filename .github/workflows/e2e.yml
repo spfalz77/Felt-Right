@@ -54,6 +54,66 @@ jobs:
         if: always()
         run: tail -n 150 /tmp/functions.log || true
 
+  # The same phone tests with games run by the `table` Edge Function
+  # (SERVER_RULES on). Grows phase by phase until it covers the whole suite.
+  e2e-server-rules:
+    name: e2e on server rules
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Start local Supabase (applies supabase/migrations)
+        run: |
+          EXCLUDE=studio,imgproxy,logflare,vector,supavisor,storage-api,postgres-meta
+          supabase start -x "$EXCLUDE" || { supabase stop --no-backup || true; sleep 10; supabase start -x "$EXCLUDE"; }
+      - name: Serve the table function with test hooks on
+        run: |
+          echo "ALLOW_TEST_HOOKS=1" > /tmp/functions.env
+          nohup supabase functions serve --env-file /tmp/functions.env > /tmp/functions.log 2>&1 &
+      - name: Install test dependencies
+        run: npm ci
+      - name: Cache Playwright browsers
+        id: pw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: pw-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - name: Install WebKit
+        run: |
+          if [ "${{ steps.pw-cache.outputs.cache-hit }}" = "true" ]; then
+            npx playwright install-deps webkit
+          else
+            npx playwright install --with-deps webkit
+          fi
+      - name: Build app
+        run: npm run build
+      - name: Run phone tests on server rules
+        env:
+          REPEAT: ${{ github.event.inputs.repeat || '1' }}
+        run: |
+          eval "$(supabase status -o env | sed 's/^/export /')"
+          SUPABASE_URL="$API_URL" SUPABASE_ANON_KEY="$ANON_KEY" SUPABASE_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY" \
+          E2E_SERVER_RULES=1 npx playwright test home-game side-pots tournament.spec quit rebuys --repeat-each "${REPEAT:-1}"
+      - name: Function logs
+        if: always()
+        run: tail -n 200 /tmp/functions.log || true
+      - name: Upload report, videos and traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-server-rules-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+
   e2e:
     # Three machines in parallel, each with its own local Supabase, each running
     # a third of the tests (about 4 minutes instead of 11)

@@ -439,7 +439,7 @@ function showMyFoldedCards() {
     syncGameState();
   } else if (sb && currentGameId) {
     // Guest: submit special reveal action so host picks it up
-    sb.from('player_actions').insert({
+    postAction({
       game_id: currentGameId,
       player_id: me.id,
       action: 'reveal',
@@ -518,7 +518,7 @@ function muckFoldWin() {
       syncGameState();
     } else if (sb && currentGameId && me.id !== 'demo') {
       // Guest winner: tell host via action so they can mark it in state
-      sb.from('player_actions').insert({
+      postAction({
         game_id: currentGameId,
         player_id: me.id,
         action: 'muck',
@@ -551,7 +551,7 @@ function showSelectedCards() {
     renderGame();
     syncGameState();
   } else if (sb && currentGameId && me.id !== 'demo') {
-    sb.from('player_actions').insert({
+    postAction({
       game_id: currentGameId,
       player_id: me.id,
       action: 'reveal',

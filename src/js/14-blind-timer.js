@@ -16,6 +16,7 @@ function startBlindTimer() {
   }
   _currentBlindLevel = 0;
   _blindLevelStartTime = Date.now();
+  syncBlindClockFromServer();
   updateBlindTimerDisplay();
   _blindTimerInterval = setInterval(tickBlindTimer, 1000);
 }
@@ -27,6 +28,8 @@ function stopBlindTimer() {
 
 function tickBlindTimer() {
   if (!G) { stopBlindTimer(); return; }
+  // Server game: the server keeps the blind clock; just show it
+  if (syncBlindClockFromServer()) { updateBlindTimerDisplay(); return; }
   if (G.paused) return;
   if (G.breakActive) return;
   if (isAnyRebuyPending()) {
@@ -175,7 +178,7 @@ function markReadyForBreakEnd() {
   if (amHost || me.id === 'demo') {
     applyBreakReady(me.id);
   } else if (sb && currentGameId) {
-    sb.from('player_actions').insert({
+    postAction({
       game_id: currentGameId,
       player_id: me.id,
       action: 'break_ready',
@@ -247,7 +250,7 @@ function requestAddOn() {
   if (amHost || me.id === 'demo') {
     applyAddOn(me.id, addOnChips, addOnCostCents);
   } else if (sb && currentGameId) {
-    sb.from('player_actions').insert({
+    postAction({
       game_id: currentGameId,
       player_id: me.id,
       action: 'add_on',

@@ -6,7 +6,7 @@
 //     the ledger must count Cy's re-buy: Ace +$50, Bo −$20, Cy −$30.
 
 import { test, expect, devices } from '@playwright/test';
-import { setupHomeGame, runTable, cashOutAndCheckLedger, expectNoPageErrors, adminSelect, tableView, cards, rigNextHand, chipsOnTable } from './helpers.mjs';
+import { setupHomeGame, runTable, cashOutAndCheckLedger, expectNoPageErrors, adminSelect, tableView, cards, rigNextHand, chipsOnTable, tapRecordLedger } from './helpers.mjs';
 
 const PHONES = [devices['iPhone 13'], devices['Pixel 7'], devices['iPhone SE']];
 const BOARD = cards('2c 7d 9h 3s 4d');
@@ -139,9 +139,7 @@ test('tournament with re-buys: prize pool and ledger include the re-buy', async 
       await expect(rows.nth(2)).toContainText('Lux');
     }
     for (const p of all) {
-      const btn = p.page.locator('#record-ledger-btn');
-      await btn.scrollIntoViewIfNeeded();
-      await btn.click();
+      await tapRecordLedger(p);
       await expect(p.page.locator('#tourney-overlay .tourney-result')).toContainText('Recorded to ledger', { timeout: 10_000 });
     }
     const rows = await adminSelect('payout_ledger', `game_id=eq.${gameId}&select=user_id,opponent_id,amount`);

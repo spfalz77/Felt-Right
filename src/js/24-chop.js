@@ -56,7 +56,7 @@ function acceptChop() {
   if (!amHost && me.id !== 'demo') {
     // Guest accepts — submit, host finalizes
     if (sb && currentGameId) {
-      sb.from('player_actions').insert({
+      postAction({
         game_id: currentGameId,
         player_id: me.id,
         action: 'chop_accept',
@@ -109,7 +109,7 @@ function declineChop() {
   if (!amHost && me.id !== 'demo') {
     // Guest declines - submit, host clears
     if (sb && currentGameId) {
-      sb.from('player_actions').insert({
+      postAction({
         game_id: currentGameId,
         player_id: me.id,
         action: 'chop_decline',
@@ -133,7 +133,7 @@ function declineChop() {
 function cancelChopOffer() {
   if (!amHost && me.id !== 'demo') {
     if (sb && currentGameId) {
-      sb.from('player_actions').insert({
+      postAction({
         game_id: currentGameId,
         player_id: me.id,
         action: 'chop_cancel',
