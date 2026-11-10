@@ -1,18 +1,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 // BLIND STRUCTURE EDITOR
 // ════════════════════════════════════════════════════════════════════════════
-const DEFAULT_BLIND_LEVELS = [
-  {level:1,  small:10,  big:20  },
-  {level:2,  small:15,  big:30  },
-  {level:3,  small:25,  big:50  },
-  {level:4,  small:50,  big:100 },
-  {level:5,  small:75,  big:150 },
-  {level:6,  small:100, big:200 },
-  {level:7,  small:150, big:300 },
-  {level:8,  small:200, big:400 },
-  {level:9,  small:300, big:600 },
-  {level:10, small:500, big:1000},
-];
+// DEFAULT_BLIND_LEVELS comes from the shared engine (config.js)
 
 function renderBlindEditor() {
   const tbody = document.getElementById('blind-editor-body');

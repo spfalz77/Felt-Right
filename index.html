@@ -1244,208 +1244,16 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 // ════════════════════════════════════════════════════════════════════════════
 // GAME ENGINE
 // ════════════════════════════════════════════════════════════════════════════
+// The pure rules live in supabase/functions/_shared/engine/ so the server runs
+// the same code. They're inlined here at build time.
+// Cards, deck and hand evaluation (Hold'em, Omaha, 3-card Guts).
+// Shared by the browser app (inlined by scripts/build.mjs, which strips the
+// import/export keywords) and the server (supabase/functions/table).
+// Pure functions only: no DOM, no globals.
+
 const SUITS     = ['♠','♥','♦','♣'];
 const RANKS     = ['2','3','4','5','6','7','8','9','10','J','Q','K','A'];
 const RANK_VAL  = {2:2,3:3,4:4,5:5,6:6,7:7,8:8,9:9,10:10,J:11,Q:12,K:13,A:14};
-const STARTING_CHIPS   = 1500;
-const DEFAULT_BLIND_DURATION = 10 * 60; // 10 minutes per level default
-
-// Mutable — can be edited in lobby before game starts
-let BLIND_LEVELS = [
-  {level:1,  small:10,  big:20  },
-  {level:2,  small:15,  big:30  },
-  {level:3,  small:25,  big:50  },
-  {level:4,  small:50,  big:100 },
-  {level:5,  small:75,  big:150 },
-  {level:6,  small:100, big:200 },
-  {level:7,  small:150, big:300 },
-  {level:8,  small:200, big:400 },
-  {level:9,  small:300, big:600 },
-  {level:10, small:500, big:1000},
-];
-let blindDurationSeconds = DEFAULT_BLIND_DURATION;
-let gameBuyIn = 20; // Default $20 buy-in
-let gameFormat = 'tournament'; // 'tournament' | 'home'
-let gameVariant = 'holdem';    // for tournament: 'holdem' | 'omaha'
-
-// Home games play in CENTS (not chips). Stack of $20 = 2000¢.
-// Default home-game blinds: $0.05 / $0.10 (5¢ / 10¢ in our integer units)
-const HOME_GAME_BLINDS = { small: 5, big: 10 };
-// Chip denominations in cents. UI can show stack as combinations of these,
-// but the engine just uses integer cents internally.
-const HOME_CHIP_DENOMS = [5, 10, 25, 100]; // 5¢, 10¢, 25¢, $1
-// In a home game, blinds don't escalate (cash game), so use a single fixed level.
-const HOME_BLIND_LEVELS = [{ level: 1, small: HOME_GAME_BLINDS.small, big: HOME_GAME_BLINDS.big }];
-
-// Format configuration table — single source of truth for format-level rules.
-const FORMATS = {
-  tournament: {
-    name: 'Tournament',
-    startingChips: 1500,
-    blindsEscalate: true,
-    chopAllowed: true,
-    dealerChoiceVariant: false,
-    moneyMode: false, // chips are abstract
-  },
-  home: {
-    name: 'Home Game',
-    startingChips: 2000, // $20 = 2000¢ at 1¢ resolution (matches buy-in default)
-    blindsEscalate: false,
-    chopAllowed: false,
-    dealerChoiceVariant: true,
-    moneyMode: true, // chips represent cents
-  },
-};
-
-function getFormatConfig() {
-  return FORMATS[G?.format || gameFormat] || FORMATS.tournament;
-}
-
-// Format a chip count for display. In tournament mode, returns "1,500".
-// In home (money) mode, returns "$20.00" (chips represent cents).
-function formatChips(chipCount) {
-  if (chipCount == null) return '—';
-  if (getFormatConfig().moneyMode) {
-    // Chip count is in cents. Render as dollars with 2 decimals.
-    const dollars = chipCount / 100;
-    if (Math.abs(dollars) >= 10) return '$' + dollars.toFixed(2);
-    return '$' + dollars.toFixed(2);
-  }
-  return chipCount.toLocaleString();
-}
-
-// Compact version for tiny labels (opponent badges). Drops zero-cent decimals.
-function formatChipsCompact(chipCount) {
-  if (chipCount == null) return '—';
-  if (getFormatConfig().moneyMode) {
-    const dollars = chipCount / 100;
-    // Show cents if non-zero, else just $X
-    if (chipCount % 100 === 0) return '$' + Math.floor(dollars);
-    return '$' + dollars.toFixed(2);
-  }
-  return chipCount.toLocaleString();
-}
-
-// Variant configuration table — single source of truth for cards-per-hand etc.
-const VARIANTS = {
-  holdem: {
-    name: "Texas Hold'em",
-    short: 'HOLDEM',
-    holeCards: 2,
-    description: '2 hole cards · best 5 of 7',
-    style: 'community',     // engine flow style
-    homeOnly: false,
-  },
-  omaha: {
-    name: 'Omaha',
-    short: 'OMAHA',
-    holeCards: 4,
-    description: '4 hole cards · must use exactly 2',
-    style: 'community',
-    homeOnly: false,
-  },
-  guts3: {
-    name: '3-Card Guts',
-    short: 'GUTS',
-    holeCards: 3,
-    description: '3 cards · in/out · match full pot',
-    style: 'guts',
-    homeOnly: true,
-    // ante and re-deal ante always equal the BB (resolved at runtime via getBlinds())
-    decisionTimerSec: 20,
-    matchPotFraction: 1.0,
-  },
-};
-
-function getVariantConfig() {
-  return VARIANTS[G?.variant || gameVariant] || VARIANTS.holdem;
-}
-
-// ── PAYOUT CALCULATION ──
-// Round up to nearest $10
-function roundUpTo10(amount) {
-  return Math.ceil(amount / 10) * 10;
-}
-
-// Compute how the prize pool is distributed.
-// Returns array of { placement: 1|2|3, amount: $ } or for chops, equal splits.
-function computePayouts(buyIn, totalPlayers, isChop, actualPoolOverride) {
-  // pool = sum of all dollars contributed (buy-ins + rebuys + add-ons).
-  // For tournaments without rebuys, this equals buyIn × totalPlayers.
-  // For tournaments WITH rebuys, the caller passes the actual pool computed
-  // from sum of player totalBuyInCents.
-  const pool = actualPoolOverride != null ? actualPoolOverride : (buyIn || 0) * (totalPlayers || 0);
-  if (pool <= 0) return [];
-
-  // For 7+ players, 3rd still gets buy-in back even if a chop happens
-  const thirdGetsPayout = totalPlayers >= 7;
-  const thirdShare = thirdGetsPayout ? buyIn : 0;
-  const topTwoPool = pool - thirdShare;
-
-  if (isChop) {
-    const half = topTwoPool / 2;
-    const result = [
-      { placement: 1, amount: half, label: 'Chop' },
-      { placement: 2, amount: half, label: 'Chop' },
-    ];
-    if (thirdGetsPayout) result.push({ placement: 3, amount: thirdShare });
-    return result;
-  }
-
-  if (totalPlayers <= 4) {
-    return [{ placement: 1, amount: pool }];
-  }
-
-  if (totalPlayers <= 6) {
-    const winnerShare = roundUpTo10(pool * 0.75);
-    const secondShare = pool - winnerShare;
-    return [
-      { placement: 1, amount: winnerShare },
-      { placement: 2, amount: secondShare },
-    ];
-  }
-
-  const winnerShare = roundUpTo10(topTwoPool * 0.75);
-  const secondShare = topTwoPool - winnerShare;
-  return [
-    { placement: 1, amount: winnerShare },
-    { placement: 2, amount: secondShare },
-    { placement: 3, amount: thirdShare },
-  ];
-}
-
-// Helper: compute the actual prize pool from G state (sums all rebuy/add-on contributions).
-// Returns dollars (not cents).
-// What a player has paid in, in cents: their buy-in plus any re-buys/add-ons.
-// Tournament players start with totalBuyInCents = 0 (it only gets set by a
-// re-buy), so fall back to the game's buy-in.
-function buyInCentsOf(p) {
-  const base = (typeof gameBuyIn !== 'undefined' ? gameBuyIn : 0) || 0;
-  return p.totalBuyInCents || base * 100;
-}
-
-function actualPrizePool() {
-  if (!G || !G.players) return 0;
-  // Was: sum of totalBuyInCents only, so a tournament pool with one $10
-  // re-buy came out as $30 instead of $70.
-  const totalCents = G.players.reduce((sum, p) => sum + buyInCentsOf(p), 0);
-  return totalCents / 100;
-}
-
-function getBlinds(levelIndex) {
-  if (levelIndex < BLIND_LEVELS.length) {
-    return BLIND_LEVELS[levelIndex];
-  }
-  // Beyond the defined structure: keep doubling from the last level
-  const last = BLIND_LEVELS[BLIND_LEVELS.length - 1];
-  const doublings = levelIndex - (BLIND_LEVELS.length - 1);
-  const factor = Math.pow(2, doublings);
-  return {
-    level: levelIndex + 1,
-    small: last.small * factor,
-    big:   last.big   * factor,
-  };
-}
 
 function makeDeck() {
   const d = [];
@@ -1626,7 +1434,211 @@ function evalBest3Card(hole) {
   // High card
   return { rank: 1, name: `${rankWord(sortedVals[0])} high`, tieVals: sortedVals, usedHoleIdx: [0,1,2] };
 }
+// Formats, variants and blind structures.
+// Shared by the browser app (inlined by scripts/build.mjs, which strips the
+// import/export keywords) and the server (supabase/functions/table).
+// Pure functions only: no DOM, no globals.
 
+const STARTING_CHIPS   = 1500;
+const DEFAULT_BLIND_DURATION = 10 * 60; // 10 minutes per level default
+
+// Default tournament blind structure (the lobby can edit a copy before the game starts)
+const DEFAULT_BLIND_LEVELS = [
+  {level:1,  small:10,  big:20  },
+  {level:2,  small:15,  big:30  },
+  {level:3,  small:25,  big:50  },
+  {level:4,  small:50,  big:100 },
+  {level:5,  small:75,  big:150 },
+  {level:6,  small:100, big:200 },
+  {level:7,  small:150, big:300 },
+  {level:8,  small:200, big:400 },
+  {level:9,  small:300, big:600 },
+  {level:10, small:500, big:1000},
+];
+
+// Home games play in CENTS (not chips). Stack of $20 = 2000¢.
+// Default home-game blinds: $0.05 / $0.10 (5¢ / 10¢ in our integer units)
+const HOME_GAME_BLINDS = { small: 5, big: 10 };
+// Chip denominations in cents. UI can show stack as combinations of these,
+// but the engine just uses integer cents internally.
+const HOME_CHIP_DENOMS = [5, 10, 25, 100]; // 5¢, 10¢, 25¢, $1
+// In a home game, blinds don't escalate (cash game), so use a single fixed level.
+const HOME_BLIND_LEVELS = [{ level: 1, small: HOME_GAME_BLINDS.small, big: HOME_GAME_BLINDS.big }];
+// Format configuration table — single source of truth for format-level rules.
+const FORMATS = {
+  tournament: {
+    name: 'Tournament',
+    startingChips: 1500,
+    blindsEscalate: true,
+    chopAllowed: true,
+    dealerChoiceVariant: false,
+    moneyMode: false, // chips are abstract
+  },
+  home: {
+    name: 'Home Game',
+    startingChips: 2000, // $20 = 2000¢ at 1¢ resolution (matches buy-in default)
+    blindsEscalate: false,
+    chopAllowed: false,
+    dealerChoiceVariant: true,
+    moneyMode: true, // chips represent cents
+  },
+};
+// Variant configuration table — single source of truth for cards-per-hand etc.
+const VARIANTS = {
+  holdem: {
+    name: "Texas Hold'em",
+    short: 'HOLDEM',
+    holeCards: 2,
+    description: '2 hole cards · best 5 of 7',
+    style: 'community',     // engine flow style
+    homeOnly: false,
+  },
+  omaha: {
+    name: 'Omaha',
+    short: 'OMAHA',
+    holeCards: 4,
+    description: '4 hole cards · must use exactly 2',
+    style: 'community',
+    homeOnly: false,
+  },
+  guts3: {
+    name: '3-Card Guts',
+    short: 'GUTS',
+    holeCards: 3,
+    description: '3 cards · in/out · match full pot',
+    style: 'guts',
+    homeOnly: true,
+    // ante and re-deal ante always equal the BB (resolved at runtime via getBlinds())
+    decisionTimerSec: 20,
+    matchPotFraction: 1.0,
+  },
+};
+
+// Blinds for a level index, from a blind structure. Beyond the defined
+// structure, keep doubling from the last level.
+function blindsAt(levels, levelIndex) {
+  if (levelIndex < levels.length) return levels[levelIndex];
+  const last = levels[levels.length - 1];
+  const factor = Math.pow(2, levelIndex - (levels.length - 1));
+  return { level: levelIndex + 1, small: last.small * factor, big: last.big * factor };
+}
+// Tournament prize-pool split.
+// Shared by the browser app (inlined by scripts/build.mjs, which strips the
+// import/export keywords) and the server (supabase/functions/table).
+// Pure functions only: no DOM, no globals.
+
+// ── PAYOUT CALCULATION ──
+// Round up to nearest $10
+function roundUpTo10(amount) {
+  return Math.ceil(amount / 10) * 10;
+}
+
+// Compute how the prize pool is distributed.
+// Returns array of { placement: 1|2|3, amount: $ } or for chops, equal splits.
+function computePayouts(buyIn, totalPlayers, isChop, actualPoolOverride) {
+  // pool = sum of all dollars contributed (buy-ins + rebuys + add-ons).
+  // For tournaments without rebuys, this equals buyIn × totalPlayers.
+  // For tournaments WITH rebuys, the caller passes the actual pool computed
+  // from sum of player totalBuyInCents.
+  const pool = actualPoolOverride != null ? actualPoolOverride : (buyIn || 0) * (totalPlayers || 0);
+  if (pool <= 0) return [];
+
+  // For 7+ players, 3rd still gets buy-in back even if a chop happens
+  const thirdGetsPayout = totalPlayers >= 7;
+  const thirdShare = thirdGetsPayout ? buyIn : 0;
+  const topTwoPool = pool - thirdShare;
+
+  if (isChop) {
+    const half = topTwoPool / 2;
+    const result = [
+      { placement: 1, amount: half, label: 'Chop' },
+      { placement: 2, amount: half, label: 'Chop' },
+    ];
+    if (thirdGetsPayout) result.push({ placement: 3, amount: thirdShare });
+    return result;
+  }
+
+  if (totalPlayers <= 4) {
+    return [{ placement: 1, amount: pool }];
+  }
+
+  if (totalPlayers <= 6) {
+    const winnerShare = roundUpTo10(pool * 0.75);
+    const secondShare = pool - winnerShare;
+    return [
+      { placement: 1, amount: winnerShare },
+      { placement: 2, amount: secondShare },
+    ];
+  }
+
+  const winnerShare = roundUpTo10(topTwoPool * 0.75);
+  const secondShare = topTwoPool - winnerShare;
+  return [
+    { placement: 1, amount: winnerShare },
+    { placement: 2, amount: secondShare },
+    { placement: 3, amount: thirdShare },
+  ];
+}
+
+// Helper: compute the actual prize pool from G state (sums all rebuy/add-on contributions).
+// Returns dollars (not cents).
+
+// Mutable — can be edited in lobby before game starts
+let BLIND_LEVELS = DEFAULT_BLIND_LEVELS.map(l => ({ ...l }));
+let blindDurationSeconds = DEFAULT_BLIND_DURATION;
+let gameBuyIn = 20; // Default $20 buy-in
+let gameFormat = 'tournament'; // 'tournament' | 'home'
+let gameVariant = 'holdem';    // for tournament: 'holdem' | 'omaha'
+
+function getFormatConfig() {
+  return FORMATS[G?.format || gameFormat] || FORMATS.tournament;
+}
+
+// Format a chip count for display. In tournament mode, returns "1,500".
+// In home (money) mode, returns "$20.00" (chips represent cents).
+function formatChips(chipCount) {
+  if (chipCount == null) return '—';
+  if (getFormatConfig().moneyMode) {
+    // Chip count is in cents. Render as dollars with 2 decimals.
+    const dollars = chipCount / 100;
+    if (Math.abs(dollars) >= 10) return '$' + dollars.toFixed(2);
+    return '$' + dollars.toFixed(2);
+  }
+  return chipCount.toLocaleString();
+}
+
+// Compact version for tiny labels (opponent badges). Drops zero-cent decimals.
+function formatChipsCompact(chipCount) {
+  if (chipCount == null) return '—';
+  if (getFormatConfig().moneyMode) {
+    const dollars = chipCount / 100;
+    // Show cents if non-zero, else just $X
+    if (chipCount % 100 === 0) return '$' + Math.floor(dollars);
+    return '$' + dollars.toFixed(2);
+  }
+  return chipCount.toLocaleString();
+}
+function getVariantConfig() {
+  return VARIANTS[G?.variant || gameVariant] || VARIANTS.holdem;
+}
+// What a player has paid in, in cents: their buy-in plus any re-buys/add-ons.
+// Tournament players start with totalBuyInCents = 0 (it only gets set by a
+// re-buy), so fall back to the game's buy-in.
+function buyInCentsOf(p) {
+  const base = (typeof gameBuyIn !== 'undefined' ? gameBuyIn : 0) || 0;
+  return p.totalBuyInCents || base * 100;
+}
+
+function actualPrizePool() {
+  if (!G || !G.players) return 0;
+  // Was: sum of totalBuyInCents only, so a tournament pool with one $10
+  // re-buy came out as $30 instead of $70.
+  const totalCents = G.players.reduce((sum, p) => sum + buyInCentsOf(p), 0);
+  return totalCents / 100;
+}
+function getBlinds(levelIndex) {
+  return blindsAt(BLIND_LEVELS, levelIndex);
+}
 // ════════════════════════════════════════════════════════════════════════════
 // APP STATE
 // ════════════════════════════════════════════════════════════════════════════
@@ -3221,18 +3233,7 @@ function startGame() {
 // ════════════════════════════════════════════════════════════════════════════
 // BLIND STRUCTURE EDITOR
 // ════════════════════════════════════════════════════════════════════════════
-const DEFAULT_BLIND_LEVELS = [
-  {level:1,  small:10,  big:20  },
-  {level:2,  small:15,  big:30  },
-  {level:3,  small:25,  big:50  },
-  {level:4,  small:50,  big:100 },
-  {level:5,  small:75,  big:150 },
-  {level:6,  small:100, big:200 },
-  {level:7,  small:150, big:300 },
-  {level:8,  small:200, big:400 },
-  {level:9,  small:300, big:600 },
-  {level:10, small:500, big:1000},
-];
+// DEFAULT_BLIND_LEVELS comes from the shared engine (config.js)
 
 function renderBlindEditor() {
   const tbody = document.getElementById('blind-editor-body');
@@ -7192,9 +7193,15 @@ function offerChop(activePlayers) {
   offerChopShortcut();
 }
 
+// Side pots: shared engine code (see supabase/functions/_shared/engine/)
+// Side pots.
+// Shared by the browser app (inlined by scripts/build.mjs, which strips the
+// import/export keywords) and the server (supabase/functions/table).
+// Pure functions only: no DOM, no globals.
+
 // ── SIDE POT BUILDER ─────────────────────────────────────────────────────────
 // Returns array of { amount, eligible[] } sorted smallest → largest cap
-function buildSidePots(players) {
+function buildSidePots(players, handNumber) {
   // Build side pots from totalBet contributions across all players (including folded).
   // Standard poker side-pot algorithm:
   //   1. Find all distinct totalBet "levels" (sorted ascending).
@@ -7206,7 +7213,8 @@ function buildSidePots(players) {
 
   // A player who quit during this hand has left the table (eliminated) but the
   // chips they already bet stay in the pot (they're folded, so can't win it).
-  const handNo = (typeof G !== 'undefined' && G) ? G.handNumber : undefined;
+  // (The browser app doesn't pass handNumber; it falls back to its global G.)
+  const handNo = handNumber !== undefined ? handNumber : ((typeof G !== 'undefined' && G) ? G.handNumber : undefined);
   const contributors = players.filter(p => (!p.eliminated || (p.quitHand != null && p.quitHand === handNo)) && p.totalBet > 0);
   if (!contributors.length) return [];
 
@@ -7250,7 +7258,6 @@ function buildSidePots(players) {
 
   return merged;
 }
-
 // ── SHOWDOWN ─────────────────────────────────────────────────────────────────
 function doShowdown() {
   // Pay out each hand once. Payouts are computed from what everyone bet

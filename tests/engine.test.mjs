@@ -4,12 +4,16 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
+import { read as readSrc } from '../scripts/build.mjs';
+import * as cardsMod from '../supabase/functions/_shared/engine/cards.js';
+import * as sidePotsMod from '../supabase/functions/_shared/engine/side-pots.js';
+import * as payoutsMod from '../supabase/functions/_shared/engine/payouts.js';
 
 // The app's JS is plain browser script (no modules), so load the engine files
 // into a sandbox and pull the global functions out of it.
 const ctx = vm.createContext({ console, G: null });
 for (const f of ['01-engine.js', '25-side-pots.js']) {
-  vm.runInContext(readFileSync(new URL(`../src/js/${f}`, import.meta.url), 'utf8'), ctx, { filename: f });
+  vm.runInContext(readSrc(`js/${f}`), ctx, { filename: f }); // as built into the app
 }
 const { evalBest, evalBest3Card, cmpScore, computePayouts, buildSidePots, makeDeck, getBlinds } = ctx;
 
@@ -165,4 +169,25 @@ test('tournament prize pool counts every buy-in plus re-buys', () => {
   try {
     assert.equal(vm.runInContext('actualPrizePool()', ctx), 70);
   } finally { ctx.G = null; delete ctx.gameBuyIn; }
+});
+
+test('shared engine modules (as the server imports them) match the app build', () => {
+  const board = cards('2c 7d 9h Js Kd');
+  for (const hole of ['As Ah', 'Js 9s', 'Qc 10d', '3h 4h']) {
+    assert.deepEqual(cardsMod.evalBest(cards(hole), board, 'holdem'), JSON.parse(JSON.stringify(evalBest(cards(hole), board, 'holdem'))));
+  }
+  assert.equal(cardsMod.evalBest3Card(cards('As Ah 2c')).name, 'Pair of Aces');
+  assert.deepEqual(payoutsMod.computePayouts(20, 6, false), JSON.parse(JSON.stringify(computePayouts(20, 6, false))));
+  const players = [
+    { id: 'a', totalBet: 100, folded: false }, { id: 'b', totalBet: 300, folded: false }, { id: 'c', totalBet: 300, folded: true },
+    { id: 'q', totalBet: 10, folded: true, eliminated: true, quitHand: 4 },
+  ];
+  const pots = sidePotsMod.buildSidePots(players, 4);
+  assert.equal(pots.reduce((a, p) => a + p.amount, 0), 710);
+  assert.equal(new cardsMod.makeDeck().length, 52);
+});
+
+test('the built app parses (no duplicate declarations or syntax errors)', () => {
+  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  for (const m of html.matchAll(/<script>([\s\S]*?)<\/script>/g)) new Function(m[1]);
 });
