@@ -15,7 +15,16 @@ const SERVER_RULES = false;
 let gameHostId = null;          // the lobby owner of the current game
 let _serverClockOffsetMs = 0;   // server clock − this phone's clock (from replies)
 let _serverTicker = null;
+let _heartbeat = null;
 let _lastTickAt = 0;
+
+// While this phone is in a server game, it says so every 4s. The server counts
+// a player as gone (app closed, phone offline) after 12s without one.
+function sendHeartbeat(gameId) {
+  if (!sb || !me || me.id === 'demo') return;
+  sb.from('game_presence').upsert({ game_id: gameId, user_id: me.id, last_seen_at: new Date().toISOString() })
+    .then(() => {}, () => {});
+}
 
 function isServerState(state) { return !!state && state.rules === 'server'; }
 function isServerGame() { return isServerState(G); }
@@ -132,12 +141,23 @@ function enterServerGame(gameId) {
 // asks early or twice just gets "nothing to do".
 function startServerTicker(gameId) {
   stopServerTicker();
+  sendHeartbeat(gameId);
+  _heartbeat = setInterval(() => sendHeartbeat(gameId), 4000);
   _serverTicker = setInterval(() => {
     if (!G || currentGameId !== gameId || !isServerGame()) { stopServerTicker(); return; }
     if (G.tournamentOver || G.paused) return;
     const levelEndsAt = G.format === 'tournament' && !G.breakActive && G.levelStartedAt && G.blindDuration
       ? G.levelStartedAt + G.blindDuration * 1000 : null;
+    // The player on turn (or the dealer choosing) looks gone on this phone:
+    // ask the server to check after 5s; it decides from heartbeats
+    const BETTING = ['preflop', 'flop', 'turn', 'river'];
+    const actor = BETTING.includes(G.stage) ? G.players?.[G.actionIndex] : null;
+    const awayTurnAt = actor && actor.id !== me.id && !isPlayerOnline(actor.id) && G.turnStartMs ? G.turnStartMs + 5000 : null;
+    const awayDealerAt = G.pendingDealerChoice && G.dealerId !== me.id && !isPlayerOnline(G.dealerId) && G.dealerChoiceDeadline
+      ? G.dealerChoiceDeadline - 25000 + 5000 : null;
     const due = [
+      awayTurnAt, awayDealerAt,
+      BETTING.includes(G.stage) ? G.turnDeadline : null,
       G.breakActive ? null : G.nextDealAt,
       G.pendingDealerChoice ? G.dealerChoiceDeadline : null,
       G.stage === 'guts_decision' ? G.gutsDeadlineMs : null,
@@ -152,6 +172,8 @@ function startServerTicker(gameId) {
 function stopServerTicker() {
   clearInterval(_serverTicker);
   _serverTicker = null;
+  clearInterval(_heartbeat);
+  _heartbeat = null;
 }
 
 // Blind level and clock come from the server's state.

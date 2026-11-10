@@ -420,3 +420,56 @@ test('show or muck: fold winner shows chosen cards; folded player reveals theirs
   t.must(winner.id, 'muck');
   assert.equal(t.G.winnerMucked, true);
 });
+
+// ── Phase 4: turn deadlines and gone players ──────────────────────────────
+
+test('a turn runs out after 32s: check if allowed, else fold (shown Away)', () => {
+  const t = table(); t.deal();
+  const first = t.actor();
+  assert.equal(t.wait(T.TURN_MS - 1), false);
+  assert.equal(t.wait(1), true);
+  const p = t.G.players.find((x) => x.id === first);
+  assert.equal(p.folded, true, 'facing the big blind → fold');
+  assert.equal(p.lastAction.label, 'Away');
+  // Everyone left times out too: the big blind can check, so the hand goes on
+  while (T.isBetting(t.G)) t.wait(T.TURN_MS);
+  assert.equal(t.G.stage, 'showdown');
+  assert.equal(t.total(), 4500);
+});
+
+test('a gone player on turn is checked/folded after 5s, a present one gets the full 32s', () => {
+  const t = table(); t.deal();
+  const first = t.actor();
+  let away = new Set();
+  t.ctx.isGone = (id) => away.has(id);
+  assert.equal(t.wait(T.AWAY_GRACE_MS), false, 'present: still waiting');
+  away = new Set([first]);
+  assert.equal(t.wait(0), true, 'gone and already 5s in');
+  assert.notEqual(t.actor(), first);
+  const second = t.actor();
+  away = new Set([first, second]);
+  assert.equal(t.wait(T.AWAY_GRACE_MS - 1), false);
+  assert.equal(t.wait(1), true);
+  assert.notEqual(t.actor(), second);
+});
+
+test('gone dealer → Hold\'em after 5s; gone busted player → sat out at the next deal', () => {
+  const t = table({ format: 'home' });
+  t.wait(T.FIRST_DEAL_MS);
+  const dealer = t.G.dealerId;
+  t.ctx.isGone = (id) => id === dealer;
+  assert.equal(t.wait(T.AWAY_GRACE_MS - 1), false);
+  assert.equal(t.wait(1), true);
+  assert.equal(t.G.variant, 'holdem');
+  assert.equal(t.G.stage, 'preflop');
+
+  const u = table({ format: 'home' });
+  T.queueRig(u.G, { hands: { Ace: cards('As Ah'), Bo: cards('Kc Kd'), Cy: cards('Qc Qd') }, board: BOARD }, u.ctx);
+  u.deal();
+  u.playHand(() => 'allin');
+  u.ctx.isGone = (id) => id === 'Cy';
+  u.must('Bo', 'rebuy');
+  u.wait(T.NEXT_HAND_MS);
+  assert.equal(u.G.players.find((p) => p.id === 'Cy').eliminated, true);
+  assert.equal(u.G.handNumber, 2);
+});

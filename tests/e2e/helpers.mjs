@@ -413,6 +413,14 @@ export async function rigNextHand(host, rig) {
 }
 
 /** Service-role REST query against the local stack (bypasses RLS). */
+// Moves a player sent in a game: player_actions rows on the phone-run engine,
+// the server's own count (state.moves) on server rules
+export async function movesBy(gameId, p) {
+  if (!SERVER_RULES) return (await adminSelect('player_actions', `game_id=eq.${gameId}&player_id=eq.${p.id}&select=id`)).length;
+  const [g] = await adminSelect('games', `id=eq.${gameId}&select=state`);
+  return (g?.state?.moves || {})[p.id] || 0;
+}
+
 export async function adminSelect(table, query) {
   if (!SERVICE_KEY) throw new Error('SUPABASE_SERVICE_ROLE_KEY is not set');
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${query}`, {

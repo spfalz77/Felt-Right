@@ -49,11 +49,17 @@ async function lobby(format, names) {
     const r = await http('/rest/v1/game_players', { token: p.token, method: 'POST', body: { game_id: gameId, user_id: p.id, seat_index: i, status: 'joined' } });
     assert.equal(r.status, 201, JSON.stringify(r.data));
   }
+  // Heartbeats, as the app sends them, so nobody counts as gone (app closed)
+  const beat = (who) => Promise.all(who.map((p) => http('/rest/v1/game_presence', {
+    token: p.token, method: 'POST', headers: { Prefer: 'resolution=merge-duplicates' },
+    body: { game_id: gameId, user_id: p.id, last_seen_at: new Date().toISOString() },
+  })));
+  await beat(players);
   const t = {
-    gameId, players, host,
+    gameId, players, host, beat,
     call: (p, action, amount, extra = {}) => http('/functions/v1/table', { token: p.token, method: 'POST', body: { game_id: gameId, action, amount, ...extra } }),
     must: async (p, action, amount) => { const r = await t.call(p, action, amount); assert.equal(r.status, 200, `${p.name} ${action}: ${JSON.stringify(r.data)}`); return r.data; },
-    state: async (p = host) => (await http(`/rest/v1/games?id=eq.${gameId}&select=status,hand_number,state`, { token: p.token })).data[0],
+    state: async (p = host) => (await beat(players.filter((x) => !x.silent)), await http(`/rest/v1/games?id=eq.${gameId}&select=status,hand_number,state`, { token: p.token })).data[0],
     byId: (id) => players.find((p) => p.id === id),
     // Skip the server clock ahead and apply whatever came due
     skip: (ms) => t.must(host, 'clock_offset', ms),
@@ -197,4 +203,50 @@ test('two moves at once: exactly one is applied (no lost or doubled action)', as
   const after = (await t.state()).state;
   assert.equal(after.pot, 50);
   assert.equal(total(after), 4500);
+});
+
+test('turns time out on the server clock; the minute backstop moves tables nobody touches', async () => {
+  const t = await lobby('tournament', ['Ann', 'Ben', 'Cat']);
+  await t.must(t.host, 'start');
+  await t.skip(2000);
+  let s = (await t.state()).state;
+  const first = s.players[s.actionIndex];
+  await t.skip(32_000); // nobody acts
+  s = (await t.state()).state;
+  const p = s.players.find((x) => x.id === first.id);
+  assert.equal(p.folded, true);
+  assert.equal(p.lastAction.label, 'Away');
+  // Backstop: the service-role tick_all applies the next timeout without any phone asking
+  const before = (await t.state()).state.actionIndex;
+  const g = await admin(`/rest/v1/game_secrets?game_id=eq.${t.gameId}&select=state`);
+  const st = g.data[0].state;
+  st.turnDeadline = 1; // already due (0 would mean no deadline)
+  await admin(`/rest/v1/game_secrets?game_id=eq.${t.gameId}`, { method: 'PATCH', body: { state: st } });
+  const r = await http('/functions/v1/table', { token: SERVICE, key: SERVICE, method: 'POST', body: { action: 'tick_all' } });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.ok(r.data.ticked >= 1);
+  assert.notEqual((await t.state()).state.actionIndex, before);
+});
+
+test('heartbeats: a player with no heartbeat for 12s is checked/folded 5s into their turn', async () => {
+  const t = await lobby('tournament', ['Ann', 'Ben', 'Cat']);
+  await t.must(t.host, 'start');
+  for (const p of t.players) {
+    // (the helpers already send heartbeats, so this is an upsert)
+    const r = await http('/rest/v1/game_presence', { token: p.token, method: 'POST', headers: { Prefer: 'resolution=merge-duplicates' }, body: { game_id: t.gameId, user_id: p.id } });
+    assert.ok([200, 201].includes(r.status), JSON.stringify(r.data));
+  }
+  // Players can't write someone else's heartbeat
+  const forged = await http('/rest/v1/game_presence', { token: t.players[0].token, method: 'POST', headers: { Prefer: 'resolution=merge-duplicates' }, body: { game_id: t.gameId, user_id: t.players[1].id } });
+  assert.ok(forged.status >= 400);
+  await t.skip(2000);
+  let s = (await t.state()).state;
+  const actor = t.byId(s.players[s.actionIndex].id);
+  actor.silent = true; // their app "closes": no more heartbeats
+  // Make the actor's last heartbeat 20s old; skip 5s on the turn
+  await admin(`/rest/v1/game_presence?game_id=eq.${t.gameId}&user_id=eq.${actor.id}`, { method: 'PATCH', body: { last_seen_at: new Date(Date.now() - 20_000).toISOString() } });
+  await t.skip(5_000);
+  s = (await t.state()).state;
+  assert.notEqual(s.players[s.actionIndex]?.id, actor.id, 'moved on after 5s');
+  assert.equal(s.players.find((p) => p.id === actor.id).lastAction.label, 'Away');
 });

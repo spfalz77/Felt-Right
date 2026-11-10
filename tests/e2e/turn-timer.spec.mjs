@@ -7,7 +7,7 @@
 
 import { test, expect, devices } from '@playwright/test';
 import {
-  setupHomeGame, runTable, expectScreensAgree, cashOutAndCheckLedger, expectNoPageErrors, adminSelect,
+  setupHomeGame, runTable, expectScreensAgree, cashOutAndCheckLedger, expectNoPageErrors, movesBy, skipTime,
 } from './helpers.mjs';
 
 const PHONES = [devices['iPhone 13'], devices['Pixel 7'], devices['iPhone SE']];
@@ -57,7 +57,7 @@ test('turn timer: idle player auto-folds; dropped player is folded by host, then
           dropped = byId(hv.actorId);
           dropped.offline = true;
           await dropped.context.setOffline(true);
-          await host.page.clock.fastForward(46_000);
+          await skipTime(host, 46_000);
         }
         if (dropped && !awaySeen && hv.folded[dropped.id]) {
           awaySeen = true;
@@ -75,13 +75,13 @@ test('turn timer: idle player auto-folds; dropped player is folded by host, then
   });
 
   await test.step('hand 3: the player who dropped plays normally', async () => {
-    const before = (await adminSelect('player_actions', `game_id=eq.${gameId}&player_id=eq.${dropped.id}&select=id`)).length;
+    const before = await movesBy(gameId, dropped);
     await runTable({
       all, gameId,
       strategy: (p, v) => (v.hand >= 4 ? 'idle' : 'checkcall'),
       done: (views) => views.every((v) => v && v.hand === 4 && v.stage === 'preflop' && v.pot === views[0].pot),
     });
-    const after = (await adminSelect('player_actions', `game_id=eq.${gameId}&player_id=eq.${dropped.id}&select=id`)).length;
+    const after = await movesBy(gameId, dropped);
     expect(after, `${dropped.name} sent moves again after reconnecting`).toBeGreaterThan(before);
     const views = await Promise.all(all.map((p) => p.page.evaluate(() => ({ chips: Object.fromEntries(G.players.map((x) => [x.id, x.chips])), pot: G.pot }))));
     expectScreensAgree(all, views, TOTAL, 'start of hand 4');

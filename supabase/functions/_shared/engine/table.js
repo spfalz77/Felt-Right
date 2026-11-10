@@ -7,7 +7,8 @@
 // stage, actionIndex, ...), plus server-only fields: deck, rig, blind clock,
 // and deadlines. redact() removes what phones must not see.
 //
-// ctx = { now: ms since epoch, rng: () => [0,1), hostId, allowTestHooks, effects: {} }
+// ctx = { now: ms since epoch, rng: () => [0,1), hostId, allowTestHooks, effects: {},
+//         isGone?: (playerId) => true if their app is closed/offline (from heartbeats) }
 // Nothing here touches the network, the DOM or the clock.
 
 import { makeDeck, evalBest, evalBest3Card, cmpScore } from './cards.js';
@@ -20,6 +21,8 @@ export const DEALER_CHOICE_MS = 25000;      // dealer picks the variant, else Ho
 export const REBUY_DECISION_MS = 60000;     // busted player: re-buy or sit out, else sat out
 export const RESUME_DEAL_MS = 1500;         // pause/break over → next hand
 export const BREAK_AFTER_LEVELS = 4;        // tournament with re-buys: first break, then re-buys close
+export const TURN_MS = 32000;               // a turn: 30s on the player's screen + 2s grace, then check/fold
+export const AWAY_GRACE_MS = 5000;          // a player who's gone (app closed/offline) is checked/folded after 5s
 
 const BETTING = ['preflop', 'flop', 'turn', 'river'];
 const RAISES = ['raise', 'twobet', 'twobb', 'threebb', 'pot', 'allin'];
@@ -75,6 +78,7 @@ export function newGame({ seats, format, variant, rebuysEnabled, blindLevels, bl
     blindDuration: blindDuration || 600,
     blindLevel: 0,
     levelStartedAt: ctx.now,
+    startedAt: ctx.now,
     nextDealAt: ctx.now + FIRST_DEAL_MS,
     dealSeq: 0,
     rig: [],
@@ -405,6 +409,8 @@ function afterHand(G, ctx) {
 function setActor(G, idx, ctx) {
   G.actionIndex = idx;
   G.turnStartAt = new Date(ctx.now).toISOString();
+  G.turnStartMs = ctx.now;
+  G.turnDeadline = ctx.now + TURN_MS;
   const p = G.players[idx];
   if (p && p.awayFromTable && isBetting(G) && !p.folded && !p.eliminated && !p.allIn) {
     autoAct(G, p);
@@ -483,6 +489,7 @@ function showdown(G, ctx) {
   G.stage = 'showdown';
   G.actionIndex = -1;
   G.turnStartAt = null;
+  G.turnDeadline = null;
   const active = G.players.filter((p) => !p.folded && !p.eliminated);
   const winnings = {};
   G.players.forEach((p) => { winnings[p.id] = 0; });
@@ -812,6 +819,24 @@ export function tick(G, ctx) {
   let changed = level !== G.blindLevel;
 
   if (G.breakActive) return changed;
+  const gone = (id) => !!(ctx.isGone && ctx.isGone(id));
+
+  // A turn ran out, or the player on turn is gone: check if allowed, else fold
+  if (isBetting(G)) {
+    const actor = G.players[G.actionIndex];
+    if (actor && !actor.folded && !actor.eliminated && !actor.allIn) {
+      const timedOut = G.turnDeadline && ctx.now >= G.turnDeadline;
+      const awayTooLong = gone(actor.id) && ctx.now - (G.turnStartMs || ctx.now) >= AWAY_GRACE_MS;
+      if (timedOut || awayTooLong) { autoAct(G, actor); advanceAction(G, ctx); return true; }
+    }
+    return changed;
+  }
+  // A gone dealer doesn't hold up dealer's choice
+  if (G.pendingDealerChoice && gone(G.dealerId) && ctx.now - (G.dealerChoiceDeadline - DEALER_CHOICE_MS) >= AWAY_GRACE_MS) {
+    pickVariant(G, 'holdem', ctx);
+    G.autoPicked = G.handNumber;
+    return true;
+  }
   if (G.stage === 'guts_decision' && G.gutsDeadlineMs && ctx.now >= G.gutsDeadlineMs) {
     gutsEligible(G).forEach((p) => { if (!G.gutsDecisions[p.id]) G.gutsDecisions[p.id] = 'out'; });
     resolveGuts(G, ctx);
@@ -825,7 +850,8 @@ export function tick(G, ctx) {
   if (G.nextDealAt && ctx.now >= G.nextDealAt) {
     // Wait for busted players to decide; sit out anyone who took too long
     for (const p of deciding(G)) {
-      if (ctx.now - (p.brokeAt || ctx.now) >= REBUY_DECISION_MS) { sitOut(G, p); changed = true; }
+      // Busted and gone (or no answer in 60s): sat out
+      if (gone(p.id) || ctx.now - (p.brokeAt || ctx.now) >= REBUY_DECISION_MS) { sitOut(G, p); changed = true; }
     }
     if (deciding(G).length) return changed;
     dealNewHand(G, ctx);
