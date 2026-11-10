@@ -28,6 +28,16 @@ const json = (body: unknown, status = 200) =>
 // Cards are shuffled with the platform's cryptographic generator
 const rng = () => crypto.getRandomValues(new Uint32Array(1))[0] / 2 ** 32;
 
+// A player is gone after 12s with no heartbeat (game_presence). Judged on
+// real time, never the test clock offset.
+const PRESENCE_GONE_MS = 12000;
+async function presenceFor(gameId: string, startedAt: number) {
+  const { data } = await admin.from("game_presence").select("user_id, last_seen_at").eq("game_id", gameId);
+  const seen = new Map((data || []).map((r: { user_id: string; last_seen_at: string }) => [r.user_id, Date.parse(r.last_seen_at)]));
+  const realNow = Date.now();
+  return (id: string) => realNow - (seen.get(id) ?? startedAt ?? 0) > PRESENCE_GONE_MS;
+}
+
 const admin = createClient(URL_, SERVICE_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
 
 Deno.serve(async (req) => {
@@ -35,6 +45,12 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
   try {
     const token = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+    // The once-a-minute backstop (pg_cron → tick_server_tables) calls with the service key
+    if (token === SERVICE_KEY) {
+      const body = await req.json().catch(() => ({}));
+      if (body?.action === "tick_all") return json(await tickAll());
+      return json({ error: "unknown action" }, 400);
+    }
     const { data: auth, error: authErr } = await admin.auth.getUser(token);
     if (authErr || !auth?.user) return json({ error: "not signed in" }, 401);
     const userId = auth.user.id;
@@ -58,6 +74,7 @@ Deno.serve(async (req) => {
       const ctx: Record<string, unknown> = {
         now: Date.now() + (TEST_HOOKS ? (G.clockOffsetMs || 0) : 0),
         rng, hostId: game.host_id, allowTestHooks: TEST_HOOKS, effects: {},
+        isGone: await presenceFor(game_id, G.startedAt),
       };
       const dealBefore = G.dealSeq;
 
@@ -73,6 +90,9 @@ Deno.serve(async (req) => {
       } else {
         const r = T.applyAction(G, userId, action, amount, ctx);
         if (!r.ok) return json({ error: r.error }, 409);
+        // Moves each player made themselves (not auto-acts): the audit count
+        // the old engine kept as player_actions rows
+        G.moves = { ...(G.moves || {}), [userId]: ((G.moves || {})[userId] || 0) + 1 };
       }
       if (!changed) return json({ ok: true, changed: false, version: row.version, now: ctx.now });
 
@@ -149,4 +169,32 @@ async function start(
     buy_in_amount: buyIn,
   }).eq("id", game.id);
   return json({ ok: true, changed: true, version: 1, now: ctx.now });
+}
+
+// Apply whatever has come due in every active server-run game.
+async function tickAll() {
+  const { data: rows } = await admin.from("game_secrets")
+    .select("game_id, version, state, game:games!inner(status, host_id)")
+    .eq("game.status", "active");
+  let ticked = 0;
+  for (const row of rows || []) {
+    // deno-lint-ignore no-explicit-any
+    const r = row as any;
+    const G = r.state;
+    const ctx = {
+      now: Date.now() + (TEST_HOOKS ? (G.clockOffsetMs || 0) : 0),
+      rng, hostId: r.game.host_id, allowTestHooks: TEST_HOOKS, effects: {} as { settle?: boolean },
+      isGone: await presenceFor(r.game_id, G.startedAt),
+    };
+    const dealBefore = G.dealSeq;
+    if (!T.tick(G, ctx)) continue;
+    G.v = r.version + 1;
+    const { data: saved } = await admin.rpc("save_table", {
+      p_game_id: r.game_id, p_expect_version: r.version, p_state: G, p_public: T.redact(G),
+      p_hands: G.dealSeq !== dealBefore ? T.privateHands(G) : null,
+    });
+    if (saved) ticked++; // a conflict means a phone just moved the table; fine
+    if (saved && ctx.effects.settle) await admin.rpc("settle_home_game_ledger", { p_game_id: r.game_id });
+  }
+  return { ok: true, games: (rows || []).length, ticked };
 }
