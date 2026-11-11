@@ -404,7 +404,8 @@ function showTournamentOverlay(winner) {
 
   // Ledger button - shown to anyone who has a buy-in game and hasn't recorded yet for this game
   const ledgerKey = `fr_ledger_recorded_${currentGameId}`;
-  const alreadyRecorded = sessionStorage.getItem(ledgerKey);
+  // Server-run games: the server writes everyone's ledger rows when the tournament ends
+  const alreadyRecorded = (isServerState(G) && G.ledgerRecorded) || sessionStorage.getItem(ledgerKey);
   const ledgerBtnHtml = (gameBuyIn > 0 && me.id !== 'demo' && !alreadyRecorded) ? `
     <button id="record-ledger-btn" onclick="onRecordLedgerClicked()" style="background:none;
       border:1px solid var(--gold-dim);color:var(--gold);
