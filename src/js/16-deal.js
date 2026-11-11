@@ -184,12 +184,15 @@ function dealerPickedVariant(variant) {
         amount: variantCode,
         created_at: new Date().toISOString(),
       }).then(({ error }) => {
-        if (error) {
-          toast('Could not submit variant choice');
-          // Restore the picker so dealer can retry
-          G.pendingDealerChoice = true;
-          showDealerChoice();
-        }
+        if (!error) return;
+        // Server game: the server says no (e.g. the pick already went through
+        // on an earlier tap). Show its table rather than bringing the picker
+        // back over a hand that's already dealt.
+        if (isServerGame()) { refreshGuestState(); return; }
+        toast('Could not submit variant choice');
+        // Restore the picker so dealer can retry
+        G.pendingDealerChoice = true;
+        showDealerChoice();
       });
     }
   }

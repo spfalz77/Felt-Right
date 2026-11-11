@@ -191,3 +191,36 @@ test('the built app parses (no duplicate declarations or syntax errors)', () => 
   const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   for (const m of html.matchAll(/<script>([\s\S]*?)<\/script>/g)) new Function(m[1]);
 });
+
+// ── Tournament ledger (written by the server since phase 5) ──
+const netOf = (pairs, id) => pairs.reduce((a, r) => a + (r.winner === id ? r.dollars : 0) - (r.loser === id ? r.dollars : 0), 0);
+const tp = (id, extra = {}) => ({ id, name: id, emoji: '🃏', chips: 0, ...extra });
+
+test('tournament ledger: winner takes all with 3 players', () => {
+  const G = { format: 'tournament', tournamentOver: true, buyIn: 20, players: [tp('a'), tp('b'), tp('c')],
+    finalPlacements: [{ name: 'a' }, { name: 'b' }, { name: 'c' }] };
+  const pairs = payoutsMod.tournamentLedger(G);
+  assert.deepEqual([netOf(pairs, 'a'), netOf(pairs, 'b'), netOf(pairs, 'c')], [40, -20, -20]);
+});
+
+test('tournament ledger: a chop splits the pool between the last two', () => {
+  const G = { format: 'tournament', tournamentOver: true, chopped: true, buyIn: 20, players: [tp('a'), tp('b'), tp('c')],
+    finalPlacements: [{ name: 'a' }, { name: 'b' }, { name: 'c' }] };
+  const pairs = payoutsMod.tournamentLedger(G);
+  assert.deepEqual([netOf(pairs, 'a'), netOf(pairs, 'b'), netOf(pairs, 'c')], [10, 10, -20]);
+});
+
+test('tournament ledger: re-buys go into the pool and into what each player paid', () => {
+  const G = { format: 'tournament', tournamentOver: true, rebuysEnabled: true, buyIn: 20,
+    players: [tp('kai'), tp('lux'), tp('moe', { totalBuyInCents: 3000 })],
+    finalPlacements: [{ name: 'kai' }, { name: 'moe' }, { name: 'lux' }] };
+  const pairs = payoutsMod.tournamentLedger(G);
+  assert.deepEqual([netOf(pairs, 'kai'), netOf(pairs, 'lux'), netOf(pairs, 'moe')], [50, -20, -30]);
+});
+
+test('tournament ledger: nothing for home games, unfinished games or free games', () => {
+  const base = { tournamentOver: true, buyIn: 20, players: [tp('a'), tp('b')], finalPlacements: [{ name: 'a' }, { name: 'b' }] };
+  assert.deepEqual(payoutsMod.tournamentLedger({ ...base, format: 'home' }), []);
+  assert.deepEqual(payoutsMod.tournamentLedger({ ...base, format: 'tournament', tournamentOver: false }), []);
+  assert.deepEqual(payoutsMod.tournamentLedger({ ...base, format: 'tournament', buyIn: 0 }), []);
+});

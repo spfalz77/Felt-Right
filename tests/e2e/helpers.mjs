@@ -431,6 +431,17 @@ export async function adminSelect(table, query) {
 }
 
 /** Taps Record to Friends Ledger (the results screen can redraw mid-tap; retry). */
+// A game's Friends Ledger rows, once there are any (server games write them
+// just after the final save)
+export async function ledgerRows(gameId) {
+  let rows = [];
+  await expect.poll(async () => {
+    rows = await adminSelect('payout_ledger', `game_id=eq.${gameId}&select=user_id,opponent_id,amount,note`);
+    return rows.length;
+  }, { timeout: 15_000, message: 'ledger rows written' }).toBeGreaterThan(0);
+  return rows;
+}
+
 export async function tapRecordLedger(p) {
   await expect(async () => {
     const btn = p.page.locator('#record-ledger-btn');

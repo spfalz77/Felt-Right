@@ -161,6 +161,47 @@ test('scripted tournament to the end: side pots, eliminations, game saved as fin
   assert.deepEqual(g.state.finalPlacements.map((p) => p.name), ['Ace', 'Bo', 'Cy']);
   assert.equal(g.state.players.find((p) => p.name === 'Ace').chips, 4500);
   assert.equal((await t.call(t.host, 'fold')).data.error, 'game is over');
+
+  // The server wrote the Friends Ledger, both sides ($20 buy-in, winner takes all)
+  assert.equal(g.state.ledgerRecorded, true);
+  const rows = (await admin(`/rest/v1/payout_ledger?game_id=eq.${t.gameId}&select=user_id,opponent_id,amount,note`)).data;
+  const net = (name) => rows.filter((r) => r.user_id === t.players.find((p) => p.name === name).id).reduce((a, r) => a + Number(r.amount), 0);
+  assert.deepEqual([net('Ace'), net('Bo'), net('Cy')], [40, -20, -20]);
+  assert.equal(rows.length, 4);
+  for (const r of rows) {
+    assert.ok(rows.some((m) => m.user_id === r.opponent_id && m.opponent_id === r.user_id && Number(m.amount) === -Number(r.amount)), 'every row has its mirror');
+  }
+  assert.ok(rows.every((r) => r.note.startsWith('Tournament')));
+});
+
+test('lock-down: phones cannot rewrite a server game; outsiders cannot touch any game', async () => {
+  const t = await lobby('tournament', ['Lia', 'Max']);
+  const outsider = await signUp('Oz');
+  const patch = (who, id, body) => http(`/rest/v1/games?id=eq.${id}`, { token: who.token, method: 'PATCH', headers: { Prefer: 'return=representation' }, body });
+  const del = (who, id) => http(`/rest/v1/games?id=eq.${id}`, { token: who.token, method: 'DELETE', headers: { Prefer: 'return=representation' } });
+
+  // Still a lobby (a phone-run game until started): the host may change
+  // settings, an outsider may not, and only the host may cancel it
+  assert.equal((await patch(t.host, t.gameId, { buy_in_amount: 30 })).data.length, 1, 'host edits own lobby');
+  assert.equal((await patch(outsider, t.gameId, { buy_in_amount: 99 })).data.length, 0, 'outsider edit ignored');
+  assert.equal((await del(outsider, t.gameId)).data.length, 0, 'outsider delete ignored');
+  assert.equal((await del(t.players[1], t.gameId)).data.length, 0, 'guest delete ignored');
+
+  // Started on server rules: nobody's phone can change it, host included
+  await t.must(t.host, 'start');
+  for (const who of [t.host, t.players[1], outsider]) {
+    const r = await patch(who, t.gameId, { state: { rules: 'server', players: [] }, status: 'finished' });
+    assert.ok(r.status >= 400 || r.data.length === 0, `${who.name}'s update rejected: ${JSON.stringify(r.data)}`);
+  }
+  // nor can a phone switch it back to phone rules to get around that
+  const sneak = await patch(t.host, t.gameId, { state: { rules: 'phone' } });
+  assert.ok(sneak.status >= 400 || sneak.data.length === 0, 'cannot switch a server game to phone rules');
+  assert.equal((await del(t.host, t.gameId)).data.length, 0, 'a started game cannot be deleted');
+
+  const g = await t.state();
+  assert.equal(g.status, 'active');
+  assert.equal(g.state.rules, 'server');
+  assert.equal(g.state.players.length, 2);
 });
 
 test("home game: dealer's choice, quit takes the stack home, host cash-out writes a balanced ledger", async () => {

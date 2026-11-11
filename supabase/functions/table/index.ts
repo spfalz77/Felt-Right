@@ -11,6 +11,7 @@
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import * as T from "../_shared/engine/table.js";
+import { tournamentLedger } from "../_shared/engine/payouts.js";
 
 const URL_ = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -77,6 +78,7 @@ Deno.serve(async (req) => {
         isGone: await presenceFor(game_id, G.startedAt),
       };
       const dealBefore = G.dealSeq;
+      const wasOver = !!G.tournamentOver;
 
       let changed = true;
       if (action === "tick") {
@@ -97,6 +99,7 @@ Deno.serve(async (req) => {
       if (!changed) return json({ ok: true, changed: false, version: row.version, now: ctx.now });
 
       G.v = row.version + 1; // phones ignore any copy older than the one they show
+      const recordLedger = endsTournament(G, wasOver);
       const { data: saved, error: saveErr } = await admin.rpc("save_table", {
         p_game_id: game_id,
         p_expect_version: row.version,
@@ -111,6 +114,7 @@ Deno.serve(async (req) => {
         const { error } = await admin.rpc("settle_home_game_ledger", { p_game_id: game_id });
         if (error) console.error("settle_home_game_ledger", error);
       }
+      if (recordLedger) await writeTournamentLedger(game_id, G);
       // `now` (server clock) lets phones judge deadlines on the server's time
       return json({ ok: true, changed: true, version: row.version + 1, now: ctx.now });
     }
@@ -120,6 +124,34 @@ Deno.serve(async (req) => {
     return json({ error: "server error" }, 500);
   }
 });
+
+// A tournament that ends with this save gets its Friends Ledger written by the
+// server, both sides of every pair (phones no longer record their own rows).
+// Marks the state so every phone shows "Recorded to ledger".
+// deno-lint-ignore no-explicit-any
+function endsTournament(G: any, wasOver: boolean) {
+  if (wasOver || !G.tournamentOver || G.format === "home") return false;
+  G.ledgerRecorded = true;
+  return true;
+}
+
+// deno-lint-ignore no-explicit-any
+async function writeTournamentLedger(gameId: string, G: any) {
+  const { count } = await admin.from("payout_ledger").select("id", { count: "exact", head: true })
+    .eq("game_id", gameId).eq("kind", "game").not("settled_at", "is", null);
+  if (count) return; // already settled up: leave it alone
+  const pairs = tournamentLedger(G);
+  const { error: delErr } = await admin.from("payout_ledger").delete()
+    .eq("game_id", gameId).eq("kind", "game").is("settled_at", null);
+  if (delErr) { console.error("tournament ledger", delErr); return; }
+  if (!pairs.length) return;
+  const rows = pairs.flatMap(({ winner, loser, dollars }) => [
+    { game_id: gameId, user_id: winner, opponent_id: loser, amount: dollars, kind: "game", note: "Tournament payout" },
+    { game_id: gameId, user_id: loser, opponent_id: winner, amount: -dollars, kind: "game", note: "Tournament buy-in" },
+  ]);
+  const { error } = await admin.from("payout_ledger").insert(rows);
+  if (error) console.error("tournament ledger", error);
+}
 
 function inGame(G: { players: { id: string }[] }, game: { host_id: string }, userId: string) {
   return game.host_id === userId || G.players.some((p) => p.id === userId);
@@ -187,14 +219,17 @@ async function tickAll() {
       isGone: await presenceFor(r.game_id, G.startedAt),
     };
     const dealBefore = G.dealSeq;
+    const wasOver = !!G.tournamentOver;
     if (!T.tick(G, ctx)) continue;
     G.v = r.version + 1;
+    const recordLedger = endsTournament(G, wasOver);
     const { data: saved } = await admin.rpc("save_table", {
       p_game_id: r.game_id, p_expect_version: r.version, p_state: G, p_public: T.redact(G),
       p_hands: G.dealSeq !== dealBefore ? T.privateHands(G) : null,
     });
     if (saved) ticked++; // a conflict means a phone just moved the table; fine
     if (saved && ctx.effects.settle) await admin.rpc("settle_home_game_ledger", { p_game_id: r.game_id });
+    if (saved && recordLedger) await writeTournamentLedger(r.game_id, G);
   }
   return { ok: true, games: (rows || []).length, ticked };
 }

@@ -1,6 +1,6 @@
 # Server-authoritative game rules — migration plan
 
-_Status: **in progress.** Phases 0–4 done (PRs #19–#23, 2026-11-10). Next: phase 5, which changes the live database. Written 2026-11-08, after PR #16. Roadmap step 2._
+_Status: **in progress.** Phases 0–5 done (PRs #19–#24, 2026-11-11); the server-rules tables and the games lock-down are on the live database. Next: phase 6, cutover. Written 2026-11-08, after PR #16. Roadmap step 2._
 _To run it, ask Claude to "execute docs/server-authoritative-migration.md, phase N". Each phase is one PR, and each phase is merged only when the full E2E suite is green._
 
 ## Why
@@ -69,6 +69,8 @@ phone ──(action + JWT)──▶ Edge Function `table` ──▶ Postgres
 - ✅ **Phase 2 (PR #21):** behind `SERVER_RULES` (off on live), every phone plays a server-run game through the guest code path. The host calls `start`; moves go to the function (`postAction`); a phone calls `tick` only when a deadline in state has passed, using the server's clock from each reply. Host-only buttons follow the lobby owner (`isTableHost()`), and server games never migrate the host. E2E helpers use the `rig` / `clock_offset` hooks. A CI job runs the phone tests on server rules.
 - ✅ **Phase 3 (PR #22):** Guts (antes, in/out, pot matching), the first break with add-on, tournament heads-up chop, pause / resume, and show or muck after a fold win, all on the server. Each saved table carries a sequence number (`v` on the server, `syncSeq` on phone-run games), and phones ignore any copy older than the one on screen. Also fixed a lobby race where a guest who joined just before the host's subscription came up never appeared.
 - ✅ **Phase 4 (PR #23):** turn deadlines, Away auto-act, heartbeats (`game_presence`) and a pg_cron backstop that ticks active server tables once a minute through pg_net. The cron job does nothing until the Vault secrets are set in phase 6. On server rules, closing the host's app hands the table to nobody: their turns are auto-acted and they rejoin as host. The function also keeps each player's own move count in `state.moves` (server games write no `player_actions` rows).
+- ✅ **Phase 5 (PR #24):** when a server-run tournament ends, the function writes both sides of the Friends Ledger (`tournamentLedger` in `payouts.js`); the results screen shows "Recorded to ledger". Lock-down migration: only a game's host or players can update it, nobody's phone can update a server-run game, and only a host can delete their own lobby. Phone-run games (the live site) keep working; phase 6 removes phone writes to `games` entirely. Applied to the live project together with the phase 1 and 4 migrations (`game_secrets`, `save_table`, `game_presence`, the tick cron job, which stays idle until the Vault secrets exist). Also fixed: a repeated dealer's pick on a server game brought the picker back over the dealt hand.
+  - Phase 6 checklist: deploy the `table` function; add Vault secrets `table_function_url` and `service_role_key`; real-phone session with `SERVER_RULES` on (e.g. a `?server=1` switch); then turn it on for everyone, drop the remaining phone update policy on `games`, the client `private_hands` writes and the per-player tournament ledger insert path, and delete the phone-run engine code.
 
 ## Phases and estimates
 

@@ -6,7 +6,7 @@
 // screen, the saved result, and the friends ledger once everyone records it.
 
 import { test, expect, devices } from '@playwright/test';
-import { setupHomeGame, runTable, expectNoPageErrors, adminSelect, tableView, cards, rigNextHand, chipsOnTable, tapRecordLedger } from './helpers.mjs';
+import { setupHomeGame, runTable, expectNoPageErrors, adminSelect, tableView, cards, rigNextHand, chipsOnTable, tapRecordLedger, ledgerRows } from './helpers.mjs';
 
 const PHONES = [devices['iPhone 13'], devices['Pixel 7'], devices['iPhone SE']];
 const TOTAL = 3 * 1500;
@@ -84,7 +84,7 @@ test('tournament: eliminations, final placements, prize and ledger', async ({ br
       await tapRecordLedger(p);
       await expect(p.page.locator('#tourney-overlay .tourney-result')).toContainText('Recorded to ledger', { timeout: 10_000 });
     }
-    const rows = await adminSelect('payout_ledger', `game_id=eq.${gameId}&select=user_id,opponent_id,amount`);
+    const rows = await ledgerRows(gameId);
     const net = (id) => rows.filter((r) => r.user_id === id).reduce((a, r) => a + Number(r.amount), 0);
     expect(net(ace.id), 'Ace +$40').toBeCloseTo(40, 2);
     expect(net(bo.id), 'Bo −$20').toBeCloseTo(-20, 2);

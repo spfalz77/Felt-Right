@@ -58,3 +58,35 @@ export function computePayouts(buyIn, totalPlayers, isChop, actualPoolOverride) 
 
 // Helper: compute the actual prize pool from G state (sums all rebuy/add-on contributions).
 // Returns dollars (not cents).
+
+// Friends Ledger entries for a finished tournament, as pairs: each loser owes
+// each winner a share of their loss in proportion to that winner's net win.
+// Same math the app used when each player recorded their own rows.
+// Returns [{ winner, loser, dollars }] (player ids), or [] when there's
+// nothing to record (home game, not over, no buy-in).
+export function tournamentLedger(G) {
+  if (!G || G.format === 'home' || !G.tournamentOver) return [];
+  const buyIn = G.buyIn || 0;
+  if (buyIn <= 0 || !G.players?.length) return [];
+  const paidCents = (p) => p.totalBuyInCents || buyIn * 100;
+  const pool = G.rebuysEnabled ? G.players.reduce((s, p) => s + paidCents(p), 0) / 100 : null;
+  const payouts = computePayouts(buyIn, G.players.length, !!G.chopped, pool);
+
+  const net = {};
+  for (const p of G.players) net[p.id] = G.rebuysEnabled ? -paidCents(p) / 100 : -buyIn;
+  const order = (G.finalPlacements || []).map((fp) => G.players.find((p) => p.name === fp.name)).filter(Boolean);
+  payouts.forEach((po, i) => { if (order[i]) net[order[i].id] += po.amount; });
+
+  const winners = Object.entries(net).filter(([, n]) => n > 0);
+  const losers = Object.entries(net).filter(([, n]) => n < 0);
+  const total = winners.reduce((s, [, n]) => s + n, 0);
+  if (total <= 0) return [];
+  const pairs = [];
+  for (const [winner, win] of winners) {
+    for (const [loser, loss] of losers) {
+      const dollars = Math.round((win / total) * Math.abs(loss) * 100) / 100;
+      if (dollars > 0) pairs.push({ winner, loser, dollars });
+    }
+  }
+  return pairs;
+}
