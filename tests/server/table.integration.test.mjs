@@ -293,7 +293,12 @@ test('heartbeats: a player with no heartbeat for 12s is checked/folded 5s into t
 });
 
 test('backstop auth: tick_all needs the shared tick secret (or the service key)', async () => {
-  const SECRET = process.env.TABLE_TICK_SECRET || 'ci-tick-secret-0123456789abcdef0123456789';
+  // Generated in Vault by the migration; only the service role can read it
+  const got = await admin('/rest/v1/rpc/table_tick_secret', { method: 'POST', body: {} });
+  const SECRET = got.data;
+  assert.ok(typeof SECRET === 'string' && SECRET.length >= 32, JSON.stringify(got.data));
+  const denied = await http('/rest/v1/rpc/table_tick_secret', { method: 'POST', body: {} });
+  assert.ok(denied.status >= 400, 'phones cannot read the tick secret');
   const call = (headers) => http('/functions/v1/table', { method: 'POST', headers, body: { action: 'tick_all' } });
   const ok = await call({ 'x-tick-secret': SECRET });
   assert.equal(ok.status, 200, JSON.stringify(ok.data));

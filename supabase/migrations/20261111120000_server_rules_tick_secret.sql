@@ -1,12 +1,38 @@
 -- Server rules, phase 6a: the once-a-minute backstop authenticates with its
--- own shared secret instead of the service-role key.
+-- own random secret instead of the service-role key.
 --
--- Vault secrets (set once when the `table` function is deployed):
+-- table_tick_secret is generated here, in Vault, and never leaves the
+-- database: tick_server_tables() sends it, and the `table` function reads it
+-- through table_tick_secret(), which only the service role may call.
+--
+-- Two more Vault entries are added by hand on each project (not secret, but
+-- project-specific):
 --   table_function_url  https://<project>.supabase.co/functions/v1/table
 --   table_anon_key      the project's anon (public) key, to pass the gateway
---   table_tick_secret   random string; the function has the same value in its
---                       TABLE_TICK_SECRET env, and only then runs tick_all
--- Until all three exist, or while no server-run game is active, it does nothing.
+-- Until they exist, or while no server-run game is active, the backstop does
+-- nothing.
+
+do $$
+begin
+  if not exists (select 1 from vault.secrets where name = 'table_tick_secret') then
+    perform vault.create_secret(
+      replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', ''),
+      'table_tick_secret',
+      'Shared secret: pg_cron backstop -> table Edge Function (tick_all)');
+  end if;
+end $$;
+
+create or replace function public.table_tick_secret()
+returns text
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select decrypted_secret from vault.decrypted_secrets where name = 'table_tick_secret'
+$$;
+revoke execute on function public.table_tick_secret() from public, anon, authenticated;
+grant execute on function public.table_tick_secret() to service_role;
 
 create or replace function public.tick_server_tables()
 returns void

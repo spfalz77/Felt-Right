@@ -42,7 +42,7 @@ jobs:
           supabase start -x "$EXCLUDE" || { supabase stop --no-backup || true; sleep 10; supabase start -x "$EXCLUDE"; }
       - name: Serve the table function with test hooks on
         run: |
-          printf "ALLOW_TEST_HOOKS=1\nTABLE_TICK_SECRET=ci-tick-secret-0123456789abcdef0123456789\n" > /tmp/functions.env
+          echo "ALLOW_TEST_HOOKS=1" > /tmp/functions.env
           nohup supabase functions serve --env-file /tmp/functions.env > /tmp/functions.log 2>&1 &
           sleep 8
       - name: Run server integration tests
@@ -75,7 +75,7 @@ jobs:
           supabase start -x "$EXCLUDE" || { supabase stop --no-backup || true; sleep 10; supabase start -x "$EXCLUDE"; }
       - name: Serve the table function with test hooks on
         run: |
-          printf "ALLOW_TEST_HOOKS=1\nTABLE_TICK_SECRET=ci-tick-secret-0123456789abcdef0123456789\n" > /tmp/functions.env
+          echo "ALLOW_TEST_HOOKS=1" > /tmp/functions.env
           nohup supabase functions serve --env-file /tmp/functions.env > /tmp/functions.log 2>&1 &
       - name: Install test dependencies
         run: npm ci

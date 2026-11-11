@@ -17,7 +17,6 @@ const URL_ = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 // Test hooks (scripted deals, clock offset) exist only on the local test stack
 const TEST_HOOKS = Deno.env.get("ALLOW_TEST_HOOKS") === "1";
-const TICK_SECRET = Deno.env.get("TABLE_TICK_SECRET") || "";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -42,16 +41,27 @@ async function presenceFor(gameId: string, startedAt: number) {
 
 const admin = createClient(URL_, SERVICE_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
 
+// The backstop's shared secret, generated in Vault by a migration; readable
+// only with the service role (public.table_tick_secret()).
+let _tickSecret: string | null = null;
+async function tickSecret() {
+  if (_tickSecret === null) {
+    const { data, error } = await admin.rpc("table_tick_secret");
+    if (error) { console.error("table_tick_secret", error); return ""; }
+    _tickSecret = typeof data === "string" ? data : "";
+  }
+  return _tickSecret;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
   try {
     const token = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
     // The once-a-minute backstop (pg_cron → tick_server_tables) proves itself
-    // with the shared TABLE_TICK_SECRET (or, on the local test stack, the
-    // service key)
-    const tickSecret = req.headers.get("x-tick-secret") || "";
-    if (token === SERVICE_KEY || (TICK_SECRET.length >= 32 && tickSecret === TICK_SECRET)) {
+    // with the tick secret kept in Vault (or with the service key)
+    const tickHeader = req.headers.get("x-tick-secret") || "";
+    if (token === SERVICE_KEY || (tickHeader.length >= 32 && tickHeader === await tickSecret())) {
       const body = await req.json().catch(() => ({}));
       if (body?.action === "tick_all") return json(await tickAll());
       return json({ error: "unknown action" }, 400);
