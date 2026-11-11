@@ -833,6 +833,31 @@ function tableSignature(state) {
   return JSON.stringify({ ...state, players: state.players.map(({ hand, ...rest }) => rest) });
 }
 
+// Re-reads the saved table and shows it if it differs from what's on screen
+// (cards aside: this phone's own cards come from private_hands). Comparing the
+// whole table means a stale or locally changed copy can't stick.
+async function refreshGuestState() {
+  if (!sb || !currentGameId || amHost) return;
+  try {
+    const { data } = await sb.from('games').select('state, host_id').eq('id', currentGameId).maybeSingle();
+    if (!data?.state || !Array.isArray(data.state.players)) return;
+    if (isOlderState(data.state, G)) return; // fetched before a newer update arrived
+    if (tableSignature(data.state) === tableSignature(G)) return;
+    G = data.state;
+    applyMyPrivateHand();
+    renderGame();
+    if (G.stage === 'guts_decision' && G.variant === 'guts3') showGutsDecision();
+    if (G.stage === 'showdown' && G.variant === 'guts3' && G.gutsResults) {
+      const sd = document.getElementById('showdown-overlay');
+      if (!sd || sd.dataset.kind !== 'guts-reveal') showGutsReveal();
+    }
+    if (G.pendingDealerChoice) showDealerChoice();
+    if (G.breakActive) showBreakOverlay(); else hideBreakOverlay();
+    if (G.handNumber > 0) fetchMyPrivateHand(currentGameId, G.handNumber);
+    if (G.stage === 'showdown') setTimeout(offerRebuyIfBroke, 4500);
+  } catch(e) { /* silent */ }
+}
+
 function guestSubscribeToGame(gameId) {
   if (gameSubscription) gameSubscription.unsubscribe();
 
@@ -843,28 +868,7 @@ function guestSubscribeToGame(gameId) {
     if (!sb || !currentGameId || amHost) {
       clearInterval(_guestStatePoller); _guestStatePoller = null; return;
     }
-    try {
-      const { data } = await sb.from('games').select('state, host_id').eq('id', currentGameId).maybeSingle();
-      if (!data?.state || !Array.isArray(data.state.players)) return;
-      if (isOlderState(data.state, G)) return; // fetched before a newer update arrived
-      // Apply whenever the saved table differs from what's on screen (cards
-      // aside: this phone's own cards come from private_hands). Comparing the
-      // whole table means a stale copy can't stick: the next poll corrects it.
-      if (tableSignature(data.state) !== tableSignature(G)) {
-        G = data.state;
-        applyMyPrivateHand();
-        renderGame();
-        if (G.stage === 'guts_decision' && G.variant === 'guts3') showGutsDecision();
-        if (G.stage === 'showdown' && G.variant === 'guts3' && G.gutsResults) {
-          const sd = document.getElementById('showdown-overlay');
-          if (!sd || sd.dataset.kind !== 'guts-reveal') showGutsReveal();
-        }
-        if (G.pendingDealerChoice) showDealerChoice();
-        if (G.breakActive) showBreakOverlay(); else hideBreakOverlay();
-        if (G.handNumber > 0) fetchMyPrivateHand(currentGameId, G.handNumber);
-        if (G.stage === 'showdown') setTimeout(offerRebuyIfBroke, 4500);
-      }
-    } catch(e) { /* silent */ }
+    await refreshGuestState();
   }, 3000);
 
   gameSubscription = sb.channel(`game-state:${gameId}`)
