@@ -291,3 +291,15 @@ test('heartbeats: a player with no heartbeat for 12s is checked/folded 5s into t
   assert.notEqual(s.players[s.actionIndex]?.id, actor.id, 'moved on after 5s');
   assert.equal(s.players.find((p) => p.id === actor.id).lastAction.label, 'Away');
 });
+
+test('backstop auth: tick_all needs the shared tick secret (or the service key)', async () => {
+  const SECRET = process.env.TABLE_TICK_SECRET || 'ci-tick-secret-0123456789abcdef0123456789';
+  const call = (headers) => http('/functions/v1/table', { method: 'POST', headers, body: { action: 'tick_all' } });
+  const ok = await call({ 'x-tick-secret': SECRET });
+  assert.equal(ok.status, 200, JSON.stringify(ok.data));
+  assert.equal(typeof ok.data.ticked, 'number');
+  const wrong = await call({ 'x-tick-secret': SECRET.slice(0, -1) + 'x' });
+  assert.equal(wrong.status, 401, 'a wrong secret is just an unsigned-in caller');
+  const none = await call({});
+  assert.equal(none.status, 401);
+});

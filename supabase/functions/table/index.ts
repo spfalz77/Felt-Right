@@ -17,6 +17,7 @@ const URL_ = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 // Test hooks (scripted deals, clock offset) exist only on the local test stack
 const TEST_HOOKS = Deno.env.get("ALLOW_TEST_HOOKS") === "1";
+const TICK_SECRET = Deno.env.get("TABLE_TICK_SECRET") || "";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -46,8 +47,11 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
   try {
     const token = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
-    // The once-a-minute backstop (pg_cron → tick_server_tables) calls with the service key
-    if (token === SERVICE_KEY) {
+    // The once-a-minute backstop (pg_cron → tick_server_tables) proves itself
+    // with the shared TABLE_TICK_SECRET (or, on the local test stack, the
+    // service key)
+    const tickSecret = req.headers.get("x-tick-secret") || "";
+    if (token === SERVICE_KEY || (TICK_SECRET.length >= 32 && tickSecret === TICK_SECRET)) {
       const body = await req.json().catch(() => ({}));
       if (body?.action === "tick_all") return json(await tickAll());
       return json({ error: "unknown action" }, 400);

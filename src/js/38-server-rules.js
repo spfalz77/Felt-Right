@@ -9,8 +9,25 @@
 // A game's own state says which engine runs it (G.rules === 'server'), so a
 // game started before the switch finishes on the engine it started with.
 //
-// Off on the live site until cutover (phase 6). The E2E tests turn it on.
-const SERVER_RULES = false;
+// Off by default on the live site until cutover (phase 6); the E2E tests turn
+// it on. A phone can opt in for testing with ?server=1 (remembered on that
+// phone; ?server=0 turns it off). Only the host's setting matters: it decides
+// how a game they start is run, and every other phone follows the game.
+const SERVER_RULES_DEFAULT = false;
+const SERVER_RULES = SERVER_RULES_DEFAULT || serverRulesOptIn();
+
+function serverRulesOptIn() {
+  try {
+    const q = new URLSearchParams(location.search).get('server');
+    if (q === '1') localStorage.setItem('fr_server_rules', '1');
+    if (q === '0') localStorage.removeItem('fr_server_rules');
+    return localStorage.getItem('fr_server_rules') === '1';
+  } catch (e) { return false; }
+}
+// Tell a phone that opted in, so a test session knows which engine it's on
+if (SERVER_RULES && !SERVER_RULES_DEFAULT) {
+  setTimeout(() => { if (typeof toast === 'function') toast('Server rules on (test): games you host run on the server'); }, 1500);
+}
 
 let gameHostId = null;          // the lobby owner of the current game
 let _serverClockOffsetMs = 0;   // server clock − this phone's clock (from replies)
