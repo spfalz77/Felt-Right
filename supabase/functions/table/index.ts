@@ -41,13 +41,27 @@ async function presenceFor(gameId: string, startedAt: number) {
 
 const admin = createClient(URL_, SERVICE_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
 
+// The backstop's shared secret, generated in Vault by a migration; readable
+// only with the service role (public.table_tick_secret()).
+let _tickSecret: string | null = null;
+async function tickSecret() {
+  if (_tickSecret === null) {
+    const { data, error } = await admin.rpc("table_tick_secret");
+    if (error) { console.error("table_tick_secret", error); return ""; }
+    _tickSecret = typeof data === "string" ? data : "";
+  }
+  return _tickSecret;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
   try {
     const token = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
-    // The once-a-minute backstop (pg_cron → tick_server_tables) calls with the service key
-    if (token === SERVICE_KEY) {
+    // The once-a-minute backstop (pg_cron → tick_server_tables) proves itself
+    // with the tick secret kept in Vault (or with the service key)
+    const tickHeader = req.headers.get("x-tick-secret") || "";
+    if (token === SERVICE_KEY || (tickHeader.length >= 32 && tickHeader === await tickSecret())) {
       const body = await req.json().catch(() => ({}));
       if (body?.action === "tick_all") return json(await tickAll());
       return json({ error: "unknown action" }, 400);
