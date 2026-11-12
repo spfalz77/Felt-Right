@@ -844,6 +844,7 @@ async function refreshGuestState() {
     if (isOlderState(data.state, G)) return; // fetched before a newer update arrived
     if (tableSignature(data.state) === tableSignature(G)) return;
     G = data.state;
+    if (G.tournamentOver && G.abandoned) { showCalledOff(); return; }
     applyMyPrivateHand();
     renderGame();
     if (G.stage === 'guts_decision' && G.variant === 'guts3') showGutsDecision();
@@ -917,6 +918,8 @@ function guestSubscribeToGame(gameId) {
       }
 
       G = row.state;
+      // Called off: leave before anything else tries to draw a table that has ended
+      if (G.tournamentOver && G.abandoned) { showCalledOff(); return; }
       if (row.blind_config) {
         BLIND_LEVELS = row.blind_config.levels || BLIND_LEVELS;
         blindDurationSeconds = row.blind_config.duration || blindDurationSeconds;

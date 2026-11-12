@@ -387,7 +387,21 @@ function endTournament() {
   showTournamentOverlay(winner);
 }
 
+// A tournament that was called off has no winner and records nothing: say so
+// and go back Home (once per game).
+let _calledOffShownFor = null;
+function showCalledOff() {
+  if (!currentGameId || _calledOffShownFor === currentGameId) return;
+  _calledOffShownFor = currentGameId;
+  const sd = document.getElementById('showdown-overlay');
+  if (sd) sd.style.display = 'none';
+  hidePauseOverlay();
+  toast('Tournament called off — nothing recorded');
+  setTimeout(goHome, 2500);
+}
+
 function showTournamentOverlay(winner) {
+  if (G?.abandoned) { showCalledOff(); return; }
   const overlay = document.getElementById('tourney-overlay');
   overlay.style.display = 'flex';
   const iWon = winner?.id === me.id;
@@ -505,8 +519,9 @@ function goHome() {
   if (backdrop) backdrop.style.display = 'none';
   updateChatBadge();
   clearInterval(_migrationCountdown); _migrationCountdown = null;
-  clearInterval(_invitePollInterval); _invitePollInterval = null;
-  if (inviteSubscription) { /* keep listening for invites on home screen */ }
+  // Keep listening for invites on Home (this used to stop the 10s invite poll
+  // for good, leaving only the realtime feed)
+  if (me && me.id !== 'demo' && sb) subscribeToInvites();
   if (gameSubscription)   { gameSubscription.unsubscribe();   gameSubscription = null; }
   if (lobbySubscription)  { lobbySubscription.unsubscribe();  lobbySubscription = null; }
   if (actionSubscription) { actionSubscription.unsubscribe(); actionSubscription = null; }

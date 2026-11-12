@@ -144,7 +144,7 @@ Deno.serve(async (req) => {
 // Marks the state so every phone shows "Recorded to ledger".
 // deno-lint-ignore no-explicit-any
 function endsTournament(G: any, wasOver: boolean) {
-  if (wasOver || !G.tournamentOver || G.format === "home") return false;
+  if (wasOver || !G.tournamentOver || G.format === "home" || G.abandoned) return false;
   G.ledgerRecorded = true;
   return true;
 }

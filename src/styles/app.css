@@ -183,7 +183,15 @@ h3 { font-size: 1rem; font-weight: 600; }
   background: var(--surface); border-radius: 20px 20px 0 0;
   padding: 20px 20px calc(20px + var(--safe-bot));
   width: 100%; max-width: 480px;
+  /* A tall sheet (New Game) scrolls instead of running off the screen */
+  max-height: calc(100dvh - 16px); overflow-y: auto; overscroll-behavior: contain;
+  position: relative;
   transform: translateY(100%); transition: transform 0.3s ease;
+}
+.modal-close {
+  position: absolute; top: 12px; right: 14px; width: 36px; height: 36px;
+  border: none; border-radius: 50%; background: transparent; color: var(--text-dim);
+  font-size: 1.1rem; line-height: 36px; cursor: pointer;
 }
 .modal-backdrop.open .modal-sheet { transform: translateY(0); }
 .modal-handle { width: 36px; height: 4px; background: var(--border); border-radius: 2px; margin: 0 auto 20px; }

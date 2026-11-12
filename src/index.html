@@ -133,7 +133,7 @@
     <!-- Admin toolbar -->
     <div id="admin-bar" style="display:none;padding:0 16px 8px;display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn btn-surface btn-sm" onclick="archiveMyGames()" style="font-size:0.75rem">📦 Archive Finished</button>
-      <button id="admin-kill-btn" class="btn btn-surface btn-sm" onclick="killStuckGames()" style="font-size:0.75rem;color:var(--red-light);display:none">🗑 Kill Stuck Games</button>
+      <button id="admin-kill-btn" class="btn btn-surface btn-sm" onclick="killStuckGames()" style="font-size:0.75rem;color:var(--red-light);display:none">⏹ End My Stuck Games</button>
     </div>
     <div class="section-head" style="display:flex;align-items:center;justify-content:space-between;padding-right:16px">
       <span>Games</span>
@@ -578,6 +578,7 @@
 <div class="modal-backdrop" id="modal-create-game" onclick="closeModal('modal-create-game')">
   <div class="modal-sheet" onclick="event.stopPropagation()">
     <div class="modal-handle"></div>
+    <button class="modal-close" type="button" aria-label="Close" onclick="closeModal('modal-create-game')">✕</button>
     <div class="modal-title">New Game</div>
     <div class="input-group">
       <div class="input-label">Game Name</div>
@@ -635,6 +636,7 @@
       <span id="create-game-summary">Sit & Go · Texas Hold'em · 1500 chips</span>
     </div>
     <button class="btn btn-primary btn-full" onclick="createGame()">Create Game</button>
+    <button class="btn btn-ghost btn-full" id="create-game-cancel" onclick="closeModal('modal-create-game')" style="margin-top:8px">Cancel</button>
   </div>
 </div>
 

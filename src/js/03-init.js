@@ -27,13 +27,19 @@ async function init() {
     if (!me) return;
     me.email = session.user.email;
 
-    // Look for active games this user is playing
+    // Look for an active game this user is still playing in. Not one they quit
+    // (a tournament quitter is "away", blinding out) or were knocked out of:
+    // those stay on Home, where the game card offers Sit Back Down.
     const { data: activeGames } = await sb.from('game_players')
-      .select('game:games(id, status)')
+      .select('game:games!inner(id, status, state)')
       .eq('user_id', me.id)
-      .limit(5);
+      .eq('game.status', 'active');
 
-    const activeGame = (activeGames || []).find(g => g.game?.status === 'active');
+    const stillPlaying = (g) => {
+      const mine = g.game?.state?.players?.find?.(p => p.id === me.id);
+      return !mine || (!mine.awayFromTable && !mine.eliminated && mine.cashedOutCents == null);
+    };
+    const activeGame = (activeGames || []).find(g => g.game?.status === 'active' && stillPlaying(g));
 
     if (activeGame) {
       // Check if user has explicitly left this game — don't auto-rejoin
