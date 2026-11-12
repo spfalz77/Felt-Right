@@ -100,8 +100,8 @@ jobs:
           FILTER: ${{ github.event.inputs.filter || '' }}
         run: |
           eval "$(supabase status -o env | sed 's/^/export /')"
-          SUPABASE_URL="$API_URL" SUPABASE_ANON_KEY="$ANON_KEY" SUPABASE_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY" \
           SPECS="${FILTER:-home-game side-pots tournament.spec quit rebuys variants chop dealer-choice break-addon turn-timer disconnect-rejoin pause-calloff}"
+          SUPABASE_URL="$API_URL" SUPABASE_ANON_KEY="$ANON_KEY" SUPABASE_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY" \
           E2E_SERVER_RULES=1 npx playwright test $SPECS --repeat-each "${REPEAT:-1}"
       - name: Function logs
         if: always()
