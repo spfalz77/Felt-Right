@@ -1213,6 +1213,16 @@ window.__dbgLogs = [];
           <div style="font-family:'Bebas Neue',sans-serif;font-size:1rem;letter-spacing:0.08em">Omaha</div>
           <div style="font-size:0.7rem;color:var(--text-dim);margin-top:2px">4 hole cards</div>
         </button>
+        <button id="variant-pineapple" onclick="selectGameVariant('pineapple')" type="button"
+          class="format-btn server-only-variant" style="display:none">
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:1rem;letter-spacing:0.08em">Pineapple</div>
+          <div style="font-size:0.7rem;color:var(--text-dim);margin-top:2px">3 cards · discard 1 first</div>
+        </button>
+        <button id="variant-crazy_pineapple" onclick="selectGameVariant('crazy_pineapple')" type="button"
+          class="format-btn server-only-variant" style="display:none">
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:1rem;letter-spacing:0.08em">Crazy Pineapple</div>
+          <div style="font-size:0.7rem;color:var(--text-dim);margin-top:2px">3 cards · discard 1 after flop</div>
+        </button>
       </div>
     </div>
 
@@ -1380,6 +1390,34 @@ function evalBestOmaha(hole, comm) {
   return best;
 }
 
+// Pineapple: which of 3 hole cards to throw away when the player doesn't pick.
+// With a flop out, keep the two that make the best hand with it; before the
+// flop, keep a pair, else the two that rank highest (suited/connected helps).
+function autoDiscardIndex(hand, community) {
+  if (!hand || hand.length < 3) return 0;
+  const without = (i) => hand.filter((_, j) => j !== i);
+  if (community && community.length >= 3) {
+    let bestI = 0, best = null;
+    for (let i = 0; i < hand.length; i++) {
+      const s = evalBest(without(i), community, 'holdem');
+      if (!best || cmpScore(s, best) > 0) { best = s; bestI = i; }
+    }
+    return bestI;
+  }
+  const v = (c) => RANK_VAL[c.rank];
+  const keepScore = ([a, b]) => {
+    const hi = Math.max(v(a), v(b)), lo = Math.min(v(a), v(b));
+    if (hi === lo) return 100 + hi;
+    return hi * 2 + lo + (a.suit === b.suit ? 3 : 0) + (hi - lo === 1 ? 1 : 0);
+  };
+  let bestI = 0, best = -1;
+  for (let i = 0; i < hand.length; i++) {
+    const s = keepScore(without(i));
+    if (s > best) { best = s; bestI = i; }
+  }
+  return bestI;
+}
+
 function cmpScore(a, b) {
   if (a.rank !== b.rank) return a.rank - b.rank;
   for (let i = 0; i < a.tieVals.length; i++) if (a.tieVals[i] !== b.tieVals[i]) return a.tieVals[i] - b.tieVals[i];
@@ -1512,6 +1550,32 @@ const VARIANTS = {
     style: 'community',
     homeOnly: false,
   },
+  // Pineapple family: 3 hole cards, discard 1, then play as Hold'em (best 5 of 7).
+  // discardAt: 'preflop' = everyone discards right after the deal, before the
+  // first betting round; 'flop' = after the flop is dealt, before flop betting.
+  // serverOnly: needs the server engine (the phone-run engine can't discard).
+  pineapple: {
+    name: 'Pineapple',
+    short: 'PINEAPPLE',
+    holeCards: 3,
+    keepCards: 2,
+    discardAt: 'preflop',
+    description: '3 hole cards · discard 1 before betting',
+    style: 'community',
+    homeOnly: false,
+    serverOnly: true,
+  },
+  crazy_pineapple: {
+    name: 'Crazy Pineapple',
+    short: 'CRAZY PINEAPPLE',
+    holeCards: 3,
+    keepCards: 2,
+    discardAt: 'flop',
+    description: '3 hole cards · discard 1 after the flop',
+    style: 'community',
+    homeOnly: false,
+    serverOnly: true,
+  },
   guts3: {
     name: '3-Card Guts',
     short: 'GUTS',
@@ -1524,6 +1588,9 @@ const VARIANTS = {
     matchPotFraction: 1.0,
   },
 };
+
+// Seconds everyone gets to pick a discard (Pineapple variants), else one is picked for them
+const DISCARD_SECONDS = 20;
 
 // Blinds for a level index, from a blind structure. Beyond the defined
 // structure, keep doubling from the last level.
@@ -2473,7 +2540,8 @@ function onRebuysToggle(checked) {
 function selectGameVariant(variant) {
   gameVariant = variant;
   document.getElementById('variant-holdem')?.classList.toggle('format-selected', variant === 'holdem');
-  document.getElementById('variant-omaha')?.classList.toggle('format-selected', variant === 'omaha');
+  ['omaha', 'pineapple', 'crazy_pineapple'].forEach((v) =>
+    document.getElementById('variant-' + v)?.classList.toggle('format-selected', variant === v));
   updateCreateGameSummary();
 }
 
@@ -4157,6 +4225,7 @@ function applyMyPrivateHand() {
   if (!myP) return;
   // Replace redacted hidden cards with real ones
   if (myP.hand && myP.hand.length && myP.hand.every(c => c?.hidden)) {
+    if (myP.hand.length !== _myPrivateHand.cards.length) return; // a discard: newer cards are on the way
     myP.hand = _myPrivateHand.cards;
   } else if (!myP.hand?.length) {
     myP.hand = _myPrivateHand.cards;
@@ -4625,6 +4694,7 @@ function guestSubscribeToGame(gameId) {
       const prevActionIndex = G?.actionIndex;
       const prevMyChips = G?.players?.find(p => p.id === me.id)?.chips ?? null;
       const prevStage = G?.stage;
+      const prevDealSeq = G?.dealSeq;
 
       // Host changed (migration happened) — update our role accordingly
       let justPromoted = false;
@@ -4790,9 +4860,12 @@ function guestSubscribeToGame(gameId) {
       // Also re-fetch private hand if we entered a play stage (preflop/guts_decision)
       // from a non-play stage (dealer pick) — handNumber may not have changed but
       // the host just dealt cards and wrote new private_hands rows.
-      const isPlayStage = ['preflop', 'guts_decision'].includes(G.stage);
-      const wasPlayStage = ['preflop', 'guts_decision'].includes(prevStage);
+      const isPlayStage = ['preflop', 'guts_decision', 'discard'].includes(G.stage);
+      const wasPlayStage = ['preflop', 'guts_decision', 'discard'].includes(prevStage);
       if (isPlayStage && !wasPlayStage && G.handNumber > 0) {
+        fetchMyPrivateHand(gameId, G.handNumber);
+      } else if (isServerGame() && G.dealSeq !== prevDealSeq && G.handNumber === prevHandNumber && G.handNumber > 0) {
+        // Same hand, new cards (a Pineapple discard)
         fetchMyPrivateHand(gameId, G.handNumber);
       }
 
@@ -4977,6 +5050,14 @@ function showDealerChoice() {
         <div style="font-size:0.7rem;color:var(--text-dim);margin-top:10px">
           No pick in ${DEALER_CHOICE_SECONDS}s → Hold'em is dealt</div>`;
 
+  // Pineapple variants need the server engine (it runs the discards)
+  const pineappleButtons = isServerGame() ? ['pineapple', 'crazy_pineapple'].map((v) => `
+          <button onclick="dealerPickedVariant('${v}')" class="format-btn"
+            style="padding:14px 12px;cursor:pointer;text-align:left">
+            <div style="font-family:'Bebas Neue',sans-serif;font-size:1.05rem;letter-spacing:0.08em">${VARIANTS[v].name}</div>
+            <div style="font-size:0.68rem;color:var(--text-dim);margin-top:2px">${VARIANTS[v].description}</div>
+          </button>`).join('') : '';
+
   if (isDealer) {
     overlay.innerHTML = `
       <div class="showdown-bar" style="max-width:380px">
@@ -5000,7 +5081,7 @@ function showDealerChoice() {
             style="padding:14px 12px;cursor:pointer;text-align:left">
             <div style="font-family:'Bebas Neue',sans-serif;font-size:1.05rem;letter-spacing:0.08em">3-Card Guts</div>
             <div style="font-size:0.68rem;color:var(--text-dim);margin-top:2px">In/out · match full pot · 10¢ ante</div>
-          </button>
+          </button>${pineappleButtons}
         </div>${autoNote}${hostEndBtn}
       </div>`;
   } else {
@@ -5072,8 +5153,8 @@ function dealerPickedVariant(variant) {
     proceedToDeal();
   } else {
     // Guest dealer: submit choice to host via player_actions.
-    // Variant encoded in `amount`: 1=holdem, 2=omaha, 3=guts3 (target_id is a UUID column).
-    const variantCode = { holdem: 1, omaha: 2, guts3: 3 }[variant] || 1;
+    // Variant encoded in `amount`: 1=holdem, 2=omaha, 3=guts3, 4=pineapple, 5=crazy_pineapple (target_id is a UUID column).
+    const variantCode = { holdem: 1, omaha: 2, guts3: 3, pineapple: 4, crazy_pineapple: 5 }[variant] || 1;
     if (sb && currentGameId) {
       postAction({
         game_id: currentGameId,
@@ -5887,8 +5968,8 @@ function renderGame() {
     document.getElementById('pot-display').textContent = `POT: ${formatChips(G.pot)}`;
   }
 
-  const stages = { preflop:'PRE-FLOP', flop:'FLOP', turn:'TURN', river:'RIVER', showdown:'SHOWDOWN' };
-  const variantTag = G.variant === 'omaha' ? ' · OMAHA' : '';
+  const stages = { preflop:'PRE-FLOP', flop:'FLOP', turn:'TURN', river:'RIVER', showdown:'SHOWDOWN', discard:'DISCARD' };
+  const variantTag = ['omaha', 'pineapple', 'crazy_pineapple'].includes(G.variant) ? ' · ' + VARIANTS[G.variant].short : '';
   document.getElementById('stage-label').textContent = (stages[G.stage]||G.stage.toUpperCase()) + variantTag;
 
   // My hand
@@ -6067,6 +6148,13 @@ function makeCardEl(card, hidden, lg, animKey) {
 function renderActionBar() {
   const bar = document.getElementById('action-bar');
   const slider = document.getElementById('bet-slider-row');
+
+  // Pineapple discard: pick a card (managed by showDiscardPicker)
+  if (G.stage === 'discard') {
+    if (slider) slider.style.display = 'none';
+    showDiscardPicker();
+    return;
+  }
 
   // Guts decision stage uses its own action-bar content (managed by showGutsDecision)
   if (G.stage === 'guts_decision') {
@@ -10391,7 +10479,7 @@ async function callTable(gameId, action, amount, extra) {
 // ones the server handles go to the table instead; everything else (nudges,
 // and moves the server doesn't run yet) is still inserted as before.
 // Same return shape as an insert: a promise of { error }.
-const _variantByCode = { 1: 'holdem', 2: 'omaha', 3: 'guts3' };
+const _variantByCode = { 1: 'holdem', 2: 'omaha', 3: 'guts3', 4: 'pineapple', 5: 'crazy_pineapple' };
 function toServerAction(row) {
   const a = row.action;
   if (['fold', 'check', 'call', 'raise', 'twobet', 'twobb', 'threebb', 'pot', 'allin'].includes(a)) return [a, row.amount];
@@ -10492,6 +10580,8 @@ function startServerTicker(gameId) {
       G.breakActive ? null : G.nextDealAt,
       G.pendingDealerChoice ? G.dealerChoiceDeadline : null,
       G.stage === 'guts_decision' ? G.gutsDeadlineMs : null,
+      G.stage === 'discard' ? G.discardDeadline : null,
+      G.stage === 'discard' && G.discardStartMs && discardWaitingOn().some((p) => !isPlayerOnline(p.id)) ? G.discardStartMs + 5000 : null,
       levelEndsAt,
     ].some((t) => t && serverNow() >= t);
     if (!due || Date.now() - _lastTickAt < 2000) return;
@@ -10521,6 +10611,97 @@ function queueRiggedDeal(rig) {
   (window.__feltRightRiggedHands ||= []).push(rig);
   return Promise.resolve({ error: null });
 }
+// ════════════════════════════════════════════════════════════════════════════
+// PINEAPPLE / CRAZY PINEAPPLE — DISCARD
+// ════════════════════════════════════════════════════════════════════════════
+// Server games only. Everyone still in the hand throws away one of their 3
+// hole cards at the same time (Pineapple: right after the deal; Crazy
+// Pineapple: once the flop is out). The server picks for anyone who doesn't
+// answer in time (DISCARD_SECONDS), then the hand plays on as Hold'em.
+let _discardTimer = null;
+let _discardRenderKey = null;
+let _discardSending = false;
+
+// Players who still hold 3 cards this hand
+function discardWaitingOn() {
+  if (!G || G.stage !== 'discard') return [];
+  const keep = (VARIANTS[G.variant] || {}).keepCards || 2;
+  return G.players.filter(p => !p.folded && !p.eliminated && (p.hand || []).length > keep);
+}
+
+function showDiscardPicker() {
+  const bar = document.getElementById('action-bar');
+  if (!bar || !G || G.stage !== 'discard') return;
+  const autoBar = document.getElementById('auto-action-bar');
+  if (autoBar) autoBar.innerHTML = '';
+  const waiting = discardWaitingOn();
+  const inHand = G.players.filter(p => !p.folded && !p.eliminated);
+  const myP = G.players.find(p => p.id === me.id);
+  const mine = myP && waiting.includes(myP) && myP.hand.every(c => c && c.rank) ? myP.hand : null;
+  const key = `${G.handNumber}|${G.dealSeq}|${mine ? mine.map(c => c.rank + c.suit).join(',') : '-'}|${waiting.length}|${_discardSending}`;
+  if (key !== _discardRenderKey) {
+    _discardRenderKey = key;
+    const done = inHand.length - waiting.length;
+    const when = (VARIANTS[G.variant] || {}).discardAt === 'flop' ? 'Flop’s out — ' : '';
+    if (mine && !_discardSending) {
+      const cardsHtml = mine.map((c, i) => `
+        <button onclick="discardCard(${i})" class="card lg ${isRed(c) ? 'red' : 'black'}"
+          style="cursor:pointer;border:none;padding:0;position:relative" aria-label="Discard ${c.rank}${c.suit}">
+          <div class="card-top"><div class="card-rank">${c.rank}</div><div class="card-suit">${c.suit}</div></div>
+          <div class="card-center">${c.suit}</div>
+          <div class="card-bot"><div class="card-rank">${c.rank}</div><div class="card-suit">${c.suit}</div></div>
+        </button>`).join('');
+      bar.innerHTML = `
+        <div style="grid-column:1/-1;text-align:center;padding:6px 8px">
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:1.05rem;letter-spacing:0.1em;color:var(--gold)">
+            ${when}TAP A CARD TO DISCARD</div>
+          <div id="discard-cards" style="display:flex;gap:10px;justify-content:center;margin:8px 0">${cardsHtml}</div>
+          <div id="discard-timer-text" style="font-family:'Bebas Neue',sans-serif;color:var(--gold-pale);font-size:0.9rem">⏱ —</div>
+        </div>`;
+    } else {
+      bar.innerHTML = `
+        <div style="grid-column:1/-1;text-align:center;padding:8px">
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:1.05rem;letter-spacing:0.1em;color:var(--text-dim)">
+            ${myP && waiting.includes(myP) ? 'DEALING…' : myP && inHand.includes(myP) ? 'DISCARDED' : 'DISCARDING'}</div>
+          <div style="font-size:0.72rem;color:var(--text-dim);margin-top:4px">
+            Waiting for others… ${done}/${inHand.length} discarded</div>
+          <div id="discard-timer-text" style="font-family:'Bebas Neue',sans-serif;color:var(--gold-pale);margin-top:6px;font-size:0.95rem">⏱ —</div>
+        </div>`;
+    }
+  }
+  updateDiscardTimer();
+  if (!_discardTimer) {
+    _discardTimer = setInterval(() => {
+      if (!G || G.stage !== 'discard') { clearInterval(_discardTimer); _discardTimer = null; _discardRenderKey = null; return; }
+      updateDiscardTimer();
+    }, 1000);
+  }
+}
+
+function updateDiscardTimer() {
+  const el = document.getElementById('discard-timer-text');
+  if (!el || !G?.discardDeadline) return;
+  const secLeft = Math.max(0, Math.ceil((G.discardDeadline - serverNow()) / 1000));
+  el.style.color = secLeft < 5 ? 'var(--red-light)' : 'var(--gold-pale)';
+  el.textContent = `⏱ ${secLeft}s · then one is picked for you`;
+}
+
+async function discardCard(index) {
+  if (!G || G.stage !== 'discard' || _discardSending || !isServerGame()) return;
+  _discardSending = true;
+  showDiscardPicker();
+  const { error } = await callTable(currentGameId, 'discard', index);
+  _discardSending = false;
+  if (error) { toast(error); _discardRenderKey = null; refreshGuestState(); return; }
+  // Show my two cards right away; the server's copy follows
+  if (_myPrivateHand && _myPrivateHand.handNumber === G.handNumber && _myPrivateHand.cards.length === 3) {
+    _myPrivateHand = { ..._myPrivateHand, cards: _myPrivateHand.cards.filter((_, i) => i !== index) };
+  }
+  if (G.handNumber > 0) fetchMyPrivateHand(currentGameId, G.handNumber);
+}
+
+// Tournament create screen: Pineapple variants only for games this phone runs on the server
+document.querySelectorAll('.server-only-variant').forEach((el) => { el.style.display = SERVER_RULES ? '' : 'none'; });
 </script>
 
 <!-- Global Chat slide-up panel (outside all screens so it works in lobby AND game) -->

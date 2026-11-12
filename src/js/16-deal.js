@@ -79,6 +79,14 @@ function showDealerChoice() {
         <div style="font-size:0.7rem;color:var(--text-dim);margin-top:10px">
           No pick in ${DEALER_CHOICE_SECONDS}s → Hold'em is dealt</div>`;
 
+  // Pineapple variants need the server engine (it runs the discards)
+  const pineappleButtons = isServerGame() ? ['pineapple', 'crazy_pineapple'].map((v) => `
+          <button onclick="dealerPickedVariant('${v}')" class="format-btn"
+            style="padding:14px 12px;cursor:pointer;text-align:left">
+            <div style="font-family:'Bebas Neue',sans-serif;font-size:1.05rem;letter-spacing:0.08em">${VARIANTS[v].name}</div>
+            <div style="font-size:0.68rem;color:var(--text-dim);margin-top:2px">${VARIANTS[v].description}</div>
+          </button>`).join('') : '';
+
   if (isDealer) {
     overlay.innerHTML = `
       <div class="showdown-bar" style="max-width:380px">
@@ -102,7 +110,7 @@ function showDealerChoice() {
             style="padding:14px 12px;cursor:pointer;text-align:left">
             <div style="font-family:'Bebas Neue',sans-serif;font-size:1.05rem;letter-spacing:0.08em">3-Card Guts</div>
             <div style="font-size:0.68rem;color:var(--text-dim);margin-top:2px">In/out · match full pot · 10¢ ante</div>
-          </button>
+          </button>${pineappleButtons}
         </div>${autoNote}${hostEndBtn}
       </div>`;
   } else {
@@ -174,8 +182,8 @@ function dealerPickedVariant(variant) {
     proceedToDeal();
   } else {
     // Guest dealer: submit choice to host via player_actions.
-    // Variant encoded in `amount`: 1=holdem, 2=omaha, 3=guts3 (target_id is a UUID column).
-    const variantCode = { holdem: 1, omaha: 2, guts3: 3 }[variant] || 1;
+    // Variant encoded in `amount`: 1=holdem, 2=omaha, 3=guts3, 4=pineapple, 5=crazy_pineapple (target_id is a UUID column).
+    const variantCode = { holdem: 1, omaha: 2, guts3: 3, pineapple: 4, crazy_pineapple: 5 }[variant] || 1;
     if (sb && currentGameId) {
       postAction({
         game_id: currentGameId,

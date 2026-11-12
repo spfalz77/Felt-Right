@@ -232,6 +232,17 @@ export async function botStep(p, strategy = () => 'checkcall') {
     const gbtn = page.locator(`button[onclick="gutsDecide('${choice}')"]`);
     return (await tap(gbtn.first())) && `guts ${choice}`;
   }
+  // Pineapple discard: everyone at once; strategy returns 'discard0' / 'discard1' / 'discard2'
+  if (v?.stage === 'discard') {
+    const m = /^discard(\d)$/.exec(strategy(v) || '');
+    if (!m) return null;
+    const dbtn = page.locator(`#discard-cards button[onclick="discardCard(${m[1]})"]`);
+    if (!(await dbtn.count())) return null; // cards not on screen yet, or already discarded
+    const dkey = `${v.hand}:discard`;
+    if (p.lastTurnKey === dkey && Date.now() - p.lastTapAt < 5_000) return null;
+    p.lastTurnKey = dkey; p.lastTapAt = Date.now();
+    return (await tap(dbtn.first())) && `discard ${m[1]}`;
+  }
   if (!v || !v.myTurn || !['preflop', 'flop', 'turn', 'river'].includes(v.stage)) return null;
   const plan = strategy(v);
   if (plan === 'idle') return null; // leave the phone alone (timer tests)

@@ -65,6 +65,32 @@ export const VARIANTS = {
     style: 'community',
     homeOnly: false,
   },
+  // Pineapple family: 3 hole cards, discard 1, then play as Hold'em (best 5 of 7).
+  // discardAt: 'preflop' = everyone discards right after the deal, before the
+  // first betting round; 'flop' = after the flop is dealt, before flop betting.
+  // serverOnly: needs the server engine (the phone-run engine can't discard).
+  pineapple: {
+    name: 'Pineapple',
+    short: 'PINEAPPLE',
+    holeCards: 3,
+    keepCards: 2,
+    discardAt: 'preflop',
+    description: '3 hole cards · discard 1 before betting',
+    style: 'community',
+    homeOnly: false,
+    serverOnly: true,
+  },
+  crazy_pineapple: {
+    name: 'Crazy Pineapple',
+    short: 'CRAZY PINEAPPLE',
+    holeCards: 3,
+    keepCards: 2,
+    discardAt: 'flop',
+    description: '3 hole cards · discard 1 after the flop',
+    style: 'community',
+    homeOnly: false,
+    serverOnly: true,
+  },
   guts3: {
     name: '3-Card Guts',
     short: 'GUTS',
@@ -77,6 +103,9 @@ export const VARIANTS = {
     matchPotFraction: 1.0,
   },
 };
+
+// Seconds everyone gets to pick a discard (Pineapple variants), else one is picked for them
+export const DISCARD_SECONDS = 20;
 
 // Blinds for a level index, from a blind structure. Beyond the defined
 // structure, keep doubling from the last level.

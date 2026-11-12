@@ -122,6 +122,34 @@ export function evalBestOmaha(hole, comm) {
   return best;
 }
 
+// Pineapple: which of 3 hole cards to throw away when the player doesn't pick.
+// With a flop out, keep the two that make the best hand with it; before the
+// flop, keep a pair, else the two that rank highest (suited/connected helps).
+export function autoDiscardIndex(hand, community) {
+  if (!hand || hand.length < 3) return 0;
+  const without = (i) => hand.filter((_, j) => j !== i);
+  if (community && community.length >= 3) {
+    let bestI = 0, best = null;
+    for (let i = 0; i < hand.length; i++) {
+      const s = evalBest(without(i), community, 'holdem');
+      if (!best || cmpScore(s, best) > 0) { best = s; bestI = i; }
+    }
+    return bestI;
+  }
+  const v = (c) => RANK_VAL[c.rank];
+  const keepScore = ([a, b]) => {
+    const hi = Math.max(v(a), v(b)), lo = Math.min(v(a), v(b));
+    if (hi === lo) return 100 + hi;
+    return hi * 2 + lo + (a.suit === b.suit ? 3 : 0) + (hi - lo === 1 ? 1 : 0);
+  };
+  let bestI = 0, best = -1;
+  for (let i = 0; i < hand.length; i++) {
+    const s = keepScore(without(i));
+    if (s > best) { best = s; bestI = i; }
+  }
+  return bestI;
+}
+
 export function cmpScore(a, b) {
   if (a.rank !== b.rank) return a.rank - b.rank;
   for (let i = 0; i < a.tieVals.length; i++) if (a.tieVals[i] !== b.tieVals[i]) return a.tieVals[i] - b.tieVals[i];

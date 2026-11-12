@@ -11,8 +11,8 @@
 //         isGone?: (playerId) => true if their app is closed/offline (from heartbeats) }
 // Nothing here touches the network, the DOM or the clock.
 
-import { makeDeck, evalBest, evalBest3Card, cmpScore } from './cards.js';
-import { FORMATS, VARIANTS, blindsAt } from './config.js';
+import { makeDeck, evalBest, evalBest3Card, cmpScore, autoDiscardIndex } from './cards.js';
+import { FORMATS, VARIANTS, DISCARD_SECONDS, blindsAt } from './config.js';
 import { buildSidePots } from './side-pots.js';
 
 export const FIRST_DEAL_MS = 2000;          // start → first hand
@@ -23,6 +23,7 @@ export const RESUME_DEAL_MS = 1500;         // pause/break over → next hand
 export const BREAK_AFTER_LEVELS = 4;        // tournament with re-buys: first break, then re-buys close
 export const TURN_MS = 32000;               // a turn: 30s on the player's screen + 2s grace, then check/fold
 export const AWAY_GRACE_MS = 5000;          // a player who's gone (app closed/offline) is checked/folded after 5s
+export const DISCARD_MS = DISCARD_SECONDS * 1000; // Pineapple: everyone picks a discard, else one is picked for them
 
 const BETTING = ['preflop', 'flop', 'turn', 'river'];
 const RAISES = ['raise', 'twobet', 'twobb', 'threebb', 'pot', 'allin'];
@@ -66,7 +67,7 @@ export function newGame({ seats, format, variant, rebuysEnabled, blindLevels, bl
     dealerId: null, dealerPos: -1, sbIdx: -1, bbIdx: -1,
     finalPlacements: [],
     format: f,
-    variant: f === 'tournament' && variant === 'omaha' ? 'omaha' : 'holdem',
+    variant: f === 'tournament' && VARIANTS[variant] && !VARIANTS[variant].homeOnly ? variant : 'holdem',
     rebuysEnabled: f === 'home' ? true : !!rebuysEnabled,
     rebuyWindowClosed: false,
     breakActive: false,
@@ -140,7 +141,7 @@ function endBreak(G, ctx) {
   G.levelStartedAt = ctx.now;
   // Anyone still deciding on a re-buy can't any more: they're out
   G.players.filter((p) => p.broke && !p.eliminated).forEach((p) => sitOut(G, p));
-  if (!isBetting(G) && G.stage !== 'guts_decision') G.nextDealAt = ctx.now + RESUME_DEAL_MS;
+  if (!isBetting(G) && G.stage !== 'guts_decision' && G.stage !== 'discard') G.nextDealAt = ctx.now + RESUME_DEAL_MS;
 }
 export const currentBlinds = (G) => blindsAt(G.blindLevels, fmt(G).blindsEscalate ? G.blindLevel : 0);
 
@@ -228,6 +229,7 @@ function proceedToDeal(G, ctx) {
   G.winnerMucked = false;
   G.chopOfferedBy = null;
   G.paidOutHand = null;
+  G.discards = {}; G.discardThen = null; G.discardDeadline = null;
   G.deck = makeDeck(ctx.rng);
   G.players.forEach((p) => {
     p.hand = []; p.bet = 0; p.totalBet = 0; p.folded = false; p.allIn = false;
@@ -256,10 +258,69 @@ function proceedToDeal(G, ctx) {
   postBlind(G, sbIdx, blinds.small);
   postBlind(G, bbIdx, blinds.big);
   G.players[sbIdx].lastAction = { type: 'bet', label: `SB ${blinds.small}` };
-  setActor(G, eligible.length === 2 ? sbIdx : nextActive(G, bbIdx), ctx);
+  const firstToAct = eligible.length === 2 ? sbIdx : nextActive(G, bbIdx);
+  if (vCfg.discardAt === 'preflop') { startDiscard(G, 'preflop', firstToAct, ctx); return; }
+  startPreflopBetting(G, firstToAct, ctx);
+}
+
+function startPreflopBetting(G, idx, ctx) {
+  G.stage = 'preflop';
+  setActor(G, idx, ctx);
   // Blinds put everyone all-in (or left nobody able to act)
   const canAct = G.players.filter((p) => !p.folded && !p.eliminated && !p.allIn);
   if (isBetting(G) && canAct.length === 0) runOutToShowdown(G, ctx);
+}
+
+// ── Pineapple discards ─────────────────────────────────────────────────────
+// Everyone still in the hand throws away one hole card at once (like Guts
+// in/out): 20s, else the engine picks for them. A player who's away is picked
+// for at once; a gone one after 5s. Then the hand carries on as Hold'em.
+//   then = 'preflop' (Pineapple), 'flop' (Crazy Pineapple), or 'runout'
+//   (everyone all-in before the Crazy Pineapple discard: discard, then run it out)
+const keepCards = (G) => (VARIANTS[G.variant] || {}).keepCards || 0;
+const discardPending = (G) => G.players.filter((p) => !p.folded && !p.eliminated && p.hand && keepCards(G) && p.hand.length > keepCards(G));
+const needsDiscard = (G) => !!(VARIANTS[G.variant] || {}).discardAt && discardPending(G).length > 0;
+
+function startDiscard(G, then, nextIdx, ctx) {
+  G.stage = 'discard';
+  G.discardThen = then;
+  G.discardNext = nextIdx;
+  G.discards = {};
+  G.discardStartMs = ctx.now;
+  G.discardDeadline = ctx.now + DISCARD_MS;
+  G.actionIndex = -1;
+  G.turnStartAt = null;
+  G.turnDeadline = null;
+  discardPending(G).filter((p) => p.awayFromTable).forEach((p) => discardCard(G, p, null));
+  maybeEndDiscard(G, ctx);
+}
+
+// idx null = the engine picks
+function discardCard(G, p, idx) {
+  const i = idx == null ? autoDiscardIndex(p.hand, G.community) : idx;
+  p.hand.splice(i, 1);
+  G.discards[p.id] = idx == null ? 'auto' : 'picked';
+  G.dealSeq++; // phones re-read their own cards
+}
+
+function maybeEndDiscard(G, ctx) {
+  if (G.stage !== 'discard' || discardPending(G).length) return;
+  const then = G.discardThen;
+  G.discardDeadline = null;
+  if (then === 'preflop') { startPreflopBetting(G, G.discardNext, ctx); return; }
+  G.stage = 'flop';
+  if (then === 'runout') { runOutToShowdown(G, ctx); return; }
+  firstToActAfterDealer(G, ctx);
+}
+
+function discardAction(G, p, amount, ctx) {
+  if (G.stage !== 'discard') return fail('no discard in progress');
+  if (!discardPending(G).includes(p)) return fail('nothing to discard');
+  const idx = Number(amount);
+  if (!Number.isInteger(idx) || idx < 0 || idx >= p.hand.length) return fail('pick a card to discard');
+  discardCard(G, p, idx);
+  maybeEndDiscard(G, ctx);
+  return OK;
 }
 
 // Test hook: a queued deal replaces the shuffled cards. Only the local test
@@ -461,11 +522,18 @@ function advanceStage(G, ctx) {
   returnUncalledBets(G);
   G.players.forEach((p) => { p.bet = 0; if (!p.folded && !p.eliminated) p.lastAction = null; });
   G.currentBet = 0;
-  if (G.stage === 'preflop') { G.community = [G.deck.pop(), G.deck.pop(), G.deck.pop()]; G.stage = 'flop'; }
+  if (G.stage === 'preflop') {
+    G.community = [G.deck.pop(), G.deck.pop(), G.deck.pop()]; G.stage = 'flop';
+    if ((VARIANTS[G.variant] || {}).discardAt === 'flop' && needsDiscard(G)) { startDiscard(G, 'flop', -1, ctx); return; }
+  }
   else if (G.stage === 'flop') { G.community.push(G.deck.pop()); G.stage = 'turn'; }
   else if (G.stage === 'turn') { G.community.push(G.deck.pop()); G.stage = 'river'; }
   else { showdown(G, ctx); return; }
-  // First to act after the flop: first player left of the dealer who can still bet
+  firstToActAfterDealer(G, ctx);
+}
+
+// First to act after the flop: first player left of the dealer who can still bet
+function firstToActAfterDealer(G, ctx) {
   const dealerIdx = G.players.findIndex((p) => p.isDealer);
   const n = G.players.length;
   for (let i = 1; i <= n; i++) {
@@ -478,6 +546,16 @@ function advanceStage(G, ctx) {
 
 function runOutToShowdown(G, ctx) {
   returnUncalledBets(G);
+  // Crazy Pineapple all-in before the discard: deal the flop, everyone discards, then run it out
+  if (needsDiscard(G)) {
+    if ((VARIANTS[G.variant] || {}).discardAt === 'flop' && G.community.length < 3) {
+      G.players.forEach((p) => { p.bet = 0; });
+      G.currentBet = 0;
+      while (G.community.length < 3) G.community.push(G.deck.pop());
+    }
+    startDiscard(G, 'runout', -1, ctx);
+    return;
+  }
   while (G.community.length < 5) G.community.push(G.deck.pop());
   showdown(G, ctx);
 }
@@ -652,12 +730,14 @@ export function applyAction(G, playerId, action, amount, ctx) {
     return OK;
   }
 
+  if (action === 'discard') return discardAction(G, p, amount, ctx);
+
   if (action === 'guts_in' || action === 'guts_out') return gutsDecide(G, p, action === 'guts_in' ? 'in' : 'out', ctx);
 
   if (action === 'pause') { // anyone may ask; mid-hand it waits for the hand to end
     if (G.paused) return OK;
     G.pauseReady = [];
-    if (isBetting(G) || G.stage === 'guts_decision') G.pauseQueued = true;
+    if (isBetting(G) || G.stage === 'guts_decision' || G.stage === 'discard') G.pauseQueued = true;
     else { G.paused = true; G.pauseQueued = false; G.nextDealAt = null; }
     return OK;
   }
@@ -799,6 +879,9 @@ function quit(G, p, ctx) {
     if (isBetting(G)) {
       const inHand = G.players.filter((x) => !x.folded && !x.eliminated);
       if (wasUp || inHand.length === 1) advanceAction(G, ctx);
+    } else if (G.stage === 'discard') {
+      const inHand = G.players.filter((x) => !x.folded && !x.eliminated);
+      if (inHand.length === 1) showdown(G, ctx); else maybeEndDiscard(G, ctx);
     } else if (G.stage === 'guts_decision') {
       if (gutsEligible(G).every((x) => G.gutsDecisions[x.id])) resolveGuts(G, ctx);
     } else if (G.pendingDealerChoice && G.dealerId === p.id) {
@@ -815,6 +898,7 @@ function quit(G, p, ctx) {
   // Everyone still in has quit: nobody is left to play it out, so it's called off
   if (G.players.filter((x) => !x.eliminated).every((x) => x.awayFromTable)) { abandonGame(G); return OK; }
   if (isBetting(G) && G.players[G.actionIndex] === p && !p.folded) { autoAct(G, p); advanceAction(G, ctx); }
+  if (G.stage === 'discard' && discardPending(G).includes(p)) { discardCard(G, p, null); maybeEndDiscard(G, ctx); }
   return OK;
 }
 
@@ -855,6 +939,15 @@ export function tick(G, ctx) {
       if (timedOut || awayTooLong) { autoAct(G, actor); advanceAction(G, ctx); return true; }
     }
     return changed;
+  }
+  // Discards: time's up (or a gone player waited out the grace): the engine picks
+  if (G.stage === 'discard') {
+    const timedOut = G.discardDeadline && ctx.now >= G.discardDeadline;
+    const due = discardPending(G).filter((p) => timedOut || (gone(p.id) && ctx.now - (G.discardStartMs || ctx.now) >= AWAY_GRACE_MS));
+    if (!due.length) return changed;
+    due.forEach((p) => discardCard(G, p, null));
+    maybeEndDiscard(G, ctx);
+    return true;
   }
   // A gone dealer doesn't hold up dealer's choice
   if (G.pendingDealerChoice && gone(G.dealerId) && ctx.now - (G.dealerChoiceDeadline - DEALER_CHOICE_MS) >= AWAY_GRACE_MS) {

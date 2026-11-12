@@ -418,6 +418,7 @@ function applyMyPrivateHand() {
   if (!myP) return;
   // Replace redacted hidden cards with real ones
   if (myP.hand && myP.hand.length && myP.hand.every(c => c?.hidden)) {
+    if (myP.hand.length !== _myPrivateHand.cards.length) return; // a discard: newer cards are on the way
     myP.hand = _myPrivateHand.cards;
   } else if (!myP.hand?.length) {
     myP.hand = _myPrivateHand.cards;
@@ -886,6 +887,7 @@ function guestSubscribeToGame(gameId) {
       const prevActionIndex = G?.actionIndex;
       const prevMyChips = G?.players?.find(p => p.id === me.id)?.chips ?? null;
       const prevStage = G?.stage;
+      const prevDealSeq = G?.dealSeq;
 
       // Host changed (migration happened) — update our role accordingly
       let justPromoted = false;
@@ -1051,9 +1053,12 @@ function guestSubscribeToGame(gameId) {
       // Also re-fetch private hand if we entered a play stage (preflop/guts_decision)
       // from a non-play stage (dealer pick) — handNumber may not have changed but
       // the host just dealt cards and wrote new private_hands rows.
-      const isPlayStage = ['preflop', 'guts_decision'].includes(G.stage);
-      const wasPlayStage = ['preflop', 'guts_decision'].includes(prevStage);
+      const isPlayStage = ['preflop', 'guts_decision', 'discard'].includes(G.stage);
+      const wasPlayStage = ['preflop', 'guts_decision', 'discard'].includes(prevStage);
       if (isPlayStage && !wasPlayStage && G.handNumber > 0) {
+        fetchMyPrivateHand(gameId, G.handNumber);
+      } else if (isServerGame() && G.dealSeq !== prevDealSeq && G.handNumber === prevHandNumber && G.handNumber > 0) {
+        // Same hand, new cards (a Pineapple discard)
         fetchMyPrivateHand(gameId, G.handNumber);
       }
 

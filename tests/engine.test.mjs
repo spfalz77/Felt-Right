@@ -224,3 +224,11 @@ test('tournament ledger: nothing for home games, unfinished games or free games'
   assert.deepEqual(payoutsMod.tournamentLedger({ ...base, format: 'tournament', tournamentOver: false }), []);
   assert.deepEqual(payoutsMod.tournamentLedger({ ...base, format: 'tournament', buyIn: 0 }), []);
 });
+
+test('Pineapple auto-discard: keeps a pair preflop, the best hand with a flop out', () => {
+  const pick = (hole, board) => cardsMod.autoDiscardIndex(cards(hole), board ? cards(board) : []);
+  assert.equal(pick('7s Ah 7d'), 1);            // keep 77
+  assert.equal(pick('2c Ks Qs'), 0);            // keep KQs
+  assert.equal(pick('As 2c Kd', '2d 2h 9s'), 2); // A-2 makes trips; K kicker doesn't matter more than the third 2
+  assert.equal(pick('Ah 5h Kc', '2h 9h Jh'), 2); // flush with both hearts
+});
