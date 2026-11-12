@@ -243,6 +243,19 @@ export async function botStep(p, strategy = () => 'checkcall') {
     p.lastTurnKey = dkey; p.lastTapAt = Date.now();
     return (await tap(dbtn.first())) && `discard ${m[1]}`;
   }
+  // 5-card draw: everyone at once; strategy returns 'draw:' (stand pat) or 'draw:2,3,4'
+  if (v?.stage === 'draw') {
+    const m = /^draw:([\d,]*)$/.exec(strategy(v) || '');
+    if (!m) return null;
+    if (!(await page.locator('#draw-submit').count())) return null; // cards not on screen yet, or already drawn
+    const dkey = `${v.hand}:draw`;
+    if (p.lastTurnKey === dkey && Date.now() - p.lastTapAt < 5_000) return null;
+    p.lastTurnKey = dkey; p.lastTapAt = Date.now();
+    for (const i of m[1].split(',').filter(Boolean)) {
+      if (!(await tap(page.locator(`#draw-cards button[onclick="toggleDrawCard(${i})"]`)))) return null;
+    }
+    return (await tap(page.locator('#draw-submit'))) && `draw ${m[1] || 'none'}`;
+  }
   if (!v || !v.myTurn || !['preflop', 'flop', 'turn', 'river'].includes(v.stage)) return null;
   const plan = strategy(v);
   if (plan === 'idle') return null; // leave the phone alone (timer tests)

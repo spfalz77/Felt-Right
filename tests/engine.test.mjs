@@ -232,3 +232,16 @@ test('Pineapple auto-discard: keeps a pair preflop, the best hand with a flop ou
   assert.equal(pick('As 2c Kd', '2d 2h 9s'), 2); // A-2 makes trips; K kicker doesn't matter more than the third 2
   assert.equal(pick('Ah 5h Kc', '2h 9h Jh'), 2); // flush with both hearts
 });
+
+test('5-card stud: bring-in is the lowest upcard (suits break ties); showing hands rank pairs over high cards', () => {
+  const k = (s) => cardsMod.bringInKey(cards(s)[0]);
+  assert.ok(k('2s') < k('3c'));
+  assert.ok(k('3c') < k('3d') && k('3d') < k('3h') && k('3h') < k('3s'));
+  assert.ok(k('Kc') < k('As'));
+  const sh = (s) => cardsMod.showingScore(cards(s));
+  assert.ok(cardsMod.cmpShowing(sh('2c 2d'), sh('As Kd')) > 0);
+  assert.ok(cardsMod.cmpShowing(sh('9c 9d 3s'), sh('9h 9s 2c')) > 0);
+  assert.ok(cardsMod.cmpShowing(sh('5c 5d 5s'), sh('Ac Ad Ks Kd')) > 0);
+  assert.ok(cardsMod.cmpShowing(sh('Ac Kd'), sh('Ad Qd')) > 0);
+  assert.equal(cardsMod.cmpShowing(sh('Ac Kd'), sh('Ad Ks')), 0);
+});

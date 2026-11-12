@@ -334,6 +334,8 @@ h3 { font-size: 1rem; font-weight: 600; }
 .player-seat .card.sm { width: 28px; height: 42px; border-radius: 3px; }
 .player-seat .card.sm .card-top, .player-seat .card.sm .card-bot { display:none; }
 .player-seat .card.sm .card-center { font-size: 0.8rem; }
+.player-seat .card.sm.stud-up { width: 24px; }
+.player-seat .card.sm.stud-up .card-center { font-size: 0.62rem; font-weight: 700; letter-spacing: -0.02em; }
 .player-seat.folded .avatar { opacity: 0.35; }
 .player-seat.folded .name { opacity: 0.35; }
 .bet-chip-front {
@@ -412,6 +414,13 @@ h3 { font-size: 1rem; font-weight: 600; }
 .my-cards.omaha .card.lg .card-rank { font-size: 1.4rem; }
 .my-cards.omaha .card.lg .card-suit { font-size: 0.95rem; }
 .my-cards.omaha .card.lg .card-center { font-size: 2rem; }
+.my-cards.five { gap: 5px; }
+.my-cards.five .card.lg { width: 56px; height: 80px; }
+.my-cards.five .card.lg .card-rank { font-size: 1.15rem; }
+.my-cards.five .card.lg .card-suit { font-size: 0.8rem; }
+.my-cards.five .card.lg .card-center { font-size: 1.6rem; }
+/* 5-card draw: cards picked to throw away */
+#draw-cards .card.picked { transform: translateY(-10px); opacity: 0.55; outline: 2px solid var(--red-light); }
 .my-info { display: flex; align-items: center; gap: 10px; }
 .my-name { font-weight: 600; font-size: 0.9rem; }
 .my-chips { font-family: 'Bebas Neue', sans-serif; font-size: 1.1rem; color: var(--gold); letter-spacing: 0.05em; }

@@ -98,7 +98,7 @@ async function callTable(gameId, action, amount, extra) {
 // ones the server handles go to the table instead; everything else (nudges,
 // and moves the server doesn't run yet) is still inserted as before.
 // Same return shape as an insert: a promise of { error }.
-const _variantByCode = { 1: 'holdem', 2: 'omaha', 3: 'guts3', 4: 'pineapple', 5: 'crazy_pineapple' };
+const _variantByCode = { 1: 'holdem', 2: 'omaha', 3: 'guts3', 4: 'pineapple', 5: 'crazy_pineapple', 6: 'draw5', 7: 'stud5' };
 function toServerAction(row) {
   const a = row.action;
   if (['fold', 'check', 'call', 'raise', 'twobet', 'twobb', 'threebb', 'pot', 'allin'].includes(a)) return [a, row.amount];
@@ -201,6 +201,8 @@ function startServerTicker(gameId) {
       G.stage === 'guts_decision' ? G.gutsDeadlineMs : null,
       G.stage === 'discard' ? G.discardDeadline : null,
       G.stage === 'discard' && G.discardStartMs && discardWaitingOn().some((p) => !isPlayerOnline(p.id)) ? G.discardStartMs + 5000 : null,
+      G.stage === 'draw' ? G.drawDeadline : null,
+      G.stage === 'draw' && G.drawStartMs && drawWaitingOn().some((p) => !isPlayerOnline(p.id)) ? G.drawStartMs + 5000 : null,
       levelEndsAt,
     ].some((t) => t && serverNow() >= t);
     if (!due || Date.now() - _lastTickAt < 2000) return;
