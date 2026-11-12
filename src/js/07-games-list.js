@@ -1,9 +1,16 @@
 // ════════════════════════════════════════════════════════════════════════════
 // GAMES LIST
 // ════════════════════════════════════════════════════════════════════════════
+// Each load gets a number; only the newest one may draw the list. Loads run
+// at the same time (startup, the 20s refresh, a new invite, coming back to the
+// app), and a slow older one used to overwrite a newer list that already had
+// the invite in it.
+let _loadGamesSeq = 0;
 async function loadGames() {
   if (_gamesKilled) return;
   if (me.id === 'demo') { renderGamesList(); return; }
+  const seq = ++_loadGamesSeq;
+  const stale = () => seq !== _loadGamesSeq;
   try {
     // My games (all statuses including invited)
     const { data, error } = await sb
@@ -36,7 +43,7 @@ async function loadGames() {
       }
     }
 
-    myGames = rowsWithGame
+    const games = rowsWithGame
       .map(d => ({
         ...d.game,
         player_count: d.game?.game_players?.[0]?.count || 0,
@@ -47,7 +54,7 @@ async function loadGames() {
 
     if (myFriends.length) {
       const friendIds = myFriends.map(f => f.id);
-      const myGameIds = new Set(myGames.map(g => g.id));
+      const myGameIds = new Set(games.map(g => g.id));
 
       const { data: friendGames } = await sb
         .from('game_players')
@@ -63,7 +70,7 @@ async function loadGames() {
         const friend = myFriends.find(f => f.id === fg.user_id);
         // Only show the host's game, not every friend in it (dedup by game_id already done)
         const isHostedByFriend = fg.game.host_id === fg.user_id;
-        myGames.push({
+        games.push({
           ...fg.game,
           player_count: fg.game?.game_players?.[0]?.count || 0,
           i_am_host: false,
@@ -75,8 +82,10 @@ async function loadGames() {
       });
     }
 
+    if (stale()) return; // a newer load has (or will have) the fresher list
+    myGames = games;
     renderGamesList();
-  } catch(e) { console.warn('loadGames error:', e); renderGamesList(); }
+  } catch(e) { console.warn('loadGames error:', e); if (!stale()) renderGamesList(); }
 }
 
 function renderGamesList() {

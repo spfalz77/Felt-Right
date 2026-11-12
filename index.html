@@ -205,7 +205,15 @@ h3 { font-size: 1rem; font-weight: 600; }
   background: var(--surface); border-radius: 20px 20px 0 0;
   padding: 20px 20px calc(20px + var(--safe-bot));
   width: 100%; max-width: 480px;
+  /* A tall sheet (New Game) scrolls instead of running off the screen */
+  max-height: calc(100dvh - 16px); overflow-y: auto; overscroll-behavior: contain;
+  position: relative;
   transform: translateY(100%); transition: transform 0.3s ease;
+}
+.modal-close {
+  position: absolute; top: 12px; right: 14px; width: 36px; height: 36px;
+  border: none; border-radius: 50%; background: transparent; color: var(--text-dim);
+  font-size: 1.1rem; line-height: 36px; cursor: pointer;
 }
 .modal-backdrop.open .modal-sheet { transform: translateY(0); }
 .modal-handle { width: 36px; height: 4px; background: var(--border); border-radius: 2px; margin: 0 auto 20px; }
@@ -724,7 +732,7 @@ window.__dbgLogs = [];
     <!-- Admin toolbar -->
     <div id="admin-bar" style="display:none;padding:0 16px 8px;display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn btn-surface btn-sm" onclick="archiveMyGames()" style="font-size:0.75rem">📦 Archive Finished</button>
-      <button id="admin-kill-btn" class="btn btn-surface btn-sm" onclick="killStuckGames()" style="font-size:0.75rem;color:var(--red-light);display:none">🗑 Kill Stuck Games</button>
+      <button id="admin-kill-btn" class="btn btn-surface btn-sm" onclick="killStuckGames()" style="font-size:0.75rem;color:var(--red-light);display:none">⏹ End My Stuck Games</button>
     </div>
     <div class="section-head" style="display:flex;align-items:center;justify-content:space-between;padding-right:16px">
       <span>Games</span>
@@ -1169,6 +1177,7 @@ window.__dbgLogs = [];
 <div class="modal-backdrop" id="modal-create-game" onclick="closeModal('modal-create-game')">
   <div class="modal-sheet" onclick="event.stopPropagation()">
     <div class="modal-handle"></div>
+    <button class="modal-close" type="button" aria-label="Close" onclick="closeModal('modal-create-game')">✕</button>
     <div class="modal-title">New Game</div>
     <div class="input-group">
       <div class="input-label">Game Name</div>
@@ -1226,6 +1235,7 @@ window.__dbgLogs = [];
       <span id="create-game-summary">Sit & Go · Texas Hold'em · 1500 chips</span>
     </div>
     <button class="btn btn-primary btn-full" onclick="createGame()">Create Game</button>
+    <button class="btn btn-ghost btn-full" id="create-game-cancel" onclick="closeModal('modal-create-game')" style="margin-top:8px">Cancel</button>
   </div>
 </div>
 
@@ -1590,7 +1600,7 @@ function computePayouts(buyIn, totalPlayers, isChop, actualPoolOverride) {
 // Returns [{ winner, loser, dollars }] (player ids), or [] when there's
 // nothing to record (home game, not over, no buy-in).
 function tournamentLedger(G) {
-  if (!G || G.format === 'home' || !G.tournamentOver) return [];
+  if (!G || G.format === 'home' || !G.tournamentOver || G.abandoned) return [];
   const buyIn = G.buyIn || 0;
   if (buyIn <= 0 || !G.players?.length) return [];
   const paidCents = (p) => p.totalBuyInCents || buyIn * 100;
@@ -1718,13 +1728,19 @@ async function init() {
     if (!me) return;
     me.email = session.user.email;
 
-    // Look for active games this user is playing
+    // Look for an active game this user is still playing in. Not one they quit
+    // (a tournament quitter is "away", blinding out) or were knocked out of:
+    // those stay on Home, where the game card offers Sit Back Down.
     const { data: activeGames } = await sb.from('game_players')
-      .select('game:games(id, status)')
+      .select('game:games!inner(id, status, state)')
       .eq('user_id', me.id)
-      .limit(5);
+      .eq('game.status', 'active');
 
-    const activeGame = (activeGames || []).find(g => g.game?.status === 'active');
+    const stillPlaying = (g) => {
+      const mine = g.game?.state?.players?.find?.(p => p.id === me.id);
+      return !mine || (!mine.awayFromTable && !mine.eliminated && mine.cashedOutCents == null);
+    };
+    const activeGame = (activeGames || []).find(g => g.game?.status === 'active' && stillPlaying(g));
 
     if (activeGame) {
       // Check if user has explicitly left this game — don't auto-rejoin
@@ -2187,9 +2203,16 @@ function copyInviteLink() {
 // ════════════════════════════════════════════════════════════════════════════
 // GAMES LIST
 // ════════════════════════════════════════════════════════════════════════════
+// Each load gets a number; only the newest one may draw the list. Loads run
+// at the same time (startup, the 20s refresh, a new invite, coming back to the
+// app), and a slow older one used to overwrite a newer list that already had
+// the invite in it.
+let _loadGamesSeq = 0;
 async function loadGames() {
   if (_gamesKilled) return;
   if (me.id === 'demo') { renderGamesList(); return; }
+  const seq = ++_loadGamesSeq;
+  const stale = () => seq !== _loadGamesSeq;
   try {
     // My games (all statuses including invited)
     const { data, error } = await sb
@@ -2222,7 +2245,7 @@ async function loadGames() {
       }
     }
 
-    myGames = rowsWithGame
+    const games = rowsWithGame
       .map(d => ({
         ...d.game,
         player_count: d.game?.game_players?.[0]?.count || 0,
@@ -2233,7 +2256,7 @@ async function loadGames() {
 
     if (myFriends.length) {
       const friendIds = myFriends.map(f => f.id);
-      const myGameIds = new Set(myGames.map(g => g.id));
+      const myGameIds = new Set(games.map(g => g.id));
 
       const { data: friendGames } = await sb
         .from('game_players')
@@ -2249,7 +2272,7 @@ async function loadGames() {
         const friend = myFriends.find(f => f.id === fg.user_id);
         // Only show the host's game, not every friend in it (dedup by game_id already done)
         const isHostedByFriend = fg.game.host_id === fg.user_id;
-        myGames.push({
+        games.push({
           ...fg.game,
           player_count: fg.game?.game_players?.[0]?.count || 0,
           i_am_host: false,
@@ -2261,8 +2284,10 @@ async function loadGames() {
       });
     }
 
+    if (stale()) return; // a newer load has (or will have) the fresher list
+    myGames = games;
     renderGamesList();
-  } catch(e) { console.warn('loadGames error:', e); renderGamesList(); }
+  } catch(e) { console.warn('loadGames error:', e); if (!stale()) renderGamesList(); }
 }
 
 function renderGamesList() {
@@ -4569,6 +4594,7 @@ async function refreshGuestState() {
     if (G.breakActive) showBreakOverlay(); else hideBreakOverlay();
     if (G.handNumber > 0) fetchMyPrivateHand(currentGameId, G.handNumber);
     if (G.stage === 'showdown') setTimeout(offerRebuyIfBroke, 4500);
+    if (G.tournamentOver && G.abandoned) showCalledOff();
   } catch(e) { /* silent */ }
 }
 
@@ -4639,6 +4665,10 @@ function guestSubscribeToGame(gameId) {
         gameBuyIn = row.buy_in_amount;
       }
 
+      // Tournament called off (host ended it, or everyone quit): no results
+      if (G.tournamentOver && G.abandoned) {
+        showCalledOff();
+      } else
       // Tournament over — show end screen for everyone
       if (G.tournamentOver) {
         // Clear any chop proposal/showdown overlay so it doesn't sit on top
@@ -6718,6 +6748,14 @@ function resumeGame() {
 }
 
 async function guestSignalBack() {
+  // Server game: "ready" is part of the table, so every phone (the host's too) shows it
+  if (G && isServerGame()) {
+    const { error } = await callTable(currentGameId, 'pause_ready');
+    if (error) { toast(error); return; }
+    sendHeartbeat(currentGameId);
+    toast("You're marked ready — waiting for the host to resume");
+    return;
+  }
   // Guest tells host "I'm back" - force presence re-track to push a fresh join event
   if (!sb || !currentGameId || me.id === 'demo' || amHost) return;
 
@@ -6762,11 +6800,16 @@ function showPauseOverlay() {
   renderPauseOverlayContent();
   el.style.display = 'flex';
 
-  // Auto-refresh overlay every 1s so host sees online status changes quickly
-  if (isTableHost()) {
-    clearInterval(_pauseOverlayRefresher);
-    _pauseOverlayRefresher = setInterval(renderPauseOverlayContent, 1000);
-  }
+  // Refresh every 1s on every phone, so nobody is left looking at the list as
+  // it was when the game paused. Server games re-read the heartbeats every 2s.
+  clearInterval(_pauseOverlayRefresher);
+  let ticks = 0;
+  const refresh = () => {
+    if (G && isServerGame() && ticks++ % 2 === 0) fetchServerPresence(currentGameId).then(renderPauseOverlayContent);
+    else renderPauseOverlayContent();
+  };
+  refresh();
+  _pauseOverlayRefresher = setInterval(refresh, 1000);
 }
 
 function renderPauseOverlayContent() {
@@ -6778,16 +6821,19 @@ function renderPauseOverlayContent() {
   const onlineIds = _onlineIds || new Set();
   const activePlayers = G.players.filter(p => !p.eliminated);
 
+  const server = isServerGame();
+  const ready = new Set(G.pauseReady || []);
   const playerStatusHTML = activePlayers.map(p => {
-    const isOnline = p.id === me.id || onlineIds.has(p.id);
+    const isOnline = server ? isOnlineOnServer(p.id) : (p.id === me.id || onlineIds.has(p.id));
+    const isReady = server && (ready.has(p.id) || p.id === gameHostId);
     const isHostP = p.id === (G.hostPlayerId || G.players[0]?.id);
     return `
-      <div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.06)">
+      <div data-player="${p.id}" data-online="${isOnline ? 1 : 0}" data-ready="${isReady ? 1 : 0}" style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.06)">
         <div class="avatar sm" style="${!isOnline ? 'opacity:0.4' : ''}">${p.emoji || '🃏'}</div>
         <div style="flex:1;text-align:left">
           <div style="font-size:0.88rem;${!isOnline ? 'color:var(--text-dim)' : ''}">${p.name}</div>
           <div style="font-size:0.7rem;color:${isOnline ? 'var(--green)' : 'var(--text-dim)'}">
-            ${isOnline ? '● Online' : '○ Away'}
+            ${isOnline ? '● Online' : '○ Away'}${isReady ? ' · <span style="color:var(--gold)">✓ Ready</span>' : ''}
           </div>
         </div>
       </div>`;
@@ -6800,7 +6846,9 @@ function renderPauseOverlayContent() {
     </div>
     <div style="color:var(--text-dim);font-size:0.85rem;margin-bottom:16px;max-width:320px;line-height:1.5">
       ${isTableHost()
-        ? 'Resume when everyone is ready.'
+        ? (server
+            ? `Resume when everyone is ready (${activePlayers.filter(p => ready.has(p.id) || p.id === gameHostId).length} of ${activePlayers.length}).`
+            : 'Resume when everyone is ready.')
         : `Host paused the game. Tap I'm Back so they know you're ready.`}
     </div>
 
@@ -6842,8 +6890,11 @@ function hidePauseOverlay() {
 }
 
 async function endGameForAll() {
-  if (G && isServerGame() && getFormatConfig().moneyMode) {
-    if (!isTableHost() || !confirm('End the game for everyone? This cannot be undone.')) return;
+  if (G && isServerGame()) {
+    const msg = getFormatConfig().moneyMode
+      ? 'End the game for everyone? This cannot be undone.'
+      : 'End the tournament for everyone? It will be called off and nothing is recorded to the Friends Ledger.';
+    if (!isTableHost() || !confirm(msg)) return;
     serverHostControl('end_game');
     return;
   }
@@ -8732,7 +8783,21 @@ function endTournament() {
   showTournamentOverlay(winner);
 }
 
+// A tournament that was called off has no winner and records nothing: say so
+// and go back Home (once per game).
+let _calledOffShownFor = null;
+function showCalledOff() {
+  if (!currentGameId || _calledOffShownFor === currentGameId) return;
+  _calledOffShownFor = currentGameId;
+  const sd = document.getElementById('showdown-overlay');
+  if (sd) sd.style.display = 'none';
+  hidePauseOverlay();
+  toast('Tournament called off — nothing recorded');
+  setTimeout(goHome, 2500);
+}
+
 function showTournamentOverlay(winner) {
+  if (G?.abandoned) { showCalledOff(); return; }
   const overlay = document.getElementById('tourney-overlay');
   overlay.style.display = 'flex';
   const iWon = winner?.id === me.id;
@@ -8850,8 +8915,9 @@ function goHome() {
   if (backdrop) backdrop.style.display = 'none';
   updateChatBadge();
   clearInterval(_migrationCountdown); _migrationCountdown = null;
-  clearInterval(_invitePollInterval); _invitePollInterval = null;
-  if (inviteSubscription) { /* keep listening for invites on home screen */ }
+  // Keep listening for invites on Home (this used to stop the 10s invite poll
+  // for good, leaving only the realtime feed)
+  if (me && me.id !== 'demo' && sb) subscribeToInvites();
   if (gameSubscription)   { gameSubscription.unsubscribe();   gameSubscription = null; }
   if (lobbySubscription)  { lobbySubscription.unsubscribe();  lobbySubscription = null; }
   if (actionSubscription) { actionSubscription.unsubscribe(); actionSubscription = null; }
@@ -9125,26 +9191,30 @@ async function archiveMyGames() {
 
 let _gamesKilled = false; // flag to prevent loadGames from re-populating after a kill
 
+// Ends every active game I host that's stuck: a server game the same way the
+// host's End Game does (home game: cash out; tournament: called off), a
+// phone-run game is marked finished. Only games I host: the database doesn't
+// let anyone end, delete or un-seat other people's games.
 async function killStuckGames() {
   if (me.id === 'demo') { toast('Not available in demo'); return; }
-  if (me.display_name !== 'Fallz') { toast('Admin only'); return; }
-  if (!confirm('⚠️ Delete ALL games and history for every user?')) return;
-  try {
-    const { error: e1 } = await sb.from('player_actions').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-    const { error: e2 } = await sb.from('game_players').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-    const { error: e3 } = await sb.from('games').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-    if (e1 || e2 || e3) {
-      const msg = (e1||e2||e3).message;
-      toast('Delete error — run SQL policies. ' + msg);
-      return;
+  const { data: rows, error } = await sb.from('games')
+    .select('id, name, state').eq('host_id', me.id).eq('status', 'active');
+  if (error) { toast('Could not load your games: ' + error.message); return; }
+  if (!rows?.length) { toast('You have no active games to end'); return; }
+  if (!confirm(`End ${rows.length} active game${rows.length === 1 ? '' : 's'} you host? Home games cash out; tournaments are called off with nothing recorded.`)) return;
+  let ended = 0;
+  for (const g of rows) {
+    if (isServerState(g.state)) {
+      const r = await callTable(g.id, 'end_game');
+      if (!r.error) ended++;
+      else console.warn('end_game', g.id, r.error);
+    } else {
+      const { error: e } = await sb.from('games').update({ status: 'finished', finished_at: new Date().toISOString() }).eq('id', g.id);
+      if (!e) ended++;
     }
-    _gamesKilled = true;
-    myGames = [];
-    renderGamesList();
-    toast('All games cleared ✓');
-    // Re-enable normal loading after 3s
-    setTimeout(() => { _gamesKilled = false; }, 3000);
-  } catch(e) { toast('Kill failed: ' + e.message); }
+  }
+  toast(`Ended ${ended} of ${rows.length} game${rows.length === 1 ? '' : 's'}`);
+  await loadGames();
 }
 
 function timeAgo(dateStr) {
@@ -10264,8 +10334,28 @@ let _lastTickAt = 0;
 // a player as gone (app closed, phone offline) after 12s without one.
 function sendHeartbeat(gameId) {
   if (!sb || !me || me.id === 'demo') return;
-  sb.from('game_presence').upsert({ game_id: gameId, user_id: me.id, last_seen_at: new Date().toISOString() })
+  // (the database stamps last_seen_at with its own clock, so a phone whose
+  // clock is off can't look gone, or look present when it isn't)
+  sb.from('game_presence').upsert({ game_id: gameId, user_id: me.id })
     .then(() => {}, () => {});
+}
+
+// Everyone's last heartbeat in this game, as server time (ms). The same source
+// the server uses for Away, so every phone shows the same online/away list.
+let _serverSeenAt = {};
+async function fetchServerPresence(gameId) {
+  if (!sb || !gameId || me?.id === 'demo') return;
+  try {
+    const { data } = await sb.from('game_presence').select('user_id, last_seen_at').eq('game_id', gameId);
+    const seen = {};
+    (data || []).forEach((r) => { seen[r.user_id] = Date.parse(r.last_seen_at); });
+    _serverSeenAt = seen;
+  } catch (e) { /* keep the last list */ }
+}
+function isOnlineOnServer(playerId) {
+  if (me && playerId === me.id) return true;
+  const t = _serverSeenAt[playerId];
+  return !!t && serverNow() - t < 12000;
 }
 
 function isServerState(state) { return !!state && state.rules === 'server'; }
@@ -10312,6 +10402,7 @@ function toServerAction(row) {
   if (a === 'step_away' || a === 'quit_cashout' || a === 'quit') return ['quit', null];
   if (['guts_in', 'guts_out', 'break_ready', 'add_on', 'chop_offer', 'chop_accept', 'chop_decline', 'chop_cancel', 'muck'].includes(a)) return [a, null];
   if (a === 'pause_request') return ['pause', null];
+  if (a === 'pause_ready') return ['pause_ready', null];
   if (a === 'reveal') return ['reveal', row.cardIndexes || null]; // which cards to show (all if none given)
   return null;
 }

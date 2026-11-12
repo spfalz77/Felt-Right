@@ -308,3 +308,31 @@ test('backstop auth: tick_all needs the shared tick secret (or the service key)'
   const none = await call({});
   assert.equal(none.status, 401);
 });
+
+test('heartbeats: stamped by the database clock; players see each other, outsiders see nothing', async () => {
+  const t = await lobby('tournament', ['Hal', 'Ivy']);
+  await t.must(t.host, 'start');
+  const outsider = await signUp('Nosy');
+  const [hal, ivy] = t.players;
+  // A phone whose clock is an hour behind still counts as here right now
+  const r = await http('/rest/v1/game_presence', { token: ivy.token, method: 'POST', headers: { Prefer: 'resolution=merge-duplicates' },
+    body: { game_id: t.gameId, user_id: ivy.id, last_seen_at: new Date(Date.now() - 3600_000).toISOString() } });
+  assert.ok([200, 201].includes(r.status), JSON.stringify(r.data));
+  const seenBy = async (who) => (await http(`/rest/v1/game_presence?game_id=eq.${t.gameId}&select=user_id,last_seen_at`, { token: who.token })).data;
+  const rows = await seenBy(hal);
+  const ivyRow = rows.find((x) => x.user_id === ivy.id);
+  assert.ok(ivyRow, 'Hal sees Ivy\'s heartbeat');
+  assert.ok(Date.now() - Date.parse(ivyRow.last_seen_at) < 60_000, `stamped now, not an hour ago: ${ivyRow.last_seen_at}`);
+  assert.deepEqual(await seenBy(outsider), [], 'an outsider sees nobody\'s heartbeat');
+});
+
+test('seats: only your own seat, or the host, can be removed', async () => {
+  const t = await lobby('home', ['Jo', 'Kim', 'Lu']);
+  const outsider = await signUp('Moe');
+  const [jo, kim, lu] = t.players;
+  const del = (who, userId) => http(`/rest/v1/game_players?game_id=eq.${t.gameId}&user_id=eq.${userId}`, { token: who.token, method: 'DELETE', headers: { Prefer: 'return=representation' } });
+  assert.equal((await del(outsider, kim.id)).data.length, 0, 'outsider cannot remove a seat');
+  assert.equal((await del(kim, lu.id)).data.length, 0, 'a guest cannot remove another guest');
+  assert.equal((await del(lu, lu.id)).data.length, 1, 'a guest can leave');
+  assert.equal((await del(jo, kim.id)).data.length, 1, 'the host can remove a seat');
+});

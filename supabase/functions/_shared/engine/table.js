@@ -611,8 +611,8 @@ export function applyAction(G, playerId, action, amount, ctx) {
 
   if (action === 'end_game') {
     if (!isHost) return fail('only the host can end the game');
-    if (!fmt(G).moneyMode) return fail('cash out only applies to home games');
-    cashOut(G, ctx);
+    // Home game: cash out. Tournament: called off, nothing recorded.
+    if (fmt(G).moneyMode) cashOut(G, ctx); else abandonGame(G);
     return OK;
   }
   if (!p) return fail('not in this game');
@@ -656,8 +656,15 @@ export function applyAction(G, playerId, action, amount, ctx) {
 
   if (action === 'pause') { // anyone may ask; mid-hand it waits for the hand to end
     if (G.paused) return OK;
+    G.pauseReady = [];
     if (isBetting(G) || G.stage === 'guts_decision') G.pauseQueued = true;
     else { G.paused = true; G.pauseQueued = false; G.nextDealAt = null; }
+    return OK;
+  }
+  if (action === 'pause_ready') { // "I'm back": everyone's pause screen shows it
+    if (!G.paused && !G.pauseQueued) return fail('the game is not paused');
+    G.pauseReady = G.pauseReady || [];
+    if (!G.pauseReady.includes(p.id)) G.pauseReady.push(p.id);
     return OK;
   }
   if (action === 'pause_cancel' || action === 'resume') {
@@ -665,6 +672,7 @@ export function applyAction(G, playerId, action, amount, ctx) {
     if (action === 'pause_cancel') { G.pauseQueued = false; return OK; }
     if (!G.paused) return OK;
     G.paused = false;
+    G.pauseReady = [];
     G.levelStartedAt = ctx.now;
     G.nextDealAt = ctx.now + RESUME_DEAL_MS;
     return OK;
@@ -804,8 +812,25 @@ function quit(G, p, ctx) {
   if ((p.chips || 0) <= 0) { sitOut(G, p); p.lastAction = { type: 'quit', label: 'Quit' }; return OK; }
   p.awayFromTable = true; p.disconnected = true;
   p.lastAction = { type: 'away', label: 'Away' };
+  // Everyone still in has quit: nobody is left to play it out, so it's called off
+  if (G.players.filter((x) => !x.eliminated).every((x) => x.awayFromTable)) { abandonGame(G); return OK; }
   if (isBetting(G) && G.players[G.actionIndex] === p && !p.folded) { autoAct(G, p); advanceAction(G, ctx); }
   return OK;
+}
+
+// Tournament called off (the host ended it, or everyone quit): the hand in
+// progress is voided and nothing is recorded to the Friends Ledger.
+function abandonGame(G) {
+  voidHand(G);
+  G.abandoned = true;
+  G.tournamentOver = true;
+  G.stage = 'finished';
+  G.actionIndex = -1;
+  G.turnDeadline = null;
+  G.pendingDealerChoice = false;
+  G.paused = false;
+  G.pauseQueued = false;
+  G.nextDealAt = null;
 }
 
 // ── Clock ──────────────────────────────────────────────────────────────────

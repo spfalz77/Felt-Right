@@ -40,26 +40,30 @@ async function archiveMyGames() {
 
 let _gamesKilled = false; // flag to prevent loadGames from re-populating after a kill
 
+// Ends every active game I host that's stuck: a server game the same way the
+// host's End Game does (home game: cash out; tournament: called off), a
+// phone-run game is marked finished. Only games I host: the database doesn't
+// let anyone end, delete or un-seat other people's games.
 async function killStuckGames() {
   if (me.id === 'demo') { toast('Not available in demo'); return; }
-  if (me.display_name !== 'Fallz') { toast('Admin only'); return; }
-  if (!confirm('⚠️ Delete ALL games and history for every user?')) return;
-  try {
-    const { error: e1 } = await sb.from('player_actions').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-    const { error: e2 } = await sb.from('game_players').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-    const { error: e3 } = await sb.from('games').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-    if (e1 || e2 || e3) {
-      const msg = (e1||e2||e3).message;
-      toast('Delete error — run SQL policies. ' + msg);
-      return;
+  const { data: rows, error } = await sb.from('games')
+    .select('id, name, state').eq('host_id', me.id).eq('status', 'active');
+  if (error) { toast('Could not load your games: ' + error.message); return; }
+  if (!rows?.length) { toast('You have no active games to end'); return; }
+  if (!confirm(`End ${rows.length} active game${rows.length === 1 ? '' : 's'} you host? Home games cash out; tournaments are called off with nothing recorded.`)) return;
+  let ended = 0;
+  for (const g of rows) {
+    if (isServerState(g.state)) {
+      const r = await callTable(g.id, 'end_game');
+      if (!r.error) ended++;
+      else console.warn('end_game', g.id, r.error);
+    } else {
+      const { error: e } = await sb.from('games').update({ status: 'finished', finished_at: new Date().toISOString() }).eq('id', g.id);
+      if (!e) ended++;
     }
-    _gamesKilled = true;
-    myGames = [];
-    renderGamesList();
-    toast('All games cleared ✓');
-    // Re-enable normal loading after 3s
-    setTimeout(() => { _gamesKilled = false; }, 3000);
-  } catch(e) { toast('Kill failed: ' + e.message); }
+  }
+  toast(`Ended ${ended} of ${rows.length} game${rows.length === 1 ? '' : 's'}`);
+  await loadGames();
 }
 
 function timeAgo(dateStr) {

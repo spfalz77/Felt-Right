@@ -3,6 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as T from '../supabase/functions/_shared/engine/table.js';
+import * as payouts from '../supabase/functions/_shared/engine/payouts.js';
 
 const cards = (s) => s.trim().split(/\s+/).map((t) => ({ rank: t.slice(0, -1), suit: { s: '♠', h: '♥', d: '♦', c: '♣' }[t.slice(-1)] }));
 const BOARD = cards('2c 7d 9h 3s 4d');
@@ -472,4 +473,44 @@ test('gone dealer → Hold\'em after 5s; gone busted player → sat out at the n
   u.wait(T.NEXT_HAND_MS);
   assert.equal(u.G.players.find((p) => p.id === 'Cy').eliminated, true);
   assert.equal(u.G.handNumber, 2);
+});
+
+test('tournament: when everyone still in has quit, it is called off; hand voided, nothing recorded', () => {
+  const t = table(); t.deal();
+  const ids = t.G.players.map((p) => p.id);
+  t.must(ids[0], 'quit');
+  t.must(ids[1], 'quit');
+  assert.equal(t.G.tournamentOver, undefined, 'one player left at the table: the game goes on');
+  t.must(ids[2], 'quit');
+  assert.equal(t.G.tournamentOver, true);
+  assert.equal(t.G.abandoned, true);
+  assert.equal(t.G.stage, 'finished');
+  assert.equal(t.G.pot, 0);
+  assert.equal(t.total(), 4500, 'bets went back: no chip created or lost');
+  assert.equal(t.wait(T.NEXT_HAND_MS * 10), false, 'no more hands are dealt');
+  t.G.finalPlacements = [{ name: 'Ace' }, { name: 'Bo' }, { name: 'Cy' }];
+  assert.deepEqual(payouts.tournamentLedger(t.G), [], 'nothing goes to the Friends Ledger');
+});
+
+test('tournament: the host can end it (called off); nobody else can', () => {
+  const t = table(); t.deal();
+  assert.equal(t.act('Bo', 'end_game').error, 'only the host can end the game');
+  t.must('Ace', 'end_game');
+  assert.equal(t.G.abandoned, true);
+  assert.equal(t.G.tournamentOver, true);
+  assert.equal(t.total(), 4500);
+});
+
+test("pause: players tap I'm back; the list clears when the game resumes", () => {
+  const t = table(); t.deal();
+  t.playHand(checkCall(t));
+  assert.match(t.act('Bo', 'pause_ready').error, /not paused/);
+  t.must('Bo', 'pause');
+  assert.equal(t.G.paused, true);
+  t.must('Bo', 'pause_ready');
+  t.must('Cy', 'pause_ready');
+  t.must('Cy', 'pause_ready'); // twice is fine
+  assert.deepEqual(t.G.pauseReady, ['Bo', 'Cy']);
+  t.must('Ace', 'resume');
+  assert.deepEqual(t.G.pauseReady, []);
 });

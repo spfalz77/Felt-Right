@@ -855,6 +855,7 @@ async function refreshGuestState() {
     if (G.breakActive) showBreakOverlay(); else hideBreakOverlay();
     if (G.handNumber > 0) fetchMyPrivateHand(currentGameId, G.handNumber);
     if (G.stage === 'showdown') setTimeout(offerRebuyIfBroke, 4500);
+    if (G.tournamentOver && G.abandoned) showCalledOff();
   } catch(e) { /* silent */ }
 }
 
@@ -925,6 +926,10 @@ function guestSubscribeToGame(gameId) {
         gameBuyIn = row.buy_in_amount;
       }
 
+      // Tournament called off (host ended it, or everyone quit): no results
+      if (G.tournamentOver && G.abandoned) {
+        showCalledOff();
+      } else
       // Tournament over — show end screen for everyone
       if (G.tournamentOver) {
         // Clear any chop proposal/showdown overlay so it doesn't sit on top

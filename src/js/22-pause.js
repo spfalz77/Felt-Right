@@ -89,6 +89,14 @@ function resumeGame() {
 }
 
 async function guestSignalBack() {
+  // Server game: "ready" is part of the table, so every phone (the host's too) shows it
+  if (G && isServerGame()) {
+    const { error } = await callTable(currentGameId, 'pause_ready');
+    if (error) { toast(error); return; }
+    sendHeartbeat(currentGameId);
+    toast("You're marked ready — waiting for the host to resume");
+    return;
+  }
   // Guest tells host "I'm back" - force presence re-track to push a fresh join event
   if (!sb || !currentGameId || me.id === 'demo' || amHost) return;
 
@@ -133,11 +141,16 @@ function showPauseOverlay() {
   renderPauseOverlayContent();
   el.style.display = 'flex';
 
-  // Auto-refresh overlay every 1s so host sees online status changes quickly
-  if (isTableHost()) {
-    clearInterval(_pauseOverlayRefresher);
-    _pauseOverlayRefresher = setInterval(renderPauseOverlayContent, 1000);
-  }
+  // Refresh every 1s on every phone, so nobody is left looking at the list as
+  // it was when the game paused. Server games re-read the heartbeats every 2s.
+  clearInterval(_pauseOverlayRefresher);
+  let ticks = 0;
+  const refresh = () => {
+    if (G && isServerGame() && ticks++ % 2 === 0) fetchServerPresence(currentGameId).then(renderPauseOverlayContent);
+    else renderPauseOverlayContent();
+  };
+  refresh();
+  _pauseOverlayRefresher = setInterval(refresh, 1000);
 }
 
 function renderPauseOverlayContent() {
@@ -149,16 +162,19 @@ function renderPauseOverlayContent() {
   const onlineIds = _onlineIds || new Set();
   const activePlayers = G.players.filter(p => !p.eliminated);
 
+  const server = isServerGame();
+  const ready = new Set(G.pauseReady || []);
   const playerStatusHTML = activePlayers.map(p => {
-    const isOnline = p.id === me.id || onlineIds.has(p.id);
+    const isOnline = server ? isOnlineOnServer(p.id) : (p.id === me.id || onlineIds.has(p.id));
+    const isReady = server && (ready.has(p.id) || p.id === gameHostId);
     const isHostP = p.id === (G.hostPlayerId || G.players[0]?.id);
     return `
-      <div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.06)">
+      <div data-player="${p.id}" data-online="${isOnline ? 1 : 0}" data-ready="${isReady ? 1 : 0}" style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.06)">
         <div class="avatar sm" style="${!isOnline ? 'opacity:0.4' : ''}">${p.emoji || '🃏'}</div>
         <div style="flex:1;text-align:left">
           <div style="font-size:0.88rem;${!isOnline ? 'color:var(--text-dim)' : ''}">${p.name}</div>
           <div style="font-size:0.7rem;color:${isOnline ? 'var(--green)' : 'var(--text-dim)'}">
-            ${isOnline ? '● Online' : '○ Away'}
+            ${isOnline ? '● Online' : '○ Away'}${isReady ? ' · <span style="color:var(--gold)">✓ Ready</span>' : ''}
           </div>
         </div>
       </div>`;
@@ -171,7 +187,9 @@ function renderPauseOverlayContent() {
     </div>
     <div style="color:var(--text-dim);font-size:0.85rem;margin-bottom:16px;max-width:320px;line-height:1.5">
       ${isTableHost()
-        ? 'Resume when everyone is ready.'
+        ? (server
+            ? `Resume when everyone is ready (${activePlayers.filter(p => ready.has(p.id) || p.id === gameHostId).length} of ${activePlayers.length}).`
+            : 'Resume when everyone is ready.')
         : `Host paused the game. Tap I'm Back so they know you're ready.`}
     </div>
 
@@ -213,8 +231,11 @@ function hidePauseOverlay() {
 }
 
 async function endGameForAll() {
-  if (G && isServerGame() && getFormatConfig().moneyMode) {
-    if (!isTableHost() || !confirm('End the game for everyone? This cannot be undone.')) return;
+  if (G && isServerGame()) {
+    const msg = getFormatConfig().moneyMode
+      ? 'End the game for everyone? This cannot be undone.'
+      : 'End the tournament for everyone? It will be called off and nothing is recorded to the Friends Ledger.';
+    if (!isTableHost() || !confirm(msg)) return;
     serverHostControl('end_game');
     return;
   }

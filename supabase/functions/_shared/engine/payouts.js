@@ -65,7 +65,7 @@ export function computePayouts(buyIn, totalPlayers, isChop, actualPoolOverride) 
 // Returns [{ winner, loser, dollars }] (player ids), or [] when there's
 // nothing to record (home game, not over, no buy-in).
 export function tournamentLedger(G) {
-  if (!G || G.format === 'home' || !G.tournamentOver) return [];
+  if (!G || G.format === 'home' || !G.tournamentOver || G.abandoned) return [];
   const buyIn = G.buyIn || 0;
   if (buyIn <= 0 || !G.players?.length) return [];
   const paidCents = (p) => p.totalBuyInCents || buyIn * 100;

@@ -39,8 +39,28 @@ let _lastTickAt = 0;
 // a player as gone (app closed, phone offline) after 12s without one.
 function sendHeartbeat(gameId) {
   if (!sb || !me || me.id === 'demo') return;
-  sb.from('game_presence').upsert({ game_id: gameId, user_id: me.id, last_seen_at: new Date().toISOString() })
+  // (the database stamps last_seen_at with its own clock, so a phone whose
+  // clock is off can't look gone, or look present when it isn't)
+  sb.from('game_presence').upsert({ game_id: gameId, user_id: me.id })
     .then(() => {}, () => {});
+}
+
+// Everyone's last heartbeat in this game, as server time (ms). The same source
+// the server uses for Away, so every phone shows the same online/away list.
+let _serverSeenAt = {};
+async function fetchServerPresence(gameId) {
+  if (!sb || !gameId || me?.id === 'demo') return;
+  try {
+    const { data } = await sb.from('game_presence').select('user_id, last_seen_at').eq('game_id', gameId);
+    const seen = {};
+    (data || []).forEach((r) => { seen[r.user_id] = Date.parse(r.last_seen_at); });
+    _serverSeenAt = seen;
+  } catch (e) { /* keep the last list */ }
+}
+function isOnlineOnServer(playerId) {
+  if (me && playerId === me.id) return true;
+  const t = _serverSeenAt[playerId];
+  return !!t && serverNow() - t < 12000;
 }
 
 function isServerState(state) { return !!state && state.rules === 'server'; }
@@ -87,6 +107,7 @@ function toServerAction(row) {
   if (a === 'step_away' || a === 'quit_cashout' || a === 'quit') return ['quit', null];
   if (['guts_in', 'guts_out', 'break_ready', 'add_on', 'chop_offer', 'chop_accept', 'chop_decline', 'chop_cancel', 'muck'].includes(a)) return [a, null];
   if (a === 'pause_request') return ['pause', null];
+  if (a === 'pause_ready') return ['pause_ready', null];
   if (a === 'reveal') return ['reveal', row.cardIndexes || null]; // which cards to show (all if none given)
   return null;
 }
