@@ -109,9 +109,15 @@ These are estimates of build time with Claude (hours of focused work, including 
 4. **Anything from your live play session** that changes the rules goes in the list below, so it's built into phase 3 instead of being ported twice.
 
 ## Adjustments from live play
-_(Fill in after playing. Each item: what happened, what it should do instead.)_
+_(Each item: what happened, what it does now.)_
 
--
+**Tournament, 2026-11-11 (host on `?server=1`, 3 phones), fixed in PR #27:**
+- Couldn't leave the New Game screen → Cancel button and ✕; the sheet scrolls.
+- Invites showed on Home only after Friends → Home → loads can't overwrite each other out of order; the invite check keeps running after leaving a table.
+- Pause: each phone showed a different online/away list; no way to say "I'm back" → every phone reads the server's heartbeats (stamped with the database clock) and redraws every second; I'm Back marks the player Ready on every phone; the host sees "N of M ready".
+- Everyone quit the tournament but it kept dealing; End Game didn't work for tournaments → a tournament where everyone still in has quit is called off; the host's End Game for All calls a tournament off; nothing goes to the ledger; phones go Home. Startup no longer pulls a phone back into a game its player quit.
+- "Kill Stuck Games" deleted every seat in every game for every user → it now ends only active games you host ("End My Stuck Games"), and seats can be deleted only by their own player or the game's host.
+- Still to apply on the live database: migration `20261112090000_presence_clock_and_seat_lockdown.sql` (the confirmation prompt timed out). Until then the pause list shows other players as away, and seat deletion is still open.
 
 ## How to execute (for Claude)
 1. Read this file and `claude/roadmap-and-decisions.md` in the project. The decisions are answered; fold in the "Adjustments" list.
