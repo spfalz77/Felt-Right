@@ -58,9 +58,18 @@ test('pause: same online list on every phone; I\'m Back shows Ready for all; hos
 
   await test.step('host pauses again and taps End Game for All: called off on every phone, nothing recorded', async () => {
     await pauseAfterThisHand(all, host, gameId);
-    host.page.once('dialog', (d) => d.accept());
+    // (the test phones accept confirm() prompts by themselves)
     await pauseList(host).getByRole('button', { name: 'End Game for All' }).click();
-    for (const p of all) await expect(p.page.locator('#screen-home'), `${p.name} is back Home`).toHaveClass(/active/, { timeout: 20_000 });
+    try {
+      for (const p of all) await expect(p.page.locator('#screen-home'), `${p.name} is back Home`).toHaveClass(/active/, { timeout: 20_000 });
+    } catch (e) {
+      const phones = await Promise.all(all.map((p) => p.page.evaluate(() => ({
+        screen: document.querySelector('.screen.active')?.id, toast: document.getElementById('toast')?.textContent,
+        over: !!G?.tournamentOver, abandoned: !!G?.abandoned, stage: G?.stage, v: G?.v, paused: !!G?.paused,
+      }))));
+      const [db] = await adminSelect('games', `id=eq.${gameId}&select=status,state`);
+      throw new Error(`${e.message}\nphones: ${JSON.stringify(phones)}\ndb: ${JSON.stringify({ status: db?.status, abandoned: db?.state?.abandoned, v: db?.state?.v, stage: db?.state?.stage })}`);
+    }
     const [g] = await adminSelect('games', `id=eq.${gameId}&select=status,state`);
     expect(g.status).toBe('finished');
     expect(g.state.abandoned).toBe(true);

@@ -844,6 +844,7 @@ async function refreshGuestState() {
     if (isOlderState(data.state, G)) return; // fetched before a newer update arrived
     if (tableSignature(data.state) === tableSignature(G)) return;
     G = data.state;
+    if (G.tournamentOver && G.abandoned) { showCalledOff(); return; }
     applyMyPrivateHand();
     renderGame();
     if (G.stage === 'guts_decision' && G.variant === 'guts3') showGutsDecision();
@@ -855,7 +856,6 @@ async function refreshGuestState() {
     if (G.breakActive) showBreakOverlay(); else hideBreakOverlay();
     if (G.handNumber > 0) fetchMyPrivateHand(currentGameId, G.handNumber);
     if (G.stage === 'showdown') setTimeout(offerRebuyIfBroke, 4500);
-    if (G.tournamentOver && G.abandoned) showCalledOff();
   } catch(e) { /* silent */ }
 }
 
@@ -918,6 +918,8 @@ function guestSubscribeToGame(gameId) {
       }
 
       G = row.state;
+      // Called off: leave before anything else tries to draw a table that has ended
+      if (G.tournamentOver && G.abandoned) { showCalledOff(); return; }
       if (row.blind_config) {
         BLIND_LEVELS = row.blind_config.levels || BLIND_LEVELS;
         blindDurationSeconds = row.blind_config.duration || blindDurationSeconds;
@@ -926,10 +928,6 @@ function guestSubscribeToGame(gameId) {
         gameBuyIn = row.buy_in_amount;
       }
 
-      // Tournament called off (host ended it, or everyone quit): no results
-      if (G.tournamentOver && G.abandoned) {
-        showCalledOff();
-      } else
       // Tournament over — show end screen for everyone
       if (G.tournamentOver) {
         // Clear any chop proposal/showdown overlay so it doesn't sit on top
