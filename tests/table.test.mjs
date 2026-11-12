@@ -514,3 +514,166 @@ test("pause: players tap I'm back; the list clears when the game resumes", () =>
   t.must('Ace', 'resume');
   assert.deepEqual(t.G.pauseReady, []);
 });
+
+// ── Pineapple / Crazy Pineapple ────────────────────────────────────────────
+
+// Every player still to discard throws away card `idx` (or lets the clock pick)
+const discardAll = (t, idx = 0) => {
+  for (const p of t.G.players.filter((x) => !x.folded && !x.eliminated && x.hand.length === 3)) t.must(p.id, 'discard', idx);
+};
+
+test('Pineapple: 3 cards, everyone discards 1 before any betting, then plays as Hold\'em', () => {
+  const t = table({ format: 'home' });
+  homeAtPicker(t);
+  t.G.rig.push({ hands: { Ace: cards('As Ah 2d'), Bo: cards('Ks Kh 3d'), Cy: cards('Qs Qh 4d') }, board: cards('7c 8d 9h Jc 2s') });
+  t.must(t.G.dealerId, 'pick_variant', 'pineapple');
+  assert.equal(t.G.stage, 'discard');
+  assert.ok(t.G.players.every((p) => p.hand.length === 3));
+  assert.equal(t.G.pot, 15, 'blinds are in');
+  assert.equal(t.G.actionIndex, -1);
+  assert.equal(t.act('Ace', 'call').error, 'no betting round in progress');
+  assert.equal(t.act('Ace', 'discard', 3).error, 'pick a card to discard');
+  const seq = t.G.dealSeq;
+  t.must('Ace', 'discard', 2);
+  assert.equal(t.G.dealSeq, seq + 1, 'phones re-read their cards');
+  assert.equal(t.act('Ace', 'discard', 0).error, 'nothing to discard');
+  assert.equal(T.redact(t.G).players.find((p) => p.id === 'Ace').hand.length, 2);
+  t.must('Bo', 'discard', 2);
+  assert.equal(t.G.stage, 'discard', 'waits for everyone');
+  t.must('Cy', 'discard', 2);
+  assert.equal(t.G.stage, 'preflop');
+  assert.ok(t.actor());
+  t.playHand(checkCall(t));
+  assert.equal(t.G.stage, 'showdown');
+  assert.ok(t.G.players.every((p) => p.hand.length === 2));
+  assert.deepEqual(Object.keys(t.G.lastResult.winnings).filter((id) => t.G.lastResult.winnings[id] > 0), ['Ace']);
+  assert.equal(t.total(), 6000);
+});
+
+test('Pineapple: no pick in 20s → the engine discards (keeps the pair); gone players after 5s', () => {
+  const t = table({ format: 'home' });
+  homeAtPicker(t);
+  t.G.rig.push({ hands: { Ace: cards('As Ah Kd'), Bo: cards('2s 7h 7d'), Cy: cards('Qs Jh 3d') } });
+  t.must(t.G.dealerId, 'pick_variant', 'pineapple');
+  // A gone player is picked for after 5s, the others keep waiting
+  t.ctx.isGone = (id) => id === 'Cy';
+  assert.equal(t.wait(T.AWAY_GRACE_MS - 1), false);
+  assert.equal(t.wait(1), true);
+  assert.deepEqual(t.G.players.find((p) => p.id === 'Cy').hand.map((c) => c.rank), ['Q', 'J']);
+  assert.equal(t.G.stage, 'discard');
+  t.ctx.isGone = null;
+  t.wait(T.DISCARD_MS - T.AWAY_GRACE_MS);
+  assert.equal(t.G.stage, 'preflop');
+  assert.deepEqual(t.G.players.find((p) => p.id === 'Ace').hand.map((c) => c.rank), ['A', 'A']);
+  assert.deepEqual(t.G.players.find((p) => p.id === 'Bo').hand.map((c) => c.rank), ['7', '7']);
+  assert.equal(t.G.discards.Ace, 'auto');
+});
+
+test('Crazy Pineapple: bet with 3 cards, discard after the flop, flop betting starts left of the dealer', () => {
+  const t = table({ format: 'home' });
+  homeAtPicker(t);
+  t.must(t.G.dealerId, 'pick_variant', 'crazy_pineapple');
+  assert.equal(t.G.stage, 'preflop');
+  assert.ok(t.G.players.every((p) => p.hand.length === 3));
+  assert.equal(t.act(t.actor(), 'discard', 0).error, 'no discard in progress');
+  t.playHand(checkCall(t)); // stops when betting stops: at the discard
+  assert.equal(t.G.stage, 'discard');
+  assert.equal(t.G.community.length, 3);
+  discardAll(t, 1);
+  assert.equal(t.G.stage, 'flop');
+  const dealerIdx = t.G.players.findIndex((p) => p.isDealer);
+  assert.equal(t.G.actionIndex, (dealerIdx + 1) % 3);
+  t.playHand(checkCall(t));
+  assert.equal(t.G.stage, 'showdown');
+  assert.ok(t.G.players.every((p) => p.hand.length === 2));
+  assert.equal(t.total(), 6000);
+});
+
+test('Crazy Pineapple: all-in preflop → flop, discard, then run it out', () => {
+  const t = table({ format: 'home', names: ['Ace', 'Bo'] });
+  homeAtPicker(t);
+  t.must(t.G.dealerId, 'pick_variant', 'crazy_pineapple');
+  t.must(t.actor(), 'allin');
+  t.must(t.actor(), 'call');
+  assert.equal(t.G.stage, 'discard');
+  assert.equal(t.G.community.length, 3);
+  discardAll(t, 0);
+  assert.equal(t.G.stage, 'showdown');
+  assert.equal(t.G.community.length, 5);
+  assert.equal(t.total(), 4000);
+});
+
+test('Crazy Pineapple: a fold win before the flop needs no discard', () => {
+  const t = table({ format: 'home' });
+  homeAtPicker(t);
+  t.must(t.G.dealerId, 'pick_variant', 'crazy_pineapple');
+  t.playHand(() => 'fold');
+  assert.equal(t.G.stage, 'showdown');
+  assert.equal(t.G.wonByFold, true);
+});
+
+test('Pineapple: quitting during the discard (home) — last one left wins; tournament quitter is auto-discarded', () => {
+  const t = table({ format: 'home', names: ['Ace', 'Bo'] });
+  homeAtPicker(t);
+  t.must(t.G.dealerId, 'pick_variant', 'pineapple');
+  t.must('Ace', 'quit');
+  assert.equal(t.G.stage, 'showdown');
+  assert.equal(t.total(), 4000);
+
+  const u = table({ names: ['Ace', 'Bo', 'Cy'] });
+  u.G.variant = 'pineapple';
+  u.wait(T.FIRST_DEAL_MS);
+  assert.equal(u.G.stage, 'discard');
+  u.must('Bo', 'quit');
+  assert.equal(u.G.players.find((p) => p.id === 'Bo').hand.length, 2);
+  u.must('Ace', 'discard', 0); u.must('Cy', 'discard', 0);
+  assert.equal(u.G.stage, 'preflop');
+});
+
+test('tournament can be Pineapple or Crazy Pineapple; Guts stays home-only', () => {
+  const ctx = { now: 0, rng: rngFrom(3), effects: {} };
+  const seats = [{ id: 'a' }, { id: 'b' }];
+  assert.equal(T.newGame({ seats, format: 'tournament', variant: 'crazy_pineapple' }, ctx).variant, 'crazy_pineapple');
+  assert.equal(T.newGame({ seats, format: 'tournament', variant: 'pineapple' }, ctx).variant, 'pineapple');
+  assert.equal(T.newGame({ seats, format: 'tournament', variant: 'guts3' }, ctx).variant, 'holdem');
+});
+
+test('pause asked during a discard waits for the hand to end', () => {
+  const t = table({ format: 'home' });
+  homeAtPicker(t);
+  t.must(t.G.dealerId, 'pick_variant', 'pineapple');
+  t.must('Bo', 'pause');
+  assert.equal(t.G.pauseQueued, true);
+  assert.equal(t.G.paused, undefined);
+});
+
+test('Pineapple variants: 300 random hands never create or lose a chip, and never stall', () => {
+  for (let seed = 1; seed <= 20; seed++) {
+    const names = ['A', 'B', 'C', 'D', 'E', 'F'].slice(0, 2 + (seed % 5));
+    const t = table({ format: 'home', names, seed });
+    const pick = rngFrom(seed * 104729);
+    let bought = 0;
+    for (let h = 0; h < 15; h++) {
+      t.wait(T.NEXT_HAND_MS);
+      for (const p of t.G.players.filter((x) => x.broke && !x.eliminated)) { t.must(p.id, 'rebuy'); bought += 2000; }
+      if (!t.G.pendingDealerChoice) t.wait(T.NEXT_HAND_MS);
+      if (!t.G.pendingDealerChoice) break;
+      t.must(t.G.dealerId, 'pick_variant', seed % 2 ? 'pineapple' : 'crazy_pineapple');
+      let guard = 0;
+      while ((T.isBetting(t.G) || t.G.stage === 'discard') && guard++ < 300) {
+        if (t.G.stage === 'discard') {
+          if (pick() < 0.3) t.wait(T.DISCARD_MS); else discardAll(t, Math.floor(pick() * 3));
+          continue;
+        }
+        const who = t.actor();
+        const p = t.G.players[t.G.actionIndex];
+        const r = pick();
+        const a = r < 0.12 ? 'fold' : r < 0.2 ? 'allin' : r < 0.35 ? ['raise', Math.floor(pick() * 400)] : (t.G.currentBet > p.bet ? 'call' : 'check');
+        t.must(who, ...[].concat(a));
+      }
+      assert.equal(t.G.stage, 'showdown', `seed ${seed} hand ${h} ended`);
+      assert.equal(t.total(), names.length * 2000 + bought, `seed ${seed} hand ${h}: chips conserved`);
+      if (!t.G.wonByFold) assert.ok(t.G.players.filter((p) => !p.folded && !p.eliminated).every((p) => p.hand.length === 2), 'everyone at showdown kept 2');
+    }
+  }
+});

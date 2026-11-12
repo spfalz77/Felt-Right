@@ -73,7 +73,8 @@ function onRebuysToggle(checked) {
 function selectGameVariant(variant) {
   gameVariant = variant;
   document.getElementById('variant-holdem')?.classList.toggle('format-selected', variant === 'holdem');
-  document.getElementById('variant-omaha')?.classList.toggle('format-selected', variant === 'omaha');
+  ['omaha', 'pineapple', 'crazy_pineapple'].forEach((v) =>
+    document.getElementById('variant-' + v)?.classList.toggle('format-selected', variant === v));
   updateCreateGameSummary();
 }
 

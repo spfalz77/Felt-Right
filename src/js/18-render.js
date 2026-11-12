@@ -119,8 +119,8 @@ function renderGame() {
     document.getElementById('pot-display').textContent = `POT: ${formatChips(G.pot)}`;
   }
 
-  const stages = { preflop:'PRE-FLOP', flop:'FLOP', turn:'TURN', river:'RIVER', showdown:'SHOWDOWN' };
-  const variantTag = G.variant === 'omaha' ? ' · OMAHA' : '';
+  const stages = { preflop:'PRE-FLOP', flop:'FLOP', turn:'TURN', river:'RIVER', showdown:'SHOWDOWN', discard:'DISCARD' };
+  const variantTag = ['omaha', 'pineapple', 'crazy_pineapple'].includes(G.variant) ? ' · ' + VARIANTS[G.variant].short : '';
   document.getElementById('stage-label').textContent = (stages[G.stage]||G.stage.toUpperCase()) + variantTag;
 
   // My hand
@@ -299,6 +299,13 @@ function makeCardEl(card, hidden, lg, animKey) {
 function renderActionBar() {
   const bar = document.getElementById('action-bar');
   const slider = document.getElementById('bet-slider-row');
+
+  // Pineapple discard: pick a card (managed by showDiscardPicker)
+  if (G.stage === 'discard') {
+    if (slider) slider.style.display = 'none';
+    showDiscardPicker();
+    return;
+  }
 
   // Guts decision stage uses its own action-bar content (managed by showGutsDecision)
   if (G.stage === 'guts_decision') {
