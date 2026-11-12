@@ -150,6 +150,30 @@ export function autoDiscardIndex(hand, community) {
   return bestI;
 }
 
+// 5-card stud. Bring-in: the lowest upcard (aces high; ties by suit, clubs
+// lowest, then diamonds, hearts, spades). Returns a sort key: lower = brings in.
+const SUIT_ORDER = { '♣': 0, '♦': 1, '♥': 2, '♠': 3 };
+export function bringInKey(card) { return RANK_VAL[card.rank] * 4 + SUIT_ORDER[card.suit]; }
+
+// 5-card stud: how strong the face-up cards look (decides who acts first after
+// 2nd street). Quads > trips > two pair > pair > high cards, then by ranks.
+// Returns an array; compare with cmpShowing.
+export function showingScore(upCards) {
+  const counts = {};
+  upCards.forEach((c) => { const v = RANK_VAL[c.rank]; counts[v] = (counts[v] || 0) + 1; });
+  const groups = Object.entries(counts).map(([v, n]) => ({ v: +v, n })).sort((a, b) => b.n - a.n || b.v - a.v);
+  const shape = groups.map((g) => g.n);
+  const cat = shape[0] === 4 ? 4 : shape[0] === 3 ? 3 : shape[0] === 2 && shape[1] === 2 ? 2 : shape[0] === 2 ? 1 : 0;
+  return [cat, ...groups.flatMap((g) => Array(g.n).fill(g.v))];
+}
+export function cmpShowing(a, b) {
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const d = (a[i] ?? -1) - (b[i] ?? -1);
+    if (d) return d;
+  }
+  return 0;
+}
+
 export function cmpScore(a, b) {
   if (a.rank !== b.rank) return a.rank - b.rank;
   for (let i = 0; i < a.tieVals.length; i++) if (a.tieVals[i] !== b.tieVals[i]) return a.tieVals[i] - b.tieVals[i];

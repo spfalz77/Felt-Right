@@ -82,7 +82,7 @@ async function discardCard(index) {
   if (error) { toast(error); _discardRenderKey = null; refreshGuestState(); return; }
   // Show my two cards right away; the server's copy follows
   if (_myPrivateHand && _myPrivateHand.handNumber === G.handNumber && _myPrivateHand.cards.length === 3) {
-    _myPrivateHand = { ..._myPrivateHand, cards: _myPrivateHand.cards.filter((_, i) => i !== index) };
+    _myPrivateHand = { ..._myPrivateHand, cards: _myPrivateHand.cards.filter((_, i) => i !== index), dealSeq: null };
   }
   if (G.handNumber > 0) fetchMyPrivateHand(currentGameId, G.handNumber);
 }

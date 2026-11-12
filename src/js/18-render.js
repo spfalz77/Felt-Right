@@ -119,8 +119,11 @@ function renderGame() {
     document.getElementById('pot-display').textContent = `POT: ${formatChips(G.pot)}`;
   }
 
-  const stages = { preflop:'PRE-FLOP', flop:'FLOP', turn:'TURN', river:'RIVER', showdown:'SHOWDOWN', discard:'DISCARD' };
-  const variantTag = ['omaha', 'pineapple', 'crazy_pineapple'].includes(G.variant) ? ' · ' + VARIANTS[G.variant].short : '';
+  const vStyle = (VARIANTS[G.variant] || VARIANTS.holdem).style;
+  const stages = vStyle === 'stud' ? { preflop:'2ND STREET', flop:'3RD STREET', turn:'4TH STREET', river:'5TH STREET', showdown:'SHOWDOWN' }
+    : vStyle === 'draw' ? { preflop:'BEFORE THE DRAW', draw:'DRAW', river:'AFTER THE DRAW', showdown:'SHOWDOWN' }
+    : { preflop:'PRE-FLOP', flop:'FLOP', turn:'TURN', river:'RIVER', showdown:'SHOWDOWN', discard:'DISCARD' };
+  const variantTag = ['omaha', 'pineapple', 'crazy_pineapple', 'draw5', 'stud5'].includes(G.variant) ? ' · ' + VARIANTS[G.variant].short : '';
   document.getElementById('stage-label').textContent = (stages[G.stage]||G.stage.toUpperCase()) + variantTag;
 
   // My hand
@@ -128,7 +131,7 @@ function renderGame() {
   const myCards = document.getElementById('my-cards');
   myCards.innerHTML = '';
   // Apply variant class so 4-card Omaha gets compact cards
-  myCards.className = 'my-cards' + (G.variant === 'omaha' ? ' omaha' : '');
+  myCards.className = 'my-cards' + (G.variant === 'omaha' ? ' omaha' : '') + ((myPlayer?.hand?.length || 0) >= 5 ? ' five' : '');
   if (myPlayer && myPlayer.hand.length) {
     myPlayer.hand.forEach((c,i) => {
       const el = makeCardEl(c, false, true, cardKey(c, 'hole'));
@@ -175,7 +178,12 @@ function renderGame() {
     const cardsHtml = (revealedCards || p.hand).length ? (revealedCards || p.hand).map(c => {
       const revealAtShowdown = G.stage === 'showdown' && !p.folded;
       const revealFromReveal = !!revealedCards; // folded player chose to show
-      const reveal = revealAtShowdown || revealFromReveal;
+      const faceUp = !!(c && c.up && !p.folded); // 5-card stud upcards
+      const reveal = revealAtShowdown || revealFromReveal || faceUp;
+      if (faceUp && !revealAtShowdown && !revealFromReveal && c.rank) {
+        // Compact face-up card (a seat can show four of them)
+        return `<div class="card sm stud-up ${isRed(c)?'red':'black'}"><div class="card-center">${c.rank}${c.suit}</div></div>`;
+      }
       if (reveal && c && c.rank) {
         const red = isRed(c);
         // For player-chose-to-show reveals, render full card visual at showdown size
@@ -299,6 +307,13 @@ function makeCardEl(card, hidden, lg, animKey) {
 function renderActionBar() {
   const bar = document.getElementById('action-bar');
   const slider = document.getElementById('bet-slider-row');
+
+  // 5-card draw: pick cards to throw away (managed by showDrawPicker)
+  if (G.stage === 'draw') {
+    if (slider) slider.style.display = 'none';
+    showDrawPicker();
+    return;
+  }
 
   // Pineapple discard: pick a card (managed by showDiscardPicker)
   if (G.stage === 'discard') {

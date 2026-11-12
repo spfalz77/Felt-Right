@@ -91,6 +91,31 @@ export const VARIANTS = {
     homeOnly: false,
     serverOnly: true,
   },
+  // 5-card draw: blinds, a betting round, everyone draws 0–3 at once, a second
+  // betting round, showdown. No board.
+  draw5: {
+    name: '5-Card Draw',
+    short: 'DRAW',
+    holeCards: 5,
+    maxDraw: 3,
+    description: '5 cards · draw up to 3 · two betting rounds',
+    style: 'draw',
+    homeOnly: false,
+    serverOnly: true,
+  },
+  // 5-card stud: everyone antes the small blind; 1 card down + 1 up; the lowest
+  // upcard brings it in for the small blind; one more upcard per street
+  // (4 betting rounds); the best showing hand acts first after 2nd street.
+  stud5: {
+    name: '5-Card Stud',
+    short: 'STUD',
+    holeCards: 2,
+    totalCards: 5,
+    description: '1 down, 4 up · ante + bring-in',
+    style: 'stud',
+    homeOnly: false,
+    serverOnly: true,
+  },
   guts3: {
     name: '3-Card Guts',
     short: 'GUTS',
@@ -106,6 +131,8 @@ export const VARIANTS = {
 
 // Seconds everyone gets to pick a discard (Pineapple variants), else one is picked for them
 export const DISCARD_SECONDS = 20;
+// Seconds everyone gets to choose cards to draw (5-card draw), else they stand pat
+export const DRAW_SECONDS = 25;
 
 // Blinds for a level index, from a blind structure. Beyond the defined
 // structure, keep doubling from the last level.

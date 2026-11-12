@@ -677,3 +677,171 @@ test('Pineapple variants: 300 random hands never create or lose a chip, and neve
     }
   }
 });
+
+// ── 5-card draw ────────────────────────────────────────────────────────────
+
+test('5-card draw: bet, everyone draws at once, bet again left of the dealer, best 5 wins', () => {
+  const t = table({ format: 'home' });
+  homeAtPicker(t);
+  t.G.rig.push({
+    hands: { Ace: cards('As Ah Kd 7c 2s'), Bo: cards('Qs Qh Qd 4c 3s'), Cy: cards('9s 8s 7s 6s 2h') },
+    board: cards('Ad Ac 5h 5d Jh Jc 2d'), // replacement cards, in the order they're drawn
+  });
+  t.must(t.G.dealerId, 'pick_variant', 'draw5');
+  assert.equal(t.G.stage, 'preflop');
+  assert.equal(t.G.pot, 15);
+  assert.ok(t.G.players.every((p) => p.hand.length === 5));
+  assert.equal(t.G.community.length, 0);
+  t.playHand(checkCall(t));
+  assert.equal(t.G.stage, 'draw');
+  assert.equal(t.G.community.length, 0, 'no board');
+  assert.equal(t.act('Ace', 'draw', [0, 1, 2, 3]).error, 'draw at most 3');
+  assert.equal(t.act('Ace', 'draw', [7]).error, 'pick cards to draw');
+  t.must('Ace', 'draw', [2, 3, 4]); // keeps A-A, draws Ad Ac 5h → four aces
+  assert.deepEqual(t.G.players.find((p) => p.id === 'Ace').hand.map((c) => c.rank), ['A', 'A', 'A', 'A', '5']);
+  assert.equal(t.act('Ace', 'draw', []).error, 'already drew');
+  t.must('Bo', 'draw', [3, 4]);     // trips + 5d Jh
+  assert.equal(t.G.players.find((p) => p.id === 'Bo').lastAction.label, 'Drew 2');
+  assert.equal(t.G.stage, 'draw', 'waits for everyone');
+  t.must('Cy', 'draw', []);         // stands pat
+  assert.equal(t.G.stage, 'river');
+  const dealerIdx = t.G.players.findIndex((p) => p.isDealer);
+  assert.equal(t.G.actionIndex, (dealerIdx + 1) % 3);
+  t.playHand(checkCall(t));
+  assert.equal(t.G.stage, 'showdown');
+  assert.equal(t.G.lastResult.pots[0].hand, 'Four of a Kind');
+  assert.equal(t.G.lastResult.winnings.Ace, 30);
+  assert.equal(t.total(), 6000);
+});
+
+test('5-card draw: no answer in 25s → stand pat; gone after 5s; all-in → draw, then showdown', () => {
+  const t = table({ format: 'home', names: ['Ace', 'Bo'] });
+  homeAtPicker(t);
+  t.must(t.G.dealerId, 'pick_variant', 'draw5');
+  t.must(t.actor(), 'allin');
+  t.must(t.actor(), 'call');
+  assert.equal(t.G.stage, 'draw');
+  const before = t.G.players.find((p) => p.id === 'Bo').hand.map((c) => c.rank + c.suit);
+  t.ctx.isGone = (id) => id === 'Bo';
+  t.wait(T.AWAY_GRACE_MS);
+  assert.equal(t.G.draws.Bo, 0, 'gone player stands pat after 5s');
+  assert.deepEqual(t.G.players.find((p) => p.id === 'Bo').hand.map((c) => c.rank + c.suit), before);
+  t.ctx.isGone = null;
+  assert.equal(t.wait(T.DRAW_MS - T.AWAY_GRACE_MS - 1), false);
+  t.wait(1);
+  assert.equal(t.G.stage, 'showdown');
+  assert.equal(t.total(), 4000);
+});
+
+test('5-card draw with 9 players: the deck is topped up from the discards', () => {
+  const names = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'];
+  const t = table({ format: 'home', names });
+  homeAtPicker(t);
+  t.must(t.G.dealerId, 'pick_variant', 'draw5');
+  t.playHand(checkCall(t));
+  assert.equal(t.G.deck.length, 7);
+  for (const n of names) t.must(n, 'draw', [0, 1, 2]);
+  const all = t.G.players.flatMap((p) => p.hand).map((c) => c.rank + c.suit);
+  assert.equal(new Set(all).size, 45, 'no card dealt twice');
+  assert.ok(t.G.players.every((p) => p.hand.length === 5));
+  assert.equal(T.redact(t.G).mucked, undefined, 'discards stay on the server');
+});
+
+// ── 5-card stud ────────────────────────────────────────────────────────────
+
+test('5-card stud: antes, lowest upcard brings in, upcards visible, best showing hand acts first', () => {
+  const t = table({ format: 'home' });
+  homeAtPicker(t);
+  t.G.rig.push({
+    hands: { Ace: cards('As 3c'), Bo: cards('Ks 3d'), Cy: cards('Qs 9h') }, // 3c brings in (clubs lowest)
+    board: cards('Kh 2c Qh 7d 4s 8c 5h 6s Jd'),
+  });
+  t.must(t.G.dealerId, 'pick_variant', 'stud5');
+  assert.equal(t.G.stage, 'preflop');
+  assert.equal(t.G.pot, 15 + 5, 'three 5¢ antes + 5¢ bring-in');
+  const ace = t.G.players.find((p) => p.id === 'Ace');
+  assert.equal(ace.bet, 5);
+  assert.equal(ace.lastAction.label, 'Bring-in 5');
+  assert.equal(t.G.players[t.G.bringInIdx].id, 'Ace');
+  // Phones see everyone's upcard, never the down card
+  const pub = T.redact(t.G);
+  for (const p of pub.players) { assert.equal(p.hand[0].hidden, true); assert.ok(p.hand[1].rank && p.hand[1].up); }
+  // Everyone calls the bring-in; the bring-in has no option
+  assert.notEqual(t.actor(), 'Ace');
+  t.must(t.actor(), 'call'); t.must(t.actor(), 'call');
+  assert.equal(t.G.stage, 'flop', '3rd street');
+  assert.ok(t.G.players.every((p) => p.hand.length === 3));
+  // Who shows a pair acts first
+  const best = t.G.players.find((p) => p.hand.filter((c) => c.up).map((c) => c.rank).filter((r, i, a) => a.indexOf(r) !== i).length);
+  if (best) assert.equal(t.actor(), best.id);
+  t.playHand(checkCall(t));
+  assert.equal(t.G.stage, 'showdown');
+  assert.ok(t.G.players.every((p) => p.hand.length === 5));
+  assert.equal(t.G.community.length, 0);
+  assert.equal(t.total(), 6000);
+  assert.equal(Object.values(t.G.lastResult.winnings).reduce((a, b) => a + b, 0), 30);
+});
+
+test('5-card stud: showing scores rank pairs over high cards; folded upcards are hidden', () => {
+  const t = table({ format: 'home' });
+  homeAtPicker(t);
+  t.must(t.G.dealerId, 'pick_variant', 'stud5');
+  const first = t.actor();
+  t.must(first, 'fold');
+  const pub = T.redact(t.G).players.find((p) => p.id === first);
+  assert.ok(pub.hand.every((c) => c.hidden));
+});
+
+test('5-card stud: all-in on 2nd street runs out to five cards each', () => {
+  const t = table({ format: 'home', names: ['Ace', 'Bo'] });
+  homeAtPicker(t);
+  t.must(t.G.dealerId, 'pick_variant', 'stud5');
+  t.must(t.actor(), 'allin');
+  t.must(t.actor(), 'call');
+  assert.equal(t.G.stage, 'showdown');
+  assert.ok(t.G.players.every((p) => p.hand.length === 5));
+  assert.equal(t.total(), 4000);
+});
+
+test('tournament can be 5-card draw or stud', () => {
+  const ctx = { now: 0, rng: rngFrom(3), effects: {} };
+  const seats = [{ id: 'a' }, { id: 'b' }];
+  assert.equal(T.newGame({ seats, format: 'tournament', variant: 'draw5' }, ctx).variant, 'draw5');
+  assert.equal(T.newGame({ seats, format: 'tournament', variant: 'stud5' }, ctx).variant, 'stud5');
+});
+
+test('draw and stud: 400 random hands never create or lose a chip, and never stall', () => {
+  for (let seed = 1; seed <= 20; seed++) {
+    const names = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'].slice(0, 2 + (seed % 8));
+    const t = table({ format: 'home', names, seed });
+    const pick = rngFrom(seed * 15485863);
+    let bought = 0;
+    for (let h = 0; h < 20; h++) {
+      t.wait(T.NEXT_HAND_MS);
+      for (const p of t.G.players.filter((x) => x.broke && !x.eliminated)) { t.must(p.id, 'rebuy'); bought += 2000; }
+      if (!t.G.pendingDealerChoice) t.wait(T.NEXT_HAND_MS);
+      if (!t.G.pendingDealerChoice) break;
+      t.must(t.G.dealerId, 'pick_variant', h % 2 ? 'draw5' : 'stud5');
+      let guard = 0;
+      while ((T.isBetting(t.G) || t.G.stage === 'draw') && guard++ < 300) {
+        if (t.G.stage === 'draw') {
+          if (pick() < 0.3) { t.wait(T.DRAW_MS); continue; }
+          for (const p of t.G.players.filter((x) => !x.folded && !x.eliminated && t.G.draws[x.id] == null)) {
+            t.must(p.id, 'draw', [0, 1, 2, 3, 4].filter(() => pick() < 0.4).slice(0, 3));
+          }
+          continue;
+        }
+        const who = t.actor();
+        const p = t.G.players[t.G.actionIndex];
+        const r = pick();
+        const a = r < 0.12 ? 'fold' : r < 0.2 ? 'allin' : r < 0.35 ? ['raise', Math.floor(pick() * 400)] : (t.G.currentBet > p.bet ? 'call' : 'check');
+        t.must(who, ...[].concat(a));
+      }
+      assert.equal(t.G.stage, 'showdown', `seed ${seed} hand ${h} ended`);
+      assert.equal(t.total(), names.length * 2000 + bought, `seed ${seed} hand ${h}: chips conserved`);
+      if (!t.G.wonByFold) assert.ok(t.G.players.filter((p) => !p.folded && !p.eliminated).every((p) => p.hand.length === 5), 'five cards at showdown');
+      const seen = t.G.players.flatMap((p) => p.hand).map((c) => c.rank + c.suit);
+      assert.equal(new Set(seen).size, seen.length, 'no card dealt twice');
+    }
+  }
+});

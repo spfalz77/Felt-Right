@@ -356,6 +356,8 @@ h3 { font-size: 1rem; font-weight: 600; }
 .player-seat .card.sm { width: 28px; height: 42px; border-radius: 3px; }
 .player-seat .card.sm .card-top, .player-seat .card.sm .card-bot { display:none; }
 .player-seat .card.sm .card-center { font-size: 0.8rem; }
+.player-seat .card.sm.stud-up { width: 24px; }
+.player-seat .card.sm.stud-up .card-center { font-size: 0.62rem; font-weight: 700; letter-spacing: -0.02em; }
 .player-seat.folded .avatar { opacity: 0.35; }
 .player-seat.folded .name { opacity: 0.35; }
 .bet-chip-front {
@@ -434,6 +436,13 @@ h3 { font-size: 1rem; font-weight: 600; }
 .my-cards.omaha .card.lg .card-rank { font-size: 1.4rem; }
 .my-cards.omaha .card.lg .card-suit { font-size: 0.95rem; }
 .my-cards.omaha .card.lg .card-center { font-size: 2rem; }
+.my-cards.five { gap: 5px; }
+.my-cards.five .card.lg { width: 56px; height: 80px; }
+.my-cards.five .card.lg .card-rank { font-size: 1.15rem; }
+.my-cards.five .card.lg .card-suit { font-size: 0.8rem; }
+.my-cards.five .card.lg .card-center { font-size: 1.6rem; }
+/* 5-card draw: cards picked to throw away */
+#draw-cards .card.picked { transform: translateY(-10px); opacity: 0.55; outline: 2px solid var(--red-light); }
 .my-info { display: flex; align-items: center; gap: 10px; }
 .my-name { font-weight: 600; font-size: 0.9rem; }
 .my-chips { font-family: 'Bebas Neue', sans-serif; font-size: 1.1rem; color: var(--gold); letter-spacing: 0.05em; }
@@ -1223,6 +1232,16 @@ window.__dbgLogs = [];
           <div style="font-family:'Bebas Neue',sans-serif;font-size:1rem;letter-spacing:0.08em">Crazy Pineapple</div>
           <div style="font-size:0.7rem;color:var(--text-dim);margin-top:2px">3 cards · discard 1 after flop</div>
         </button>
+        <button id="variant-draw5" onclick="selectGameVariant('draw5')" type="button"
+          class="format-btn server-only-variant" style="display:none">
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:1rem;letter-spacing:0.08em">5-Card Draw</div>
+          <div style="font-size:0.7rem;color:var(--text-dim);margin-top:2px">5 cards · draw up to 3</div>
+        </button>
+        <button id="variant-stud5" onclick="selectGameVariant('stud5')" type="button"
+          class="format-btn server-only-variant" style="display:none">
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:1rem;letter-spacing:0.08em">5-Card Stud</div>
+          <div style="font-size:0.7rem;color:var(--text-dim);margin-top:2px">1 down, 4 up</div>
+        </button>
       </div>
     </div>
 
@@ -1418,6 +1437,30 @@ function autoDiscardIndex(hand, community) {
   return bestI;
 }
 
+// 5-card stud. Bring-in: the lowest upcard (aces high; ties by suit, clubs
+// lowest, then diamonds, hearts, spades). Returns a sort key: lower = brings in.
+const SUIT_ORDER = { '♣': 0, '♦': 1, '♥': 2, '♠': 3 };
+function bringInKey(card) { return RANK_VAL[card.rank] * 4 + SUIT_ORDER[card.suit]; }
+
+// 5-card stud: how strong the face-up cards look (decides who acts first after
+// 2nd street). Quads > trips > two pair > pair > high cards, then by ranks.
+// Returns an array; compare with cmpShowing.
+function showingScore(upCards) {
+  const counts = {};
+  upCards.forEach((c) => { const v = RANK_VAL[c.rank]; counts[v] = (counts[v] || 0) + 1; });
+  const groups = Object.entries(counts).map(([v, n]) => ({ v: +v, n })).sort((a, b) => b.n - a.n || b.v - a.v);
+  const shape = groups.map((g) => g.n);
+  const cat = shape[0] === 4 ? 4 : shape[0] === 3 ? 3 : shape[0] === 2 && shape[1] === 2 ? 2 : shape[0] === 2 ? 1 : 0;
+  return [cat, ...groups.flatMap((g) => Array(g.n).fill(g.v))];
+}
+function cmpShowing(a, b) {
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const d = (a[i] ?? -1) - (b[i] ?? -1);
+    if (d) return d;
+  }
+  return 0;
+}
+
 function cmpScore(a, b) {
   if (a.rank !== b.rank) return a.rank - b.rank;
   for (let i = 0; i < a.tieVals.length; i++) if (a.tieVals[i] !== b.tieVals[i]) return a.tieVals[i] - b.tieVals[i];
@@ -1576,6 +1619,31 @@ const VARIANTS = {
     homeOnly: false,
     serverOnly: true,
   },
+  // 5-card draw: blinds, a betting round, everyone draws 0–3 at once, a second
+  // betting round, showdown. No board.
+  draw5: {
+    name: '5-Card Draw',
+    short: 'DRAW',
+    holeCards: 5,
+    maxDraw: 3,
+    description: '5 cards · draw up to 3 · two betting rounds',
+    style: 'draw',
+    homeOnly: false,
+    serverOnly: true,
+  },
+  // 5-card stud: everyone antes the small blind; 1 card down + 1 up; the lowest
+  // upcard brings it in for the small blind; one more upcard per street
+  // (4 betting rounds); the best showing hand acts first after 2nd street.
+  stud5: {
+    name: '5-Card Stud',
+    short: 'STUD',
+    holeCards: 2,
+    totalCards: 5,
+    description: '1 down, 4 up · ante + bring-in',
+    style: 'stud',
+    homeOnly: false,
+    serverOnly: true,
+  },
   guts3: {
     name: '3-Card Guts',
     short: 'GUTS',
@@ -1591,6 +1659,8 @@ const VARIANTS = {
 
 // Seconds everyone gets to pick a discard (Pineapple variants), else one is picked for them
 const DISCARD_SECONDS = 20;
+// Seconds everyone gets to choose cards to draw (5-card draw), else they stand pat
+const DRAW_SECONDS = 25;
 
 // Blinds for a level index, from a blind structure. Beyond the defined
 // structure, keep doubling from the last level.
@@ -2540,7 +2610,7 @@ function onRebuysToggle(checked) {
 function selectGameVariant(variant) {
   gameVariant = variant;
   document.getElementById('variant-holdem')?.classList.toggle('format-selected', variant === 'holdem');
-  ['omaha', 'pineapple', 'crazy_pineapple'].forEach((v) =>
+  ['omaha', 'pineapple', 'crazy_pineapple', 'draw5', 'stud5'].forEach((v) =>
     document.getElementById('variant-' + v)?.classList.toggle('format-selected', variant === v));
   updateCreateGameSummary();
 }
@@ -4197,6 +4267,8 @@ let _prevPaused = false;
 
 async function fetchMyPrivateHand(gameId, handNumber) {
   if (!sb || !me?.id || me.id === 'demo') return;
+  // (the table is saved together with the cards, so what this reads is at least this new)
+  const dealSeq = G?.dealSeq ?? null;
   try {
     // Retry up to 5 times — the host may still be writing
     for (let attempt = 0; attempt < 5; attempt++) {
@@ -4208,7 +4280,7 @@ async function fetchMyPrivateHand(gameId, handNumber) {
         .maybeSingle();
 
       if (data?.cards) {
-        _myPrivateHand = { handNumber, cards: data.cards };
+        _myPrivateHand = { handNumber, cards: data.cards, dealSeq };
         applyMyPrivateHand();
         renderGame();
         return;
@@ -4224,7 +4296,12 @@ function applyMyPrivateHand() {
   const myP = G.players.find(p => p.id === me.id);
   if (!myP) return;
   // Replace redacted hidden cards with real ones
-  if (myP.hand && myP.hand.length && myP.hand.every(c => c?.hidden)) {
+  // Server games: cards fetched before the latest deal/draw/discard are stale
+  if (isServerGame() && _myPrivateHand.dealSeq != null && G.dealSeq != null && _myPrivateHand.dealSeq < G.dealSeq) return;
+  if (myP.hand && myP.hand.some(c => c?.hidden) && myP.hand.some(c => c && c.rank)) {
+    // 5-card stud: the upcards come with the table; fill in the hidden ones from my own copy
+    myP.hand = myP.hand.map((c, i) => (c?.hidden && _myPrivateHand.cards[i] ? _myPrivateHand.cards[i] : c));
+  } else if (myP.hand && myP.hand.length && myP.hand.every(c => c?.hidden)) {
     if (myP.hand.length !== _myPrivateHand.cards.length) return; // a discard: newer cards are on the way
     myP.hand = _myPrivateHand.cards;
   } else if (!myP.hand?.length) {
@@ -5050,8 +5127,8 @@ function showDealerChoice() {
         <div style="font-size:0.7rem;color:var(--text-dim);margin-top:10px">
           No pick in ${DEALER_CHOICE_SECONDS}s → Hold'em is dealt</div>`;
 
-  // Pineapple variants need the server engine (it runs the discards)
-  const pineappleButtons = isServerGame() ? ['pineapple', 'crazy_pineapple'].map((v) => `
+  // Pineapple, draw and stud need the server engine (VARIANTS[v].serverOnly)
+  const pineappleButtons = isServerGame() ? ['pineapple', 'crazy_pineapple', 'draw5', 'stud5'].map((v) => `
           <button onclick="dealerPickedVariant('${v}')" class="format-btn"
             style="padding:14px 12px;cursor:pointer;text-align:left">
             <div style="font-family:'Bebas Neue',sans-serif;font-size:1.05rem;letter-spacing:0.08em">${VARIANTS[v].name}</div>
@@ -5153,8 +5230,8 @@ function dealerPickedVariant(variant) {
     proceedToDeal();
   } else {
     // Guest dealer: submit choice to host via player_actions.
-    // Variant encoded in `amount`: 1=holdem, 2=omaha, 3=guts3, 4=pineapple, 5=crazy_pineapple (target_id is a UUID column).
-    const variantCode = { holdem: 1, omaha: 2, guts3: 3, pineapple: 4, crazy_pineapple: 5 }[variant] || 1;
+    // Variant encoded in `amount`: 1=holdem, 2=omaha, 3=guts3, 4=pineapple, 5=crazy_pineapple, 6=draw5, 7=stud5 (target_id is a UUID column).
+    const variantCode = { holdem: 1, omaha: 2, guts3: 3, pineapple: 4, crazy_pineapple: 5, draw5: 6, stud5: 7 }[variant] || 1;
     if (sb && currentGameId) {
       postAction({
         game_id: currentGameId,
@@ -5968,8 +6045,11 @@ function renderGame() {
     document.getElementById('pot-display').textContent = `POT: ${formatChips(G.pot)}`;
   }
 
-  const stages = { preflop:'PRE-FLOP', flop:'FLOP', turn:'TURN', river:'RIVER', showdown:'SHOWDOWN', discard:'DISCARD' };
-  const variantTag = ['omaha', 'pineapple', 'crazy_pineapple'].includes(G.variant) ? ' · ' + VARIANTS[G.variant].short : '';
+  const vStyle = (VARIANTS[G.variant] || VARIANTS.holdem).style;
+  const stages = vStyle === 'stud' ? { preflop:'2ND STREET', flop:'3RD STREET', turn:'4TH STREET', river:'5TH STREET', showdown:'SHOWDOWN' }
+    : vStyle === 'draw' ? { preflop:'BEFORE THE DRAW', draw:'DRAW', river:'AFTER THE DRAW', showdown:'SHOWDOWN' }
+    : { preflop:'PRE-FLOP', flop:'FLOP', turn:'TURN', river:'RIVER', showdown:'SHOWDOWN', discard:'DISCARD' };
+  const variantTag = ['omaha', 'pineapple', 'crazy_pineapple', 'draw5', 'stud5'].includes(G.variant) ? ' · ' + VARIANTS[G.variant].short : '';
   document.getElementById('stage-label').textContent = (stages[G.stage]||G.stage.toUpperCase()) + variantTag;
 
   // My hand
@@ -5977,7 +6057,7 @@ function renderGame() {
   const myCards = document.getElementById('my-cards');
   myCards.innerHTML = '';
   // Apply variant class so 4-card Omaha gets compact cards
-  myCards.className = 'my-cards' + (G.variant === 'omaha' ? ' omaha' : '');
+  myCards.className = 'my-cards' + (G.variant === 'omaha' ? ' omaha' : '') + ((myPlayer?.hand?.length || 0) >= 5 ? ' five' : '');
   if (myPlayer && myPlayer.hand.length) {
     myPlayer.hand.forEach((c,i) => {
       const el = makeCardEl(c, false, true, cardKey(c, 'hole'));
@@ -6024,7 +6104,12 @@ function renderGame() {
     const cardsHtml = (revealedCards || p.hand).length ? (revealedCards || p.hand).map(c => {
       const revealAtShowdown = G.stage === 'showdown' && !p.folded;
       const revealFromReveal = !!revealedCards; // folded player chose to show
-      const reveal = revealAtShowdown || revealFromReveal;
+      const faceUp = !!(c && c.up && !p.folded); // 5-card stud upcards
+      const reveal = revealAtShowdown || revealFromReveal || faceUp;
+      if (faceUp && !revealAtShowdown && !revealFromReveal && c.rank) {
+        // Compact face-up card (a seat can show four of them)
+        return `<div class="card sm stud-up ${isRed(c)?'red':'black'}"><div class="card-center">${c.rank}${c.suit}</div></div>`;
+      }
       if (reveal && c && c.rank) {
         const red = isRed(c);
         // For player-chose-to-show reveals, render full card visual at showdown size
@@ -6148,6 +6233,13 @@ function makeCardEl(card, hidden, lg, animKey) {
 function renderActionBar() {
   const bar = document.getElementById('action-bar');
   const slider = document.getElementById('bet-slider-row');
+
+  // 5-card draw: pick cards to throw away (managed by showDrawPicker)
+  if (G.stage === 'draw') {
+    if (slider) slider.style.display = 'none';
+    showDrawPicker();
+    return;
+  }
 
   // Pineapple discard: pick a card (managed by showDiscardPicker)
   if (G.stage === 'discard') {
@@ -10479,7 +10571,7 @@ async function callTable(gameId, action, amount, extra) {
 // ones the server handles go to the table instead; everything else (nudges,
 // and moves the server doesn't run yet) is still inserted as before.
 // Same return shape as an insert: a promise of { error }.
-const _variantByCode = { 1: 'holdem', 2: 'omaha', 3: 'guts3', 4: 'pineapple', 5: 'crazy_pineapple' };
+const _variantByCode = { 1: 'holdem', 2: 'omaha', 3: 'guts3', 4: 'pineapple', 5: 'crazy_pineapple', 6: 'draw5', 7: 'stud5' };
 function toServerAction(row) {
   const a = row.action;
   if (['fold', 'check', 'call', 'raise', 'twobet', 'twobb', 'threebb', 'pot', 'allin'].includes(a)) return [a, row.amount];
@@ -10582,6 +10674,8 @@ function startServerTicker(gameId) {
       G.stage === 'guts_decision' ? G.gutsDeadlineMs : null,
       G.stage === 'discard' ? G.discardDeadline : null,
       G.stage === 'discard' && G.discardStartMs && discardWaitingOn().some((p) => !isPlayerOnline(p.id)) ? G.discardStartMs + 5000 : null,
+      G.stage === 'draw' ? G.drawDeadline : null,
+      G.stage === 'draw' && G.drawStartMs && drawWaitingOn().some((p) => !isPlayerOnline(p.id)) ? G.drawStartMs + 5000 : null,
       levelEndsAt,
     ].some((t) => t && serverNow() >= t);
     if (!due || Date.now() - _lastTickAt < 2000) return;
@@ -10695,13 +10789,115 @@ async function discardCard(index) {
   if (error) { toast(error); _discardRenderKey = null; refreshGuestState(); return; }
   // Show my two cards right away; the server's copy follows
   if (_myPrivateHand && _myPrivateHand.handNumber === G.handNumber && _myPrivateHand.cards.length === 3) {
-    _myPrivateHand = { ..._myPrivateHand, cards: _myPrivateHand.cards.filter((_, i) => i !== index) };
+    _myPrivateHand = { ..._myPrivateHand, cards: _myPrivateHand.cards.filter((_, i) => i !== index), dealSeq: null };
   }
   if (G.handNumber > 0) fetchMyPrivateHand(currentGameId, G.handNumber);
 }
 
 // Tournament create screen: Pineapple variants only for games this phone runs on the server
 document.querySelectorAll('.server-only-variant').forEach((el) => { el.style.display = SERVER_RULES ? '' : 'none'; });
+// ════════════════════════════════════════════════════════════════════════════
+// 5-CARD DRAW — THE DRAW
+// ════════════════════════════════════════════════════════════════════════════
+// Server games only. After the first betting round everyone in the hand picks
+// up to 3 cards to throw away, at the same time, and gets new ones. No pick
+// in time (DRAW_SECONDS) means standing pat.
+let _drawTimer = null;
+let _drawRenderKey = null;
+let _drawSending = false;
+let _drawPicked = new Set();
+let _drawPickedFor = null; // which hand the picks belong to
+
+// Players who haven't drawn yet this hand
+function drawWaitingOn() {
+  if (!G || G.stage !== 'draw') return [];
+  return G.players.filter(p => !p.folded && !p.eliminated && G.draws?.[p.id] == null);
+}
+
+function showDrawPicker() {
+  const bar = document.getElementById('action-bar');
+  if (!bar || !G || G.stage !== 'draw') return;
+  const autoBar = document.getElementById('auto-action-bar');
+  if (autoBar) autoBar.innerHTML = '';
+  if (_drawPickedFor !== G.handNumber) { _drawPicked = new Set(); _drawPickedFor = G.handNumber; }
+  const waiting = drawWaitingOn();
+  const inHand = G.players.filter(p => !p.folded && !p.eliminated);
+  const myP = G.players.find(p => p.id === me.id);
+  const mine = myP && waiting.includes(myP) && myP.hand.every(c => c && c.rank) ? myP.hand : null;
+  const max = (VARIANTS[G.variant] || {}).maxDraw || 3;
+  const key = `${G.handNumber}|${G.dealSeq}|${mine ? mine.map(c => c.rank + c.suit).join(',') : '-'}|${waiting.length}|${_drawSending}|${[..._drawPicked].join(',')}`;
+  if (key !== _drawRenderKey) {
+    _drawRenderKey = key;
+    if (mine && !_drawSending) {
+      const n = _drawPicked.size;
+      const cardsHtml = mine.map((c, i) => `
+        <button onclick="toggleDrawCard(${i})" class="card lg ${isRed(c) ? 'red' : 'black'}${_drawPicked.has(i) ? ' picked' : ''}"
+          style="cursor:pointer;border:none;padding:0;position:relative;transition:transform 0.12s"
+          aria-pressed="${_drawPicked.has(i)}" aria-label="${c.rank}${c.suit}">
+          <div class="card-top"><div class="card-rank">${c.rank}</div><div class="card-suit">${c.suit}</div></div>
+          <div class="card-center">${c.suit}</div>
+          <div class="card-bot"><div class="card-rank">${c.rank}</div><div class="card-suit">${c.suit}</div></div>
+        </button>`).join('');
+      bar.innerHTML = `
+        <div style="grid-column:1/-1;text-align:center;padding:6px 8px">
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:1.05rem;letter-spacing:0.1em;color:var(--gold)">
+            TAP UP TO ${max} CARDS TO REPLACE</div>
+          <div id="draw-cards" class="my-cards five" style="margin:12px 0 8px">${cardsHtml}</div>
+          <button id="draw-submit" onclick="submitDraw()" class="btn btn-primary"
+            style="width:100%;padding:12px;font-family:'Bebas Neue',sans-serif;font-size:1rem;letter-spacing:0.1em">
+            ${n ? `DRAW ${n}` : 'STAND PAT'}</button>
+          <div id="draw-timer-text" style="font-family:'Bebas Neue',sans-serif;color:var(--gold-pale);font-size:0.9rem;margin-top:6px">⏱ —</div>
+        </div>`;
+    } else {
+      const done = inHand.length - waiting.length;
+      bar.innerHTML = `
+        <div style="grid-column:1/-1;text-align:center;padding:8px">
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:1.05rem;letter-spacing:0.1em;color:var(--text-dim)">
+            ${myP && waiting.includes(myP) ? 'DEALING…' : myP && inHand.includes(myP) ? 'NEW CARDS IN' : 'DRAWING'}</div>
+          <div style="font-size:0.72rem;color:var(--text-dim);margin-top:4px">
+            Waiting for others… ${done}/${inHand.length} drawn</div>
+          <div id="draw-timer-text" style="font-family:'Bebas Neue',sans-serif;color:var(--gold-pale);margin-top:6px;font-size:0.95rem">⏱ —</div>
+        </div>`;
+    }
+  }
+  updateDrawTimer();
+  if (!_drawTimer) {
+    _drawTimer = setInterval(() => {
+      if (!G || G.stage !== 'draw') { clearInterval(_drawTimer); _drawTimer = null; _drawRenderKey = null; return; }
+      updateDrawTimer();
+    }, 1000);
+  }
+}
+
+function updateDrawTimer() {
+  const el = document.getElementById('draw-timer-text');
+  if (!el || !G?.drawDeadline) return;
+  const secLeft = Math.max(0, Math.ceil((G.drawDeadline - serverNow()) / 1000));
+  el.style.color = secLeft < 5 ? 'var(--red-light)' : 'var(--gold-pale)';
+  el.textContent = `⏱ ${secLeft}s · then you stand pat`;
+}
+
+function toggleDrawCard(i) {
+  if (!G || G.stage !== 'draw' || _drawSending) return;
+  const max = (VARIANTS[G.variant] || {}).maxDraw || 3;
+  if (_drawPicked.has(i)) _drawPicked.delete(i);
+  else if (_drawPicked.size < max) _drawPicked.add(i);
+  else { toast(`You can draw at most ${max}`); return; }
+  showDrawPicker();
+}
+
+async function submitDraw() {
+  if (!G || G.stage !== 'draw' || _drawSending || !isServerGame()) return;
+  _drawSending = true;
+  showDrawPicker();
+  const picks = [..._drawPicked].sort((a, b) => a - b);
+  const { error } = await callTable(currentGameId, 'draw', picks);
+  _drawSending = false;
+  _drawPicked = new Set();
+  _drawRenderKey = null;
+  if (error) { toast(error); refreshGuestState(); return; }
+  if (G.handNumber > 0) fetchMyPrivateHand(currentGameId, G.handNumber);
+}
 </script>
 
 <!-- Global Chat slide-up panel (outside all screens so it works in lobby AND game) -->

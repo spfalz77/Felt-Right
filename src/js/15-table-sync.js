@@ -390,6 +390,8 @@ let _prevPaused = false;
 
 async function fetchMyPrivateHand(gameId, handNumber) {
   if (!sb || !me?.id || me.id === 'demo') return;
+  // (the table is saved together with the cards, so what this reads is at least this new)
+  const dealSeq = G?.dealSeq ?? null;
   try {
     // Retry up to 5 times — the host may still be writing
     for (let attempt = 0; attempt < 5; attempt++) {
@@ -401,7 +403,7 @@ async function fetchMyPrivateHand(gameId, handNumber) {
         .maybeSingle();
 
       if (data?.cards) {
-        _myPrivateHand = { handNumber, cards: data.cards };
+        _myPrivateHand = { handNumber, cards: data.cards, dealSeq };
         applyMyPrivateHand();
         renderGame();
         return;
@@ -417,7 +419,12 @@ function applyMyPrivateHand() {
   const myP = G.players.find(p => p.id === me.id);
   if (!myP) return;
   // Replace redacted hidden cards with real ones
-  if (myP.hand && myP.hand.length && myP.hand.every(c => c?.hidden)) {
+  // Server games: cards fetched before the latest deal/draw/discard are stale
+  if (isServerGame() && _myPrivateHand.dealSeq != null && G.dealSeq != null && _myPrivateHand.dealSeq < G.dealSeq) return;
+  if (myP.hand && myP.hand.some(c => c?.hidden) && myP.hand.some(c => c && c.rank)) {
+    // 5-card stud: the upcards come with the table; fill in the hidden ones from my own copy
+    myP.hand = myP.hand.map((c, i) => (c?.hidden && _myPrivateHand.cards[i] ? _myPrivateHand.cards[i] : c));
+  } else if (myP.hand && myP.hand.length && myP.hand.every(c => c?.hidden)) {
     if (myP.hand.length !== _myPrivateHand.cards.length) return; // a discard: newer cards are on the way
     myP.hand = _myPrivateHand.cards;
   } else if (!myP.hand?.length) {

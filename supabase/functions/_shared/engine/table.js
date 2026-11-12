@@ -11,8 +11,8 @@
 //         isGone?: (playerId) => true if their app is closed/offline (from heartbeats) }
 // Nothing here touches the network, the DOM or the clock.
 
-import { makeDeck, evalBest, evalBest3Card, cmpScore, autoDiscardIndex } from './cards.js';
-import { FORMATS, VARIANTS, DISCARD_SECONDS, blindsAt } from './config.js';
+import { makeDeck, evalBest, evalBest3Card, cmpScore, autoDiscardIndex, bringInKey, showingScore, cmpShowing } from './cards.js';
+import { FORMATS, VARIANTS, DISCARD_SECONDS, DRAW_SECONDS, blindsAt } from './config.js';
 import { buildSidePots } from './side-pots.js';
 
 export const FIRST_DEAL_MS = 2000;          // start → first hand
@@ -24,12 +24,14 @@ export const BREAK_AFTER_LEVELS = 4;        // tournament with re-buys: first br
 export const TURN_MS = 32000;               // a turn: 30s on the player's screen + 2s grace, then check/fold
 export const AWAY_GRACE_MS = 5000;          // a player who's gone (app closed/offline) is checked/folded after 5s
 export const DISCARD_MS = DISCARD_SECONDS * 1000; // Pineapple: everyone picks a discard, else one is picked for them
+export const DRAW_MS = DRAW_SECONDS * 1000;       // 5-card draw: everyone picks cards to draw, else stands pat
 
 const BETTING = ['preflop', 'flop', 'turn', 'river'];
 const RAISES = ['raise', 'twobet', 'twobb', 'threebb', 'pot', 'allin'];
 
 export const isBetting = (G) => BETTING.includes(G.stage);
 const fmt = (G) => FORMATS[G.format] || FORMATS.tournament;
+const styleOf = (G) => (VARIANTS[G.variant] || VARIANTS.holdem).style;
 const snapTo5 = (n) => Math.round(n / 5) * 5 || 5;
 const fail = (error) => ({ ok: false, error });
 const OK = { ok: true };
@@ -93,6 +95,7 @@ export function redact(G) {
   const out = JSON.parse(JSON.stringify(G));
   delete out.deck;
   delete out.rig;
+  delete out.mucked;
   const gutsShown = new Set(((G.gutsResults && G.gutsResults.handScores) || []).map((h) => h.id));
   const isGuts = (VARIANTS[G.variant] || {}).style === 'guts';
   out.players.forEach((p, i) => {
@@ -100,7 +103,8 @@ export function redact(G) {
     const show = G.stage === 'showdown' && (isGuts
       ? gutsShown.has(src.id)
       : !src.folded && !src.eliminated && !G.wonByFold);
-    if (!show) p.hand = (p.hand || []).map(() => ({ hidden: true }));
+    // (5-card stud: face-up cards stay visible while the player is in the hand)
+    if (!show) p.hand = (p.hand || []).map((c) => (c && c.up && !src.folded ? c : { hidden: true }));
   });
   return out;
 }
@@ -141,7 +145,7 @@ function endBreak(G, ctx) {
   G.levelStartedAt = ctx.now;
   // Anyone still deciding on a re-buy can't any more: they're out
   G.players.filter((p) => p.broke && !p.eliminated).forEach((p) => sitOut(G, p));
-  if (!isBetting(G) && G.stage !== 'guts_decision' && G.stage !== 'discard') G.nextDealAt = ctx.now + RESUME_DEAL_MS;
+  if (!isBetting(G) && !['guts_decision', 'discard', 'draw'].includes(G.stage)) G.nextDealAt = ctx.now + RESUME_DEAL_MS;
 }
 export const currentBlinds = (G) => blindsAt(G.blindLevels, fmt(G).blindsEscalate ? G.blindLevel : 0);
 
@@ -230,6 +234,8 @@ function proceedToDeal(G, ctx) {
   G.chopOfferedBy = null;
   G.paidOutHand = null;
   G.discards = {}; G.discardThen = null; G.discardDeadline = null;
+  G.draws = {}; G.drawThen = null; G.drawDeadline = null; G.drawDone = null; G.mucked = [];
+  G.bringInIdx = -1;
   G.deck = makeDeck(ctx.rng);
   G.players.forEach((p) => {
     p.hand = []; p.bet = 0; p.totalBet = 0; p.folded = false; p.allIn = false;
@@ -249,6 +255,7 @@ function proceedToDeal(G, ctx) {
 
   const blinds = currentBlinds(G);
   if (vCfg.style === 'guts') { startGutsRound(G, blinds.big, ctx); return; }
+  if (vCfg.style === 'stud') { startStud(G, blinds, ctx); return; }
   G.currentBet = blinds.big;
   const dealerPos = G.players.findIndex((p) => p.id === G.dealerId);
   let sbIdx, bbIdx;
@@ -522,6 +529,19 @@ function advanceStage(G, ctx) {
   returnUncalledBets(G);
   G.players.forEach((p) => { p.bet = 0; if (!p.folded && !p.eliminated) p.lastAction = null; });
   G.currentBet = 0;
+  const style = styleOf(G);
+  if (style === 'stud') {
+    if (G.stage === 'river') { showdown(G, ctx); return; }
+    dealStudStreet(G);
+    G.stage = STUD_NEXT[G.stage];
+    studFirstToAct(G, ctx);
+    return;
+  }
+  if (style === 'draw') {
+    if (G.stage === 'preflop') { startDraw(G, 'river', ctx); return; }
+    showdown(G, ctx);
+    return;
+  }
   if (G.stage === 'preflop') {
     G.community = [G.deck.pop(), G.deck.pop(), G.deck.pop()]; G.stage = 'flop';
     if ((VARIANTS[G.variant] || {}).discardAt === 'flop' && needsDiscard(G)) { startDiscard(G, 'flop', -1, ctx); return; }
@@ -546,6 +566,18 @@ function firstToActAfterDealer(G, ctx) {
 
 function runOutToShowdown(G, ctx) {
   returnUncalledBets(G);
+  const style = styleOf(G);
+  if (style === 'stud') {
+    G.players.forEach((p) => { p.bet = 0; });
+    while (G.players.some((p) => !p.folded && !p.eliminated && p.hand.length < 5)) dealStudStreet(G);
+    showdown(G, ctx);
+    return;
+  }
+  if (style === 'draw') {
+    if (G.drawDone !== G.handNumber) { G.players.forEach((p) => { p.bet = 0; }); G.currentBet = 0; startDraw(G, 'runout', ctx); return; }
+    showdown(G, ctx);
+    return;
+  }
   // Crazy Pineapple all-in before the discard: deal the flop, everyone discards, then run it out
   if (needsDiscard(G)) {
     if ((VARIANTS[G.variant] || {}).discardAt === 'flop' && G.community.length < 3) {
@@ -558,6 +590,126 @@ function runOutToShowdown(G, ctx) {
   }
   while (G.community.length < 5) G.community.push(G.deck.pop());
   showdown(G, ctx);
+}
+
+// ── 5-card stud ────────────────────────────────────────────────────────────
+// Everyone in the hand antes the small blind. Card 1 is down, card 2 up. The
+// lowest upcard brings it in for the small blind (min raise = the big blind)
+// and doesn't get an option if everyone just calls. Each later street deals
+// one more upcard; the best showing hand acts first.
+const STUD_NEXT = { preflop: 'flop', flop: 'turn', turn: 'river' };
+const upCards = (p) => (p.hand || []).filter((c) => c && c.up);
+
+function startStud(G, blinds, ctx) {
+  const inHand = G.players.filter((p) => !p.folded && !p.eliminated);
+  inHand.forEach((p) => {
+    p.hand.forEach((c, i) => { c.up = i >= 1; });
+    const paid = Math.min(blinds.small, p.chips);
+    p.chips -= paid; p.totalBet += paid; G.pot += paid;
+    if (p.chips === 0) p.allIn = true;
+  });
+  G.dealerPos = G.players.findIndex((p) => p.id === G.dealerId);
+  G.sbIdx = -1; G.bbIdx = -1;
+  G.stage = 'preflop';
+  const canPay = inHand.filter((p) => p.chips > 0);
+  if (canPay.length === 0) { runOutToShowdown(G, ctx); return; }
+  const low = canPay.reduce((a, b) => (bringInKey(b.hand[1]) < bringInKey(a.hand[1]) ? b : a));
+  const idx = G.players.indexOf(low);
+  postBlind(G, idx, blinds.small);
+  G.currentBet = low.bet;
+  low.lastAction = { type: 'bet', label: `Bring-in ${low.bet}` };
+  G.bringInIdx = idx;
+  startPreflopBetting(G, nextActive(G, idx), ctx);
+}
+
+// One upcard to everyone still in the hand, starting left of the dealer
+function dealStudStreet(G) {
+  const n = G.players.length;
+  const dealerIdx = Math.max(G.players.findIndex((p) => p.isDealer), 0);
+  for (let i = 1; i <= n; i++) {
+    const p = G.players[(dealerIdx + i) % n];
+    if (!p.folded && !p.eliminated && p.hand.length < 5) p.hand.push({ ...G.deck.pop(), up: true });
+  }
+}
+
+function studFirstToAct(G, ctx) {
+  const n = G.players.length;
+  const dealerIdx = Math.max(G.players.findIndex((p) => p.isDealer), 0);
+  let best = -1, bestScore = null;
+  for (let i = 1; i <= n; i++) {
+    const idx = (dealerIdx + i) % n;
+    const p = G.players[idx];
+    if (p.folded || p.eliminated || p.allIn) continue;
+    const sc = showingScore(upCards(p));
+    if (best < 0 || cmpShowing(sc, bestScore) > 0) { best = idx; bestScore = sc; }
+  }
+  if (best < 0) { runOutToShowdown(G, ctx); return; }
+  setActor(G, best, ctx);
+}
+
+// ── 5-card draw ────────────────────────────────────────────────────────────
+// After the first betting round everyone in the hand picks 0–3 cards to
+// throw away at once (25s, else they stand pat; away at once, gone after 5s)
+// and gets replacements. Then a second betting round ('river'), first to act
+// left of the dealer. A deck that runs short is topped up with the shuffled
+// discards.
+//   then = 'river' (bet again) or 'runout' (everyone all-in: straight to showdown)
+const drawPending = (G) => G.players.filter((p) => !p.folded && !p.eliminated && G.draws && G.draws[p.id] == null);
+
+function startDraw(G, then, ctx) {
+  G.stage = 'draw';
+  G.drawThen = then;
+  G.draws = {};
+  G.drawStartMs = ctx.now;
+  G.drawDeadline = ctx.now + DRAW_MS;
+  G.actionIndex = -1;
+  G.turnStartAt = null;
+  G.turnDeadline = null;
+  drawPending(G).filter((p) => p.awayFromTable).forEach((p) => drawCards(G, p, [], ctx));
+  maybeEndDraw(G, ctx);
+}
+
+function drawFromDeck(G, ctx) {
+  if (!G.deck.length) {
+    const pile = G.mucked || [];
+    for (let i = pile.length - 1; i > 0; i--) { const j = Math.floor(ctx.rng() * (i + 1)); [pile[i], pile[j]] = [pile[j], pile[i]]; }
+    G.deck = pile; G.mucked = [];
+  }
+  return G.deck.pop();
+}
+
+function drawCards(G, p, idxs, ctx) {
+  const thrown = idxs.map((i) => p.hand[i]);
+  const kept = p.hand.filter((_, i) => !idxs.includes(i));
+  const fresh = idxs.map(() => drawFromDeck(G, ctx)).filter(Boolean);
+  p.hand = [...kept, ...fresh];
+  (G.mucked = G.mucked || []).push(...thrown);
+  G.draws[p.id] = idxs.length;
+  p.lastAction = { type: 'check', label: idxs.length ? `Drew ${idxs.length}` : 'Stood pat' };
+  G.dealSeq++; // phones re-read their cards
+}
+
+function maybeEndDraw(G, ctx) {
+  if (G.stage !== 'draw' || drawPending(G).length) return;
+  G.drawDeadline = null;
+  G.drawDone = G.handNumber;
+  G.stage = 'river';
+  if (G.drawThen === 'runout') { showdown(G, ctx); return; }
+  // Everyone who can still bet gets to act again (this clears the 'Drew 2' labels)
+  G.players.forEach((p) => { if (!p.folded && !p.eliminated && !p.allIn) p.lastAction = null; });
+  firstToActAfterDealer(G, ctx);
+}
+
+function drawAction(G, p, amount, ctx) {
+  if (G.stage !== 'draw') return fail('no draw in progress');
+  if (!drawPending(G).includes(p)) return fail('already drew');
+  const list = amount == null ? [] : Array.isArray(amount) ? amount : [amount];
+  const idxs = [...new Set(list.map(Number))];
+  if (idxs.some((i) => !Number.isInteger(i) || i < 0 || i >= p.hand.length)) return fail('pick cards to draw');
+  if (idxs.length > (VARIANTS[G.variant].maxDraw || 3)) return fail(`draw at most ${VARIANTS[G.variant].maxDraw || 3}`);
+  drawCards(G, p, idxs, ctx);
+  maybeEndDraw(G, ctx);
+  return OK;
 }
 
 // ── Showdown ───────────────────────────────────────────────────────────────
@@ -731,13 +883,14 @@ export function applyAction(G, playerId, action, amount, ctx) {
   }
 
   if (action === 'discard') return discardAction(G, p, amount, ctx);
+  if (action === 'draw') return drawAction(G, p, amount, ctx);
 
   if (action === 'guts_in' || action === 'guts_out') return gutsDecide(G, p, action === 'guts_in' ? 'in' : 'out', ctx);
 
   if (action === 'pause') { // anyone may ask; mid-hand it waits for the hand to end
     if (G.paused) return OK;
     G.pauseReady = [];
-    if (isBetting(G) || G.stage === 'guts_decision' || G.stage === 'discard') G.pauseQueued = true;
+    if (isBetting(G) || ['guts_decision', 'discard', 'draw'].includes(G.stage)) G.pauseQueued = true;
     else { G.paused = true; G.pauseQueued = false; G.nextDealAt = null; }
     return OK;
   }
@@ -879,9 +1032,11 @@ function quit(G, p, ctx) {
     if (isBetting(G)) {
       const inHand = G.players.filter((x) => !x.folded && !x.eliminated);
       if (wasUp || inHand.length === 1) advanceAction(G, ctx);
-    } else if (G.stage === 'discard') {
+    } else if (G.stage === 'discard' || G.stage === 'draw') {
       const inHand = G.players.filter((x) => !x.folded && !x.eliminated);
-      if (inHand.length === 1) showdown(G, ctx); else maybeEndDiscard(G, ctx);
+      if (inHand.length === 1) showdown(G, ctx);
+      else if (G.stage === 'discard') maybeEndDiscard(G, ctx);
+      else maybeEndDraw(G, ctx);
     } else if (G.stage === 'guts_decision') {
       if (gutsEligible(G).every((x) => G.gutsDecisions[x.id])) resolveGuts(G, ctx);
     } else if (G.pendingDealerChoice && G.dealerId === p.id) {
@@ -899,6 +1054,7 @@ function quit(G, p, ctx) {
   if (G.players.filter((x) => !x.eliminated).every((x) => x.awayFromTable)) { abandonGame(G); return OK; }
   if (isBetting(G) && G.players[G.actionIndex] === p && !p.folded) { autoAct(G, p); advanceAction(G, ctx); }
   if (G.stage === 'discard' && discardPending(G).includes(p)) { discardCard(G, p, null); maybeEndDiscard(G, ctx); }
+  if (G.stage === 'draw' && drawPending(G).includes(p)) { drawCards(G, p, [], ctx); maybeEndDraw(G, ctx); }
   return OK;
 }
 
@@ -947,6 +1103,15 @@ export function tick(G, ctx) {
     if (!due.length) return changed;
     due.forEach((p) => discardCard(G, p, null));
     maybeEndDiscard(G, ctx);
+    return true;
+  }
+  // Draw: time's up (or a gone player waited out the grace): they stand pat
+  if (G.stage === 'draw') {
+    const timedOut = G.drawDeadline && ctx.now >= G.drawDeadline;
+    const due = drawPending(G).filter((p) => timedOut || (gone(p.id) && ctx.now - (G.drawStartMs || ctx.now) >= AWAY_GRACE_MS));
+    if (!due.length) return changed;
+    due.forEach((p) => drawCards(G, p, [], ctx));
+    maybeEndDraw(G, ctx);
     return true;
   }
   // A gone dealer doesn't hold up dealer's choice
