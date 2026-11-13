@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "149012770238",
+    "project_id": "felt-right-de797",
+    "storage_bucket": "felt-right-de797.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:149012770238:android:8113d0fdb38f84640bddef",
+        "android_client_info": {
+          "package_name": "com.feltright.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBm7aM9F7x7o-562QHuj4VWKf-HngTcUvQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -24,7 +24,7 @@ Sent by the `table` function: **game starting** (everyone but the host), **your 
 - Devices are stored in `push_tokens` (written only through `save_push_token` / `remove_push_token`). Dead ones are deleted when the push service says so.
 - **Website / home-screen app:** Web Push via `sw.js`. The VAPID key pair is made by the function on first use and kept in Vault (`push_vapid_jwk`). Nothing to set up. iPhone only gets them from the Home Screen app (iOS 16.4+). Not shown while Felt Right is on screen.
 - **Android app:** Firebase Cloud Messaging. Needs, once:
-  1. A Firebase project (free) with an Android app `com.feltright.app`; download `google-services.json` and save its contents as the GitHub secret `GOOGLE_SERVICES_JSON` (CI writes it into `android/app/`, which switches push on in the build).
+  1. ✅ Firebase project `felt-right-de797` with the Android app `com.feltright.app`. Its `google-services.json` is committed at `android/app/` (it isn't secret: it ships inside every APK), which switches push on in the build. (A `GOOGLE_SERVICES_JSON` repo secret, if ever set, overrides it in CI.)
   2. Firebase → Project settings → Service accounts → Generate new private key; save the JSON as the Supabase Edge Function secret `FCM_SERVICE_ACCOUNT`.
   Without both, the app simply doesn't offer notifications.
 - **iPhone app:** later, with the Apple account (APNs key into Firebase, so the same FCM path works).
