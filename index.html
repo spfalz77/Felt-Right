@@ -944,7 +944,7 @@ window.__dbgLogs = [];
     </div>
 
     <div class="section-head" style="display:flex;align-items:center;justify-content:space-between">
-      <span>Friends Ledger</span>
+      <span>Standings</span>
       <button onclick="renderLedger()" style="background:none;border:none;color:var(--gold);
         font-size:0.7rem;cursor:pointer;padding:2px 6px">↻ Refresh</button>
     </div>
@@ -955,7 +955,7 @@ window.__dbgLogs = [];
     </div>
     <div id="friends-ledger-list" style="padding: 0 16px 16px">
       <div style="color:var(--text-dim);font-size:0.85rem;padding:8px 0;font-style:italic">
-        Tap "Refresh" to load balances
+        Tap "Refresh" to load your standings
       </div>
     </div>
 
@@ -1026,11 +1026,10 @@ window.__dbgLogs = [];
             <div style="font-size:0.78rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.1em">Buy-In</div>
             <div id="payout-preview" style="font-size:0.7rem;color:var(--text-dim);margin-top:3px;font-style:italic">—</div>
           </div>
-          <div style="display:flex;align-items:center;gap:6px">
-            <span style="color:var(--gold)">$</span>
-            <input id="buy-in-input" type="number" min="0" step="5" value="20"
-              oninput="onBuyInChanged(this.value)"
-              style="width:60px;background:var(--surface2);border:1px solid var(--border);
+          <div id="buy-in-input-wrap" style="display:flex;align-items:center;gap:6px">
+            <input id="buy-in-input" type="number" min="0" step="500" value="2000"
+              oninput="onBuyInChanged(this.value)" aria-label="Buy-in in chips"
+              style="width:72px;background:var(--surface2);border:1px solid var(--border);
                 color:var(--gold);border-radius:6px;padding:6px 8px;font-size:0.95rem;
                 font-family:'Bebas Neue',sans-serif;letter-spacing:0.04em;text-align:right">
           </div>
@@ -1062,12 +1061,11 @@ window.__dbgLogs = [];
 
         <!-- Home-game blinds editor (simple SB/BB in cents) -->
         <div id="home-blinds-section" style="display:none">
-          <div style="font-size:0.78rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px">Blinds (¢)</div>
+          <div style="font-size:0.78rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px">Blinds</div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px">
             <div>
               <div style="font-size:0.7rem;color:var(--text-dim);margin-bottom:4px">Small Blind</div>
               <div style="display:flex;align-items:center;gap:4px">
-                <span style="color:var(--gold)">¢</span>
                 <input id="home-sb-input" type="number" min="1" step="1" value="5"
                   oninput="onHomeBlindChange()"
                   style="flex:1;background:var(--surface2);border:1px solid var(--border);
@@ -1078,7 +1076,6 @@ window.__dbgLogs = [];
             <div>
               <div style="font-size:0.7rem;color:var(--text-dim);margin-bottom:4px">Big Blind</div>
               <div style="display:flex;align-items:center;gap:4px">
-                <span style="color:var(--gold)">¢</span>
                 <input id="home-bb-input" type="number" min="1" step="1" value="10"
                   oninput="onHomeBlindChange()"
                   style="flex:1;background:var(--surface2);border:1px solid var(--border);
@@ -1329,15 +1326,15 @@ window.__dbgLogs = [];
 <div class="modal-backdrop" id="modal-cashout" onclick="closeModal('modal-cashout')">
   <div class="modal-sheet" onclick="event.stopPropagation()" style="max-height:80vh;overflow-y:auto">
     <div class="modal-handle"></div>
-    <div class="modal-title">Cash Out</div>
+    <div class="modal-title">End Game</div>
     <div style="font-size:0.85rem;color:var(--text-dim);margin-bottom:14px;line-height:1.4">
-      Each player's stack at the end of the game is what they cash out for. Confirm the amounts below — these will be recorded to your friends ledger (play chips only, for self-tracking; not real money).
+      Check everyone's final chip count below. Each player's result (final stack minus chips bought in) is recorded to Standings (play chips only, for self-tracking; not real money).
     </div>
     <div id="cashout-list"></div>
     <div style="font-size:0.75rem;color:var(--text-dim);margin-top:12px;padding:10px;
       background:var(--surface2);border-radius:6px;line-height:1.5">
-      <strong>Pool:</strong> <span id="cashout-pool">—</span><br>
-      <strong>Sum of cash-outs:</strong> <span id="cashout-sum">—</span><br>
+      <strong>Chips bought in:</strong> <span id="cashout-pool">—</span><br>
+      <strong>Final stacks:</strong> <span id="cashout-sum">—</span><br>
       <span id="cashout-balance-msg" style="color:var(--gold)"></span>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px">
@@ -1368,7 +1365,7 @@ window.__dbgLogs = [];
         <button id="format-home" onclick="selectGameFormat('home')" type="button"
           class="format-btn">
           <div style="font-family:'Bebas Neue',sans-serif;font-size:1rem;letter-spacing:0.08em">Home Game</div>
-          <div style="font-size:0.7rem;color:var(--text-dim);margin-top:2px">Cash · ¢ chips</div>
+          <div style="font-size:0.7rem;color:var(--text-dim);margin-top:2px">Re-buy anytime · 2,000 chips</div>
         </button>
       </div>
     </div>
@@ -1418,7 +1415,7 @@ window.__dbgLogs = [];
         <div style="flex:1">
           <div style="font-weight:600;color:var(--text)">Allow Rebuys</div>
           <div style="font-size:0.7rem;color:var(--text-dim);margin-top:2px">
-            ½ buy-in for ½ starting chips · Open until first break (after 4 blind levels)
+            Half the buy-in for half a starting stack · Open until first break (after 4 blind levels)
           </div>
         </div>
       </label>
@@ -1936,7 +1933,7 @@ function tournamentLedger(G) {
 // Mutable — can be edited in lobby before game starts
 let BLIND_LEVELS = DEFAULT_BLIND_LEVELS.map(l => ({ ...l }));
 let blindDurationSeconds = DEFAULT_BLIND_DURATION;
-let gameBuyIn = 20; // Default $20 buy-in
+let gameBuyIn = 20; // Stored in hundreds of chips: 20 = a 2,000-chip buy-in
 let gameFormat = 'tournament'; // 'tournament' | 'home'
 let gameVariant = 'holdem';    // for tournament: 'holdem' | 'omaha'
 
@@ -1944,29 +1941,24 @@ function getFormatConfig() {
   return FORMATS[G?.format || gameFormat] || FORMATS.tournament;
 }
 
-// Format a chip count for display. In tournament mode, returns "1,500".
-// In home (money) mode, returns "$20.00" (chips represent cents).
+// Format a chip count for display: whole chips, e.g. "1,500". Home games
+// store stacks in what used to be cents; on screen 1 unit = 1 chip, and there
+// is no currency anywhere in the app.
 function formatChips(chipCount) {
   if (chipCount == null) return '—';
-  if (getFormatConfig().moneyMode) {
-    // Chip count is in cents. Render as dollars with 2 decimals.
-    const dollars = chipCount / 100;
-    if (Math.abs(dollars) >= 10) return '$' + dollars.toFixed(2);
-    return '$' + dollars.toFixed(2);
-  }
-  return chipCount.toLocaleString();
+  return Math.round(chipCount).toLocaleString();
+}
+function formatChipsCompact(chipCount) {
+  return formatChips(chipCount);
 }
 
-// Compact version for tiny labels (opponent badges). Drops zero-cent decimals.
-function formatChipsCompact(chipCount) {
-  if (chipCount == null) return '—';
-  if (getFormatConfig().moneyMode) {
-    const dollars = chipCount / 100;
-    // Show cents if non-zero, else just $X
-    if (chipCount % 100 === 0) return '$' + Math.floor(dollars);
-    return '$' + dollars.toFixed(2);
-  }
-  return chipCount.toLocaleString();
+// Amounts outside a hand (buy-ins, re-buys, cash-outs, prizes, standings) are
+// stored as cents for history (buy_in_amount and payout_ledger.amount are in
+// "dollars", i.e. hundreds of chips). Show them as whole chips.
+function chipAmt(cents) { return Math.round(cents || 0).toLocaleString(); }
+function chipNet(cents) {
+  const v = Math.round(cents || 0);
+  return (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toLocaleString();
 }
 function getVariantConfig() {
   return VARIANTS[G?.variant || gameVariant] || VARIANTS.holdem;
@@ -1981,8 +1973,6 @@ function buyInCentsOf(p) {
 
 function actualPrizePool() {
   if (!G || !G.players) return 0;
-  // Was: sum of totalBuyInCents only, so a tournament pool with one $10
-  // re-buy came out as $30 instead of $70.
   const totalCents = G.players.reduce((sum, p) => sum + buyInCentsOf(p), 0);
   return totalCents / 100;
 }
@@ -2794,7 +2784,7 @@ function updateCreateGameSummary() {
     const rebuyTag = gameRebuysEnabled ? ' · Rebuys allowed' : '';
     el.innerHTML = `<strong style="color:var(--text)">Sit & Go · ${variantName}</strong><br>1500 starting chips · Moderate blinds${rebuyTag}`;
   } else {
-    el.innerHTML = `<strong style="color:var(--text)">Home Game</strong><br>$20 buy-in · ¢/¢/$ chips · Dealer's choice each hand`;
+    el.innerHTML = `<strong style="color:var(--text)">Home Game</strong><br>2,000 chips each · 5/10 blinds · Dealer's choice each hand`;
   }
 }
 
@@ -2802,7 +2792,7 @@ function updateLobbyVariantBadge() {
   const el = document.getElementById('lobby-variant-badge');
   if (!el) return;
   if (gameFormat === 'home') {
-    el.textContent = `HOME GAME · $${gameBuyIn} · DEALER'S CHOICE`;
+    el.textContent = `HOME GAME · ${chipAmt(gameBuyIn * 100)} CHIPS · DEALER'S CHOICE`;
   } else {
     const cfg = VARIANTS[gameVariant] || VARIANTS.holdem;
     el.textContent = cfg.short + ' · ' + cfg.description;
@@ -3078,7 +3068,7 @@ async function openLobby(gameId) {
         if (cb) cb.checked = gameRebuysEnabled;
       }
       const inp = document.getElementById('buy-in-input');
-      if (inp) inp.value = gameBuyIn;
+      if (inp) inp.value = gameBuyIn * 100;
       updatePayoutPreview();
       updateLobbyVariantBadge();
       toggleBlindEditorSection();
@@ -3514,7 +3504,7 @@ function startGame() {
   }
 
   // Build player array. Starting chips depends on format (tournament=1500 abstract chips,
-  // home=2000¢ representing $20 buy-in)
+  // home=2000 chips, matching the 2,000-chip buy-in)
   const startingChips = (FORMATS[gameFormat] || FORMATS.tournament).startingChips;
   const players = playerSource.map((lp, i) => ({
     id: lp.user?.id || lp.id || `p${i}`,
@@ -3621,28 +3611,29 @@ function updatePayoutPreview() {
   if (!el) return;
   const playerCount = (lobbyPlayers || []).length;
   if (gameBuyIn <= 0) {
-    el.textContent = 'No buy-in';
+    el.textContent = 'No buy-in (not counted in standings)';
     return;
   }
   // Home game: no fixed payout structure — players cash out at end with their stacks
   if (gameFormat === 'home') {
-    el.textContent = `$${gameBuyIn} buy-in · cash out when done`;
+    el.textContent = `Everyone starts with ${chipAmt(gameBuyIn * 100)} chips`;
     return;
   }
   // Tournament: show fixed payout split
   if (playerCount < 2) {
-    el.textContent = `$${gameBuyIn * Math.max(playerCount, 1)} pool — need 2+ players`;
+    el.textContent = `${chipAmt(gameBuyIn * 100 * Math.max(playerCount, 1))} prize pool · need 2+ players`;
     return;
   }
   const pool = gameBuyIn * playerCount;
   const payouts = computePayouts(gameBuyIn, playerCount, false);
-  const parts = payouts.map(p => `${['1st','2nd','3rd'][p.placement-1]} $${p.amount}`);
-  el.textContent = `$${pool} pool · ${parts.join(' · ')}`;
+  const parts = payouts.map(p => `${['1st','2nd','3rd'][p.placement-1]} ${chipAmt(p.amount * 100)}`);
+  el.textContent = `${chipAmt(pool * 100)} prize pool · ${parts.join(' · ')}`;
 }
 
 let _buyInSaveTimer = null;
 function onBuyInChanged(value) {
-  gameBuyIn = Math.max(0, parseInt(value) || 0);
+  // The box is in chips; stored in hundreds (buy_in_amount)
+  gameBuyIn = Math.max(0, Math.round((parseInt(value) || 0) / 100));
   updatePayoutPreview();
   // Debounced save to DB so guests see the same buy-in
   if (sb && currentLobbyId && me.id !== 'demo') {
@@ -3659,6 +3650,11 @@ function toggleBlindEditorSection() {
   const tournamentEd = document.getElementById('tournament-blinds-section');
   const homeEd = document.getElementById('home-blinds-section');
   if (!tournamentEd || !homeEd) return;
+  // Home games always start everyone on 2,000 chips (the stack is fixed by the
+  // rules), so the buy-in isn't editable there.
+  const buyInWrap = document.getElementById('buy-in-input-wrap');
+  if (buyInWrap) buyInWrap.style.display = gameFormat === 'home' ? 'none' : 'flex';
+  if (gameFormat === 'home' && gameBuyIn !== 20 && typeof amHost !== 'undefined' && amHost) onBuyInChanged(2000);
   if (gameFormat === 'home') {
     tournamentEd.style.display = 'none';
     homeEd.style.display = 'block';
@@ -3788,7 +3784,7 @@ function showBreakOverlay() {
   const canAddOn = myP && !myP.eliminated && !myP.broke && !addedOn;
 
   const tournamentStartingChips = (FORMATS.tournament).startingChips;
-  const addOnCost = Math.floor((gameBuyIn || 0) / 2);
+  const addOnCost = Math.floor((gameBuyIn || 0) * 100 / 2);
   const addOnChips = Math.floor(tournamentStartingChips / 2);
 
   // Player chip rows: emoji + name + ready check
@@ -3822,9 +3818,9 @@ function showBreakOverlay() {
         <div style="background:rgba(212,168,67,0.08);border:1px solid var(--gold-dim);
           border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:0.78rem;line-height:1.5">
           <strong style="color:var(--gold)">Add-On Available</strong><br>
-          One-time top-up: $${addOnCost} for ${addOnChips.toLocaleString()} chips<br>
+          One-time top-up: costs ${chipAmt(addOnCost)}, adds ${addOnChips.toLocaleString()} chips<br>
           <button class="btn btn-primary" id="break-addon-btn" onclick="requestAddOn()"
-            style="margin-top:8px">Add-On $${addOnCost}</button>
+            style="margin-top:8px">Add-On</button>
         </div>` : addedOn ? `
         <div style="color:var(--gold-pale);font-size:0.75rem;margin-bottom:14px;font-style:italic">
           ✓ Add-on used this break
@@ -4703,7 +4699,7 @@ function showDealerChoice() {
   const hostEndBtn = isTableHost() && me.id !== 'demo' && getFormatConfig().moneyMode ? `
         <button id="dc-endgame-btn" onclick="openCashOutModal()" style="background:none;border:none;
           color:var(--text-dim);font-size:0.78rem;text-decoration:underline;cursor:pointer;margin-top:10px">
-          End game &amp; cash out</button>` : '';
+          End game &amp; record results</button>` : '';
   const autoNote = `
         <div style="font-size:0.7rem;color:var(--text-dim);margin-top:10px">
           No pick in ${DEALER_CHOICE_SECONDS}s → Hold'em is dealt</div>`;
@@ -4738,7 +4734,7 @@ function showDealerChoice() {
           <button onclick="dealerPickedVariant('guts3')" class="format-btn"
             style="padding:14px 12px;cursor:pointer;text-align:left">
             <div style="font-family:'Bebas Neue',sans-serif;font-size:1.05rem;letter-spacing:0.08em">3-Card Guts</div>
-            <div style="font-size:0.68rem;color:var(--text-dim);margin-top:2px">In/out · match full pot · 10¢ ante</div>
+            <div style="font-size:0.68rem;color:var(--text-dim);margin-top:2px">In/out · match full pot · 10-chip ante</div>
           </button>${pineappleButtons}
         </div>${autoNote}${hostEndBtn}
       </div>`;
@@ -5988,7 +5984,7 @@ function renderActionBar() {
     sl.min = minRaise;
     sl.max = maxBet;
     // Step depends on format: both tournament and home use 5-unit increments.
-    // Home games are in cents, smallest chip denomination is 5¢.
+    // Home games: smallest chip is 5.
     sl.step = 5;
     sl.value = nextValue;
     sl.disabled = false;
@@ -6755,7 +6751,7 @@ async function endGameForAll() {
   if (G && isServerGame()) {
     const msg = getFormatConfig().moneyMode
       ? 'End the game for everyone? This cannot be undone.'
-      : 'End the tournament for everyone? It will be called off and nothing is recorded to the Friends Ledger.';
+      : 'End the tournament for everyone? It will be called off and nothing is recorded to Standings.';
     if (!isTableHost() || !confirm(msg)) return;
     serverHostControl('end_game');
     return;
@@ -7312,7 +7308,7 @@ function doShowdown() {
           <div class="avatar" style="font-size:1.4rem">${winner.emoji}</div>
           <div class="showdown-result ${iWon?'win':'lose'}">${winner.name} Wins</div>
           <div class="showdown-hand" style="color:var(--text-dim)">Everyone else folded</div>
-          <div class="winner-pot">+${formatChipsCompact(winAmt)}${getFormatConfig().moneyMode?'':' chips'}</div>
+          <div class="winner-pot">+${formatChipsCompact(winAmt)} chips</div>
           ${myFolded ? `<button class="btn btn-ghost btn-sm" onclick="showMyFoldedCards()" style="margin-top:6px">Show My Cards</button>` : ''}
           <button class="btn btn-primary btn-sm" onclick="dismissShowdown()"
             style="margin-top:8px;min-width:140px">Got It</button>
@@ -7761,7 +7757,7 @@ function showMuckOrShow(winner, winAmt) {
   overlay.innerHTML = `
     <div class="showdown-bar">
       <div class="showdown-result win" style="font-size:1.6rem">You Win!</div>
-      <div class="winner-pot" style="margin-bottom:4px">+${formatChipsCompact(winAmt)}${getFormatConfig().moneyMode?'':' chips'} — everyone folded</div>
+      <div class="winner-pot" style="margin-bottom:4px">+${formatChipsCompact(winAmt)} chips — everyone folded</div>
       ${stackChangeHtml(winner)}
       <div style="font-size:0.85rem;color:var(--text-dim);margin-bottom:14px;text-align:center;line-height:1.4">
         Tap cards to ${isOmaha ? 'select which to reveal' : 'select which to show'}
@@ -7896,13 +7892,12 @@ function showRebuyOverlay(opts = {}) {
 
   const isTournament = !getFormatConfig().moneyMode;
   const totalBuyInCents = myPlayer.totalBuyInCents || ((gameBuyIn || 0) * 100);
-  const totalSoFar = totalBuyInCents / 100;
 
   // Rebuy cost + chips:
   // - Tournament: half the buy-in cost for half the starting chips
-  // - Home: full buy-in cost for full chip amount (1:1 with dollar value)
+  // - Home: a full buy-in for a full stack
   const tournamentStartingChips = (FORMATS.tournament).startingChips;
-  const rebuyCostDollars = isTournament ? gameBuyIn / 2 : gameBuyIn;
+  const rebuyCostChips = isTournament ? Math.floor((gameBuyIn || 0) * 100 / 2) : (gameBuyIn || 0) * 100;
   const rebuyChipsAmount = isTournament
     ? Math.floor(tournamentStartingChips / 2)
     : gameBuyIn * 100;
@@ -7918,17 +7913,15 @@ function showRebuyOverlay(opts = {}) {
   _rebuyOverlayShown = true;
 
   const rebuyDescription = isTournament
-    ? `Re-buy: <strong style="color:var(--gold)">$${rebuyCostDollars}</strong> → <strong style="color:var(--gold)">${rebuyChipsAmount.toLocaleString()}</strong> chips`
-    : `Re-buy: <strong style="color:var(--gold)">$${rebuyCostDollars}</strong> → $${rebuyCostDollars} in chips`;
-  const totalSoFarLine = isTournament
-    ? `Your buy-ins so far: <strong>$${totalSoFar.toFixed(2)}</strong>`
-    : `Your total buy-in so far: <strong>$${totalSoFar.toFixed(2)}</strong>`;
+    ? `Re-buy costs <strong style="color:var(--gold)">${chipAmt(rebuyCostChips)}</strong> and gives you <strong style="color:var(--gold)">${rebuyChipsAmount.toLocaleString()}</strong> tournament chips`
+    : `Re-buy: <strong style="color:var(--gold)">${chipAmt(rebuyCostChips)}</strong> chips`;
+  const totalSoFarLine = `Bought in so far: <strong>${chipAmt(totalBuyInCents)}</strong>`;
 
   let rebuyBtnHtml;
   if (rebuyAllowed) {
     rebuyBtnHtml = `
       <button class="btn btn-primary" id="rebuy-btn" onclick="requestRebuy()">
-        Re-Buy $${rebuyCostDollars}
+        Re-Buy
       </button>`;
   } else {
     rebuyBtnHtml = `
@@ -8097,9 +8090,7 @@ function confirmQuitGame() {
   const myP = G.players.find(p => p.id === me.id);
   if (!myP) { goHome(); return; }
   const hasChips = (myP.chips || 0) > 0;
-  const stackInfo = isTournament
-    ? `${(myP.chips || 0).toLocaleString()} chips`
-    : `$${((myP.chips || 0) / 100).toFixed(2)}`;
+  const stackInfo = `${(myP.chips || 0).toLocaleString()} chips`;
 
   let msg;
   if (isTournament && hasChips) {
@@ -8107,7 +8098,7 @@ function confirmQuitGame() {
   } else if (isTournament) {
     msg = `Leave the tournament? You're out at your current stack and can't rejoin.`;
   } else {
-    msg = `Cash out and leave the table at your current stack (${stackInfo})? Your ledger will be updated.`;
+    msg = `Leave the table with your current stack (${stackInfo})? Your standings will be updated.`;
   }
   if (!confirm(msg)) return;
   quitGame();
@@ -8242,7 +8233,7 @@ function openHandHistory() {
           <div style="display:flex;align-items:center;gap:10px;padding:6px 12px;
             background:rgba(212,168,67,0.06);border-left:2px solid var(--gold);border-radius:4px;margin-bottom:4px">
             <div style="font-size:0.78rem;color:var(--gold-pale)">
-              💵 ${item.playerName} re-bought $${(item.amount/100).toFixed(2)}${item.hand ? ' (after hand #' + item.hand + ')' : ''}
+              🪙 ${item.playerName} re-bought ${chipAmt(item.amount)} chips${item.hand ? ' (after hand #' + item.hand + ')' : ''}
             </div>
           </div>`;
       }
@@ -8255,16 +8246,15 @@ function openHandHistory() {
 // ════════════════════════════════════════════════════════════════════════════
 // HOME GAME — CASH OUT FLOW
 // ════════════════════════════════════════════════════════════════════════════
-// At end of a home game, each player's chip stack converts back to dollars.
-// Net P/L per player = (current stack in cents) − (total buy-ins in cents).
-// Pairwise pool/ledger entries are recorded so the friends ledger updates.
+// At end of a home game each player's net = final stack − total buy-ins (all in
+// chips). Pairwise rows are recorded so Standings update.
 
 let _cashOutState = null;
 
 function openCashOutModal() {
   if (!G || !isTableHost()) return;
   if (!getFormatConfig().moneyMode) {
-    toast('Cash out only applies to home games');
+    toast('Only home games are ended this way');
     return;
   }
   // Build participants from current G.players. Each player's effective buy-in is the
@@ -8319,11 +8309,10 @@ function renderCashOutModal() {
       <div class="avatar sm">${p.emoji}</div>
       <div style="flex:1;min-width:0">
         <div style="font-weight:600;font-size:0.88rem">${p.name}</div>
-        <div style="font-size:0.7rem;color:var(--text-dim)">Bought in: $${(p.buyInCents/100).toFixed(2)}${p.leftTable ? ' · left early' : ''}</div>
+        <div style="font-size:0.7rem;color:var(--text-dim)">Bought in: ${chipAmt(p.buyInCents)}${p.leftTable ? ' · left early' : ''}</div>
       </div>
       <div style="display:flex;align-items:center;gap:4px">
-        <span style="color:var(--gold)">$</span>
-        <input type="number" min="0" step="0.05" value="${(p.stackCents/100).toFixed(2)}"
+        <input type="number" min="0" step="5" value="${Math.round(p.stackCents)}" aria-label="Final chips"
           oninput="updateCashOut(${i}, this.value)"
           style="width:72px;background:var(--surface2);border:1px solid var(--border);
             color:var(--gold);border-radius:6px;padding:6px 6px;font-size:0.9rem;
@@ -8335,8 +8324,7 @@ function renderCashOutModal() {
 
 function updateCashOut(idx, value) {
   if (!_cashOutState) return;
-  const dollars = Math.max(0, parseFloat(value) || 0);
-  _cashOutState.players[idx].stackCents = Math.round(dollars * 100);
+  _cashOutState.players[idx].stackCents = Math.max(0, Math.round(parseFloat(value) || 0));
   updateCashOutTotals();
 }
 
@@ -8344,17 +8332,17 @@ function updateCashOutTotals() {
   const players = _cashOutState?.players || [];
   const poolCents = players.reduce((s, p) => s + p.buyInCents, 0);
   const sumCents  = players.reduce((s, p) => s + p.stackCents, 0);
-  document.getElementById('cashout-pool').textContent = '$' + (poolCents/100).toFixed(2);
-  document.getElementById('cashout-sum').textContent  = '$' + (sumCents/100).toFixed(2);
+  document.getElementById('cashout-pool').textContent = chipAmt(poolCents);
+  document.getElementById('cashout-sum').textContent  = chipAmt(sumCents);
   const msg = document.getElementById('cashout-balance-msg');
   const btn = document.getElementById('cashout-confirm-btn');
   if (poolCents === sumCents) {
-    msg.textContent = '✓ Cash-outs balance the pool';
+    msg.textContent = '✓ Final stacks match the chips bought in';
     msg.style.color = 'var(--gold)';
     if (btn) btn.disabled = false;
   } else {
-    const diff = (sumCents - poolCents) / 100;
-    msg.textContent = diff > 0 ? `⚠ Cash-outs exceed pool by $${diff.toFixed(2)}` : `⚠ Pool exceeds cash-outs by $${Math.abs(diff).toFixed(2)} (some chips lost?)`;
+    const diff = sumCents - poolCents;
+    msg.textContent = diff > 0 ? `⚠ Final stacks are ${chipAmt(diff)} more than bought in` : `⚠ Final stacks are ${chipAmt(-diff)} short of what was bought in`;
     msg.style.color = 'var(--red-light)';
     if (btn) btn.disabled = false; // Still allow — host may have a reason
   }
@@ -8403,21 +8391,21 @@ function showHomeGameEnd() {
     <button id="record-ledger-btn" onclick="onRecordHomeGameLedger()" style="background:none;
       border:1px solid var(--gold-dim);color:var(--gold);
       font-size:0.85rem;padding:10px 18px;border-radius:8px;cursor:pointer;margin-top:10px;font-weight:600">
-      📒 Record to Friends Ledger
+      📒 Record to Standings
     </button>` : (alreadyRecorded ? `
     <div style="font-size:0.78rem;color:var(--gold-pale);margin-top:8px;font-style:italic">
-      ✓ Recorded to ledger
+      ✓ Recorded to Standings
     </div>` : '');
 
   overlay.innerHTML = `
     <div class="tourney-result">
-      <div class="trophy">💵</div>
+      <div class="trophy">🪙</div>
       <div class="tourney-title">Game Over</div>
-      <div class="tourney-sub" style="margin-bottom:14px">Home Game · Cash Out</div>
+      <div class="tourney-sub" style="margin-bottom:14px">Home Game · Final standings</div>
       <div class="final-places">
         ${cashOuts.map((p, i) => {
-          const net = p.netCents / 100;
-          const netStr = (net >= 0 ? '+' : '−') + '$' + Math.abs(net).toFixed(2);
+          const net = p.netCents;
+          const netStr = chipNet(net);
           const color = net > 0 ? 'var(--gold)' : net < 0 ? 'var(--red-light)' : 'var(--text-dim)';
           return `<div class="place-row">
             <div class="place-medal">${i+1}.</div>
@@ -8440,14 +8428,14 @@ async function onRecordHomeGameLedger() {
   if (btn) { btn.disabled = true; btn.textContent = 'Recording…'; }
   const res = await settleHomeGameLedger(currentGameId);
   if (!res || res.error) {
-    toast('Could not record to ledger');
-    if (btn) { btn.disabled = false; btn.textContent = '📒 Record to Friends Ledger'; }
+    toast('Could not record to Standings');
+    if (btn) { btn.disabled = false; btn.textContent = '📒 Record to Standings'; }
     return;
   }
   sessionStorage.setItem(`fr_ledger_recorded_${currentGameId}`, '1');
-  const msg = res.ledger_rows ? '✓ Recorded to ledger' : '✓ Nothing to record (everyone broke even)';
+  const msg = res.ledger_rows ? '✓ Recorded to Standings' : '✓ Nothing to record (everyone broke even)';
   if (btn) btn.outerHTML = `<div style="font-size:0.78rem;color:var(--gold-pale);margin-top:8px;font-style:italic">${msg}</div>`;
-  if (res.ledger_rows) toast('Recorded to ledger');
+  if (res.ledger_rows) toast('Recorded to Standings');
 }
 
 let _autoDealTimer = null;
@@ -8549,7 +8537,7 @@ function nextHand() {
   if (!getFormatConfig().moneyMode && remaining.length <= 1) { endTournament(); return; }
   // Home game: if only 1 player has chips, just skip the deal but don't end
   if (getFormatConfig().moneyMode && remaining.length < 2) {
-    toast('Not enough players with chips. Host: tap End to cash out.');
+    toast('Not enough players with chips. Host: tap End to finish the game.');
     return;
   }
 
@@ -8660,7 +8648,7 @@ function showTournamentOverlay(winner) {
   // The server writes everyone's Friends Ledger rows when the tournament ends
   const ledgerBtnHtml = G.ledgerRecorded ? `
     <div style="font-size:0.78rem;color:var(--gold-pale);margin-top:8px;font-style:italic">
-      ✓ Recorded to ledger
+      ✓ Recorded to Standings
     </div>` : '';
 
   if (isChop) {
@@ -8671,7 +8659,7 @@ function showTournamentOverlay(winner) {
         <div class="tourney-sub" style="margin-bottom:14px">Game ended by agreement</div>
         ${gameBuyIn > 0 ? `<div style="font-size:0.78rem;color:var(--gold-pale);text-align:center;margin-bottom:14px;
           padding:8px 14px;background:rgba(212,168,67,0.08);border:1px solid var(--gold-dim);border-radius:8px">
-          $${gameBuyIn * totalPlayers} pool · split equally
+          ${chipAmt((actualPool ?? gameBuyIn * totalPlayers) * 100)} prize pool · split equally
         </div>` : ''}
         <div class="final-places">
           ${G.finalPlacements.map((p,i) => `
@@ -8679,7 +8667,7 @@ function showTournamentOverlay(winner) {
               <div class="place-medal">${['🥇','🥈','🥉'][i]||`${i+1}.`}</div>
               <div class="place-name">${p.emoji} ${p.name}</div>
               ${payoutByPlace[i+1] ? `<div style="font-family:'Bebas Neue',sans-serif;color:var(--gold);font-size:1.1rem;margin-left:auto">
-                $${payoutByPlace[i+1]}
+                ${chipAmt(payoutByPlace[i+1] * 100)}
               </div>` : ''}
             </div>`).join('')}
         </div>
@@ -8696,7 +8684,7 @@ function showTournamentOverlay(winner) {
       <div class="tourney-sub" style="margin-bottom:14px">Tournament Complete</div>
       ${gameBuyIn > 0 ? `<div style="font-size:0.78rem;color:var(--gold-pale);text-align:center;margin-bottom:14px;
         padding:8px 14px;background:rgba(212,168,67,0.08);border:1px solid var(--gold-dim);border-radius:8px">
-        $${gameBuyIn * totalPlayers} pool · ${totalPlayers} buy-ins of $${gameBuyIn}
+        ${chipAmt((actualPool ?? gameBuyIn * totalPlayers) * 100)} prize pool · ${totalPlayers} buy-ins of ${chipAmt(gameBuyIn * 100)}
       </div>` : ''}
       <div class="final-places">
         ${G.finalPlacements.map((p,i) => `
@@ -8704,7 +8692,7 @@ function showTournamentOverlay(winner) {
             <div class="place-medal">${['🥇','🥈','🥉'][i]||`${i+1}.`}</div>
             <div class="place-name">${p.emoji} ${p.name}</div>
             ${payoutByPlace[i+1] ? `<div style="font-family:'Bebas Neue',sans-serif;color:var(--gold);font-size:1.1rem;margin-left:auto">
-              $${payoutByPlace[i+1]}
+              ${chipAmt(payoutByPlace[i+1] * 100)}
             </div>` : ''}
           </div>`).join('')}
       </div>
@@ -9014,7 +9002,7 @@ async function killStuckGames() {
     .select('id, name, state').eq('host_id', me.id).eq('status', 'active');
   if (error) { toast('Could not load your games: ' + error.message); return; }
   if (!rows?.length) { toast('You have no active games to end'); return; }
-  if (!confirm(`End ${rows.length} active game${rows.length === 1 ? '' : 's'} you host? Home games cash out; tournaments are called off with nothing recorded.`)) return;
+  if (!confirm(`End ${rows.length} active game${rows.length === 1 ? '' : 's'} you host? Home games are recorded to Standings; tournaments are called off with nothing recorded.`)) return;
   let ended = 0;
   for (const g of rows) {
     const r = await callTable(g.id, 'end_game');
@@ -9401,17 +9389,18 @@ function updateChatBadge() {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// PAYOUT LEDGER — track winnings/losses across games with friends
+// STANDINGS — how you've done against each friend, in play chips
 // ════════════════════════════════════════════════════════════════════════════
-// Each game produces ledger rows: one per pair of (winner, loser) with the amount
-// the loser owes the winner. We use kind='game' for these. Manual settle-ups
-// use kind='settle' and have a negative amount that cancels prior balance.
+// Every finished game writes payout_ledger rows, one per pair of players, from
+// each player's own side (kind='game'). Tournament rows are written by the
+// server when a tournament ends; home games by settle_home_game_ledger.
+// amount is stored in hundreds of chips (an old "dollars" column): show it ×100.
+//
+// Standings are lifetime totals: every kind='game' row counts, whether or not
+// it was marked settled under the old settle-up flow. Old kind='settle' rows
+// are ignored. There is no settling, owing or paying anywhere in the app.
 
-// Tournament ledger rows are written by the server when a tournament ends
-// (both sides of every pair); home games by settle_home_game_ledger. Phones
-// only add their own settle-up rows.
-
-// Ask the server to (re)write a home game's ledger entries for all players.
+// Ask the server to (re)write a home game's rows for all players.
 // Returns { final, ledger_rows } or { skipped } / { error }, or null on failure.
 async function settleHomeGameLedger(gameId) {
   if (!sb || !gameId || me.id === 'demo') return null;
@@ -9422,109 +9411,110 @@ async function settleHomeGameLedger(gameId) {
   } catch(e) { console.warn('settleHomeGameLedger:', e); return null; }
 }
 
-async function loadMyLedger() {
-  if (!sb || me.id === 'demo') return [];
-  try {
-    const { data } = await sb.from('payout_ledger')
-      .select('*, opponent:users!opponent_id(id, display_name, avatar_emoji)')
-      .or(`user_id.eq.${me.id},opponent_id.eq.${me.id}`)
-      .is('settled_at', null)
-      .order('created_at', { ascending: false });
-    return data || [];
-  } catch(e) { console.warn('loadMyLedger:', e); return []; }
-}
-
-// Compute pairwise net balances from ledger rows.
-// Returns array of { id, name, emoji, balance } where positive balance = they owe me.
-// We only count rows WHERE user_id = me.id (my own perspective). If a row has me as
-// opponent_id but a different user_id, it's the OTHER user's record of OUR transaction —
-// we'd double-count if we included it.
-async function computePairwiseBalances() {
-  if (!sb || me.id === 'demo') return [];
-  const { data: myRows } = await sb.from('payout_ledger')
-    .select('*, opponent:users!opponent_id(id, display_name, avatar_emoji)')
-    .eq('user_id', me.id)
-    .is('settled_at', null)
-    .order('created_at', { ascending: false });
-
+// Pure: fold my own rows into per-friend head-to-head records.
+// rows: [{ opponent_id, amount, kind, game_id, created_at, opponent? }]
+// Returns { total, games, friends: [{ id, name, emoji, net, games, wins, losses, last }] }
+// with net in chips. Only rows from my own side should be passed (user_id = me),
+// or each game would count twice.
+function computeStandings(rows) {
   const map = new Map();
-  for (const row of (myRows || [])) {
-    const oppId = row.opponent_id;
-    if (!oppId) continue;
-    const oppName = row.opponent?.display_name || 'Player';
-    const oppEmoji = row.opponent?.avatar_emoji || '🃏';
-    if (!map.has(oppId)) map.set(oppId, { id: oppId, name: oppName, emoji: oppEmoji, balance: 0, rowIds: [] });
-    const entry = map.get(oppId);
-    entry.balance += row.amount;
-    entry.rowIds.push(row.id);
+  const myGames = new Set();
+  let total = 0;
+  for (const row of (rows || [])) {
+    if (row.kind !== 'game' || !row.opponent_id) continue;
+    const chips = Math.round((Number(row.amount) || 0) * 100);
+    const id = row.opponent_id;
+    if (!map.has(id)) {
+      map.set(id, {
+        id,
+        name: row.opponent?.display_name || 'Player',
+        emoji: row.opponent?.avatar_emoji || '🃏',
+        net: 0, gameNets: new Map(), last: null,
+      });
+    }
+    const f = map.get(id);
+    f.net += chips;
+    total += chips;
+    const g = row.game_id || row.id;
+    f.gameNets.set(g, (f.gameNets.get(g) || 0) + chips);
+    myGames.add(g);
+    if (!f.last || (row.created_at && row.created_at > f.last)) f.last = row.created_at || f.last;
   }
-  return Array.from(map.values()).filter(e => Math.abs(e.balance) > 0.005);
+  const friends = Array.from(map.values()).map(f => {
+    const nets = Array.from(f.gameNets.values());
+    return {
+      id: f.id, name: f.name, emoji: f.emoji, net: f.net, last: f.last,
+      games: nets.length,
+      wins: nets.filter(n => n > 0).length,
+      losses: nets.filter(n => n < 0).length,
+    };
+  });
+  friends.sort((a, b) => b.net - a.net || b.games - a.games || a.name.localeCompare(b.name));
+  return { total, games: myGames.size, friends };
 }
 
-async function settleUpWith(opponentId, opponentName, balance) {
-  if (!sb || me.id === 'demo') return;
-  // balance > 0 means opponent owes me. The settle-up offsets it.
-  // From my perspective: amount = -balance (cancel out my positive)
-  // Opponent records: amount = +balance (cancel out their negative)
-  // Both rows kind='settle'.
-  if (!confirm(`Mark $${Math.abs(balance).toFixed(2)} as settled with ${opponentName}? This cannot be undone.`)) return;
+async function loadStandings() {
+  if (!sb || me.id === 'demo') return computeStandings([]);
+  const { data, error } = await sb.from('payout_ledger')
+    .select('id, game_id, opponent_id, amount, kind, created_at, opponent:users!opponent_id(id, display_name, avatar_emoji)')
+    .eq('user_id', me.id)
+    .eq('kind', 'game')
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return computeStandings(data || []);
+}
 
-  try {
-    // I record my own settle row
-    await sb.from('payout_ledger').insert({
-      user_id: me.id,
-      opponent_id: opponentId,
-      amount: -balance,
-      kind: 'settle',
-      note: 'Settled up',
-    });
-    // Mark the existing rows as settled so they drop out of balance calculations
-    // (only my rows — opponent has to do their own)
-    await sb.from('payout_ledger').update({ settled_at: new Date().toISOString() })
-      .eq('user_id', me.id)
-      .eq('opponent_id', opponentId)
-      .is('settled_at', null);
-    toast(`Settled with ${opponentName}`);
-    if (typeof renderLedger === 'function') renderLedger();
-  } catch(e) {
-    toast('Settle failed: ' + (e.message || e));
-  }
+function standingsColor(net) {
+  return net > 0 ? 'var(--gold)' : net < 0 ? 'var(--red-light)' : 'var(--text-dim)';
 }
 
 async function renderLedger() {
   const el = document.getElementById('friends-ledger-list');
   if (!el) return;
   el.innerHTML = `<div style="color:var(--text-dim);font-size:0.85rem;padding:8px 0">Loading…</div>`;
-  const balances = await computePairwiseBalances();
-  if (!balances.length) {
-    el.innerHTML = `<div style="color:var(--text-dim);font-size:0.85rem;padding:14px 0;font-style:italic;text-align:center">No outstanding balances. Play games with buy-ins to see who owes who.</div>`;
+  let s;
+  try { s = await loadStandings(); }
+  catch (e) {
+    console.warn('loadStandings:', e);
+    el.innerHTML = `<div style="color:var(--red-light);font-size:0.85rem;padding:8px 0">Couldn't load standings. Tap Refresh to try again.</div>`;
     return;
   }
-  // Sort by absolute balance descending
-  balances.sort((a, b) => Math.abs(b.balance) - Math.abs(a.balance));
-  el.innerHTML = balances.map(b => {
-    const owesMe = b.balance > 0;
+  if (!s.friends.length) {
+    el.innerHTML = `<div style="color:var(--text-dim);font-size:0.85rem;padding:14px 0;font-style:italic;text-align:center">No results yet. Finish a game with friends to see how you stack up.</div>`;
+    return;
+  }
+  const esc = (t) => String(t).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+  const overall = `
+    <div style="display:flex;align-items:baseline;justify-content:space-between;padding:10px 12px;margin-bottom:8px;
+      background:rgba(212,168,67,0.08);border:1px solid var(--gold-dim);border-radius:10px">
+      <div>
+        <div style="font-weight:600;font-size:0.9rem">You overall</div>
+        <div style="font-size:0.72rem;color:var(--text-dim)">${s.games} game${s.games === 1 ? '' : 's'} with friends</div>
+      </div>
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:1.4rem;letter-spacing:0.05em;color:${standingsColor(s.total)}">
+        ${chipNet(s.total)} <span style="font-size:0.8rem;color:var(--text-dim)">chips</span>
+      </div>
+    </div>`;
+  el.innerHTML = overall + s.friends.map((f, i) => {
+    const record = `${f.wins}–${f.losses}${f.games - f.wins - f.losses ? '–' + (f.games - f.wins - f.losses) : ''}`;
+    const verdict = f.net > 0 ? `you're up` : f.net < 0 ? `you're down` : 'even';
     return `
       <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;
         background:var(--surface);border:1px solid var(--border);border-radius:10px;margin-bottom:6px">
-        <div class="avatar sm">${b.emoji}</div>
+        <div style="width:18px;text-align:right;font-size:0.75rem;color:var(--text-dim)">${i + 1}</div>
+        <div class="avatar sm">${f.emoji}</div>
         <div style="flex:1;min-width:0">
-          <div style="font-weight:500;font-size:0.9rem">${b.name}</div>
-          <div style="font-size:0.72rem;color:${owesMe?'var(--gold-pale)':'var(--red-light)'}">
-            ${owesMe ? `owes you` : `you owe`}
+          <div style="font-weight:500;font-size:0.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">vs ${esc(f.name)}</div>
+          <div style="font-size:0.72rem;color:var(--text-dim)">
+            ${f.games} game${f.games === 1 ? '' : 's'} · record ${record} · ${verdict}
           </div>
         </div>
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:1.2rem;
-          color:${owesMe?'var(--gold)':'var(--red-light)'};letter-spacing:0.05em">
-          $${Math.abs(b.balance).toFixed(b.balance % 1 === 0 ? 0 : 2)}
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:1.2rem;letter-spacing:0.05em;color:${standingsColor(f.net)}">
+          ${chipNet(f.net)}
         </div>
-        <button onclick="settleUpWith('${b.id}','${b.name.replace(/'/g, '&#39;')}',${b.balance})"
-          style="background:none;border:1px solid var(--gold-dim);color:var(--gold);
-            font-size:0.72rem;padding:5px 10px;border-radius:6px;cursor:pointer">Settle</button>
       </div>`;
   }).join('');
 }
-
 // ════════════════════════════════════════════════════════════════════════════
 // SOUNDS — generated via Web Audio API, no asset files needed
 // ════════════════════════════════════════════════════════════════════════════

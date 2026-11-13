@@ -10,9 +10,7 @@ function confirmQuitGame() {
   const myP = G.players.find(p => p.id === me.id);
   if (!myP) { goHome(); return; }
   const hasChips = (myP.chips || 0) > 0;
-  const stackInfo = isTournament
-    ? `${(myP.chips || 0).toLocaleString()} chips`
-    : `$${((myP.chips || 0) / 100).toFixed(2)}`;
+  const stackInfo = `${(myP.chips || 0).toLocaleString()} chips`;
 
   let msg;
   if (isTournament && hasChips) {
@@ -20,7 +18,7 @@ function confirmQuitGame() {
   } else if (isTournament) {
     msg = `Leave the tournament? You're out at your current stack and can't rejoin.`;
   } else {
-    msg = `Cash out and leave the table at your current stack (${stackInfo})? Your ledger will be updated.`;
+    msg = `Leave the table with your current stack (${stackInfo})? Your standings will be updated.`;
   }
   if (!confirm(msg)) return;
   quitGame();
@@ -155,7 +153,7 @@ function openHandHistory() {
           <div style="display:flex;align-items:center;gap:10px;padding:6px 12px;
             background:rgba(212,168,67,0.06);border-left:2px solid var(--gold);border-radius:4px;margin-bottom:4px">
             <div style="font-size:0.78rem;color:var(--gold-pale)">
-              💵 ${item.playerName} re-bought $${(item.amount/100).toFixed(2)}${item.hand ? ' (after hand #' + item.hand + ')' : ''}
+              🪙 ${item.playerName} re-bought ${chipAmt(item.amount)} chips${item.hand ? ' (after hand #' + item.hand + ')' : ''}
             </div>
           </div>`;
       }

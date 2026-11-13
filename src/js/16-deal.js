@@ -68,7 +68,7 @@ function showDealerChoice() {
   const hostEndBtn = isTableHost() && me.id !== 'demo' && getFormatConfig().moneyMode ? `
         <button id="dc-endgame-btn" onclick="openCashOutModal()" style="background:none;border:none;
           color:var(--text-dim);font-size:0.78rem;text-decoration:underline;cursor:pointer;margin-top:10px">
-          End game &amp; cash out</button>` : '';
+          End game &amp; record results</button>` : '';
   const autoNote = `
         <div style="font-size:0.7rem;color:var(--text-dim);margin-top:10px">
           No pick in ${DEALER_CHOICE_SECONDS}s → Hold'em is dealt</div>`;
@@ -103,7 +103,7 @@ function showDealerChoice() {
           <button onclick="dealerPickedVariant('guts3')" class="format-btn"
             style="padding:14px 12px;cursor:pointer;text-align:left">
             <div style="font-family:'Bebas Neue',sans-serif;font-size:1.05rem;letter-spacing:0.08em">3-Card Guts</div>
-            <div style="font-size:0.68rem;color:var(--text-dim);margin-top:2px">In/out · match full pot · 10¢ ante</div>
+            <div style="font-size:0.68rem;color:var(--text-dim);margin-top:2px">In/out · match full pot · 10-chip ante</div>
           </button>${pineappleButtons}
         </div>${autoNote}${hostEndBtn}
       </div>`;

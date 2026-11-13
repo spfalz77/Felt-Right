@@ -172,7 +172,7 @@
     </div>
 
     <div class="section-head" style="display:flex;align-items:center;justify-content:space-between">
-      <span>Friends Ledger</span>
+      <span>Standings</span>
       <button onclick="renderLedger()" style="background:none;border:none;color:var(--gold);
         font-size:0.7rem;cursor:pointer;padding:2px 6px">↻ Refresh</button>
     </div>
@@ -183,7 +183,7 @@
     </div>
     <div id="friends-ledger-list" style="padding: 0 16px 16px">
       <div style="color:var(--text-dim);font-size:0.85rem;padding:8px 0;font-style:italic">
-        Tap "Refresh" to load balances
+        Tap "Refresh" to load your standings
       </div>
     </div>
 
@@ -254,11 +254,10 @@
             <div style="font-size:0.78rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.1em">Buy-In</div>
             <div id="payout-preview" style="font-size:0.7rem;color:var(--text-dim);margin-top:3px;font-style:italic">—</div>
           </div>
-          <div style="display:flex;align-items:center;gap:6px">
-            <span style="color:var(--gold)">$</span>
-            <input id="buy-in-input" type="number" min="0" step="5" value="20"
-              oninput="onBuyInChanged(this.value)"
-              style="width:60px;background:var(--surface2);border:1px solid var(--border);
+          <div id="buy-in-input-wrap" style="display:flex;align-items:center;gap:6px">
+            <input id="buy-in-input" type="number" min="0" step="500" value="2000"
+              oninput="onBuyInChanged(this.value)" aria-label="Buy-in in chips"
+              style="width:72px;background:var(--surface2);border:1px solid var(--border);
                 color:var(--gold);border-radius:6px;padding:6px 8px;font-size:0.95rem;
                 font-family:'Bebas Neue',sans-serif;letter-spacing:0.04em;text-align:right">
           </div>
@@ -290,12 +289,11 @@
 
         <!-- Home-game blinds editor (simple SB/BB in cents) -->
         <div id="home-blinds-section" style="display:none">
-          <div style="font-size:0.78rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px">Blinds (¢)</div>
+          <div style="font-size:0.78rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px">Blinds</div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px">
             <div>
               <div style="font-size:0.7rem;color:var(--text-dim);margin-bottom:4px">Small Blind</div>
               <div style="display:flex;align-items:center;gap:4px">
-                <span style="color:var(--gold)">¢</span>
                 <input id="home-sb-input" type="number" min="1" step="1" value="5"
                   oninput="onHomeBlindChange()"
                   style="flex:1;background:var(--surface2);border:1px solid var(--border);
@@ -306,7 +304,6 @@
             <div>
               <div style="font-size:0.7rem;color:var(--text-dim);margin-bottom:4px">Big Blind</div>
               <div style="display:flex;align-items:center;gap:4px">
-                <span style="color:var(--gold)">¢</span>
                 <input id="home-bb-input" type="number" min="1" step="1" value="10"
                   oninput="onHomeBlindChange()"
                   style="flex:1;background:var(--surface2);border:1px solid var(--border);
@@ -557,15 +554,15 @@
 <div class="modal-backdrop" id="modal-cashout" onclick="closeModal('modal-cashout')">
   <div class="modal-sheet" onclick="event.stopPropagation()" style="max-height:80vh;overflow-y:auto">
     <div class="modal-handle"></div>
-    <div class="modal-title">Cash Out</div>
+    <div class="modal-title">End Game</div>
     <div style="font-size:0.85rem;color:var(--text-dim);margin-bottom:14px;line-height:1.4">
-      Each player's stack at the end of the game is what they cash out for. Confirm the amounts below — these will be recorded to your friends ledger (play chips only, for self-tracking; not real money).
+      Check everyone's final chip count below. Each player's result (final stack minus chips bought in) is recorded to Standings (play chips only, for self-tracking; not real money).
     </div>
     <div id="cashout-list"></div>
     <div style="font-size:0.75rem;color:var(--text-dim);margin-top:12px;padding:10px;
       background:var(--surface2);border-radius:6px;line-height:1.5">
-      <strong>Pool:</strong> <span id="cashout-pool">—</span><br>
-      <strong>Sum of cash-outs:</strong> <span id="cashout-sum">—</span><br>
+      <strong>Chips bought in:</strong> <span id="cashout-pool">—</span><br>
+      <strong>Final stacks:</strong> <span id="cashout-sum">—</span><br>
       <span id="cashout-balance-msg" style="color:var(--gold)"></span>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px">
@@ -596,7 +593,7 @@
         <button id="format-home" onclick="selectGameFormat('home')" type="button"
           class="format-btn">
           <div style="font-family:'Bebas Neue',sans-serif;font-size:1rem;letter-spacing:0.08em">Home Game</div>
-          <div style="font-size:0.7rem;color:var(--text-dim);margin-top:2px">Cash · ¢ chips</div>
+          <div style="font-size:0.7rem;color:var(--text-dim);margin-top:2px">Re-buy anytime · 2,000 chips</div>
         </button>
       </div>
     </div>
@@ -646,7 +643,7 @@
         <div style="flex:1">
           <div style="font-weight:600;color:var(--text)">Allow Rebuys</div>
           <div style="font-size:0.7rem;color:var(--text-dim);margin-top:2px">
-            ½ buy-in for ½ starting chips · Open until first break (after 4 blind levels)
+            Half the buy-in for half a starting stack · Open until first break (after 4 blind levels)
           </div>
         </div>
       </label>

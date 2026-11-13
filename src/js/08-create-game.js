@@ -86,7 +86,7 @@ function updateCreateGameSummary() {
     const rebuyTag = gameRebuysEnabled ? ' · Rebuys allowed' : '';
     el.innerHTML = `<strong style="color:var(--text)">Sit & Go · ${variantName}</strong><br>1500 starting chips · Moderate blinds${rebuyTag}`;
   } else {
-    el.innerHTML = `<strong style="color:var(--text)">Home Game</strong><br>$20 buy-in · ¢/¢/$ chips · Dealer's choice each hand`;
+    el.innerHTML = `<strong style="color:var(--text)">Home Game</strong><br>2,000 chips each · 5/10 blinds · Dealer's choice each hand`;
   }
 }
 
@@ -94,7 +94,7 @@ function updateLobbyVariantBadge() {
   const el = document.getElementById('lobby-variant-badge');
   if (!el) return;
   if (gameFormat === 'home') {
-    el.textContent = `HOME GAME · $${gameBuyIn} · DEALER'S CHOICE`;
+    el.textContent = `HOME GAME · ${chipAmt(gameBuyIn * 100)} CHIPS · DEALER'S CHOICE`;
   } else {
     const cfg = VARIANTS[gameVariant] || VARIANTS.holdem;
     el.textContent = cfg.short + ' · ' + cfg.description;

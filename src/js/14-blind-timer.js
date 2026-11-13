@@ -96,7 +96,7 @@ function showBreakOverlay() {
   const canAddOn = myP && !myP.eliminated && !myP.broke && !addedOn;
 
   const tournamentStartingChips = (FORMATS.tournament).startingChips;
-  const addOnCost = Math.floor((gameBuyIn || 0) / 2);
+  const addOnCost = Math.floor((gameBuyIn || 0) * 100 / 2);
   const addOnChips = Math.floor(tournamentStartingChips / 2);
 
   // Player chip rows: emoji + name + ready check
@@ -130,9 +130,9 @@ function showBreakOverlay() {
         <div style="background:rgba(212,168,67,0.08);border:1px solid var(--gold-dim);
           border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:0.78rem;line-height:1.5">
           <strong style="color:var(--gold)">Add-On Available</strong><br>
-          One-time top-up: $${addOnCost} for ${addOnChips.toLocaleString()} chips<br>
+          One-time top-up: costs ${chipAmt(addOnCost)}, adds ${addOnChips.toLocaleString()} chips<br>
           <button class="btn btn-primary" id="break-addon-btn" onclick="requestAddOn()"
-            style="margin-top:8px">Add-On $${addOnCost}</button>
+            style="margin-top:8px">Add-On</button>
         </div>` : addedOn ? `
         <div style="color:var(--gold-pale);font-size:0.75rem;margin-bottom:14px;font-style:italic">
           ✓ Add-on used this break

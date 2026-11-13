@@ -43,28 +43,29 @@ function updatePayoutPreview() {
   if (!el) return;
   const playerCount = (lobbyPlayers || []).length;
   if (gameBuyIn <= 0) {
-    el.textContent = 'No buy-in';
+    el.textContent = 'No buy-in (not counted in standings)';
     return;
   }
   // Home game: no fixed payout structure — players cash out at end with their stacks
   if (gameFormat === 'home') {
-    el.textContent = `$${gameBuyIn} buy-in · cash out when done`;
+    el.textContent = `Everyone starts with ${chipAmt(gameBuyIn * 100)} chips`;
     return;
   }
   // Tournament: show fixed payout split
   if (playerCount < 2) {
-    el.textContent = `$${gameBuyIn * Math.max(playerCount, 1)} pool — need 2+ players`;
+    el.textContent = `${chipAmt(gameBuyIn * 100 * Math.max(playerCount, 1))} prize pool · need 2+ players`;
     return;
   }
   const pool = gameBuyIn * playerCount;
   const payouts = computePayouts(gameBuyIn, playerCount, false);
-  const parts = payouts.map(p => `${['1st','2nd','3rd'][p.placement-1]} $${p.amount}`);
-  el.textContent = `$${pool} pool · ${parts.join(' · ')}`;
+  const parts = payouts.map(p => `${['1st','2nd','3rd'][p.placement-1]} ${chipAmt(p.amount * 100)}`);
+  el.textContent = `${chipAmt(pool * 100)} prize pool · ${parts.join(' · ')}`;
 }
 
 let _buyInSaveTimer = null;
 function onBuyInChanged(value) {
-  gameBuyIn = Math.max(0, parseInt(value) || 0);
+  // The box is in chips; stored in hundreds (buy_in_amount)
+  gameBuyIn = Math.max(0, Math.round((parseInt(value) || 0) / 100));
   updatePayoutPreview();
   // Debounced save to DB so guests see the same buy-in
   if (sb && currentLobbyId && me.id !== 'demo') {
@@ -81,6 +82,11 @@ function toggleBlindEditorSection() {
   const tournamentEd = document.getElementById('tournament-blinds-section');
   const homeEd = document.getElementById('home-blinds-section');
   if (!tournamentEd || !homeEd) return;
+  // Home games always start everyone on 2,000 chips (the stack is fixed by the
+  // rules), so the buy-in isn't editable there.
+  const buyInWrap = document.getElementById('buy-in-input-wrap');
+  if (buyInWrap) buyInWrap.style.display = gameFormat === 'home' ? 'none' : 'flex';
+  if (gameFormat === 'home' && gameBuyIn !== 20 && typeof amHost !== 'undefined' && amHost) onBuyInChanged(2000);
   if (gameFormat === 'home') {
     tournamentEd.style.display = 'none';
     homeEd.style.display = 'block';

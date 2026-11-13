@@ -138,13 +138,13 @@ test('tournament with re-buys: prize pool and ledger include the re-buy', async 
       await expect(ov).toBeVisible({ timeout: 15_000 });
       const rows = ov.locator('.place-row');
       await expect(rows.nth(0)).toContainText('Kai');
-      await expect(rows.nth(0), 'prize includes the re-buy').toContainText('$70');
+      await expect(rows.nth(0), 'prize includes the re-buy').toContainText('7,000');
       await expect(rows.nth(1)).toContainText('Moe');
       await expect(rows.nth(2)).toContainText('Lux');
     }
     for (const p of all) {
       await tapRecordLedger(p);
-      await expect(p.page.locator('#tourney-overlay .tourney-result')).toContainText('Recorded to ledger', { timeout: 10_000 });
+      await expect(p.page.locator('#tourney-overlay .tourney-result')).toContainText('Recorded to Standings', { timeout: 10_000 });
     }
     const rows = await ledgerRows(gameId);
     const net = (id) => rows.filter((r) => r.user_id === id).reduce((a, r) => a + Number(r.amount), 0);

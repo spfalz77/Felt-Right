@@ -515,7 +515,7 @@ function renderActionBar() {
     sl.min = minRaise;
     sl.max = maxBet;
     // Step depends on format: both tournament and home use 5-unit increments.
-    // Home games are in cents, smallest chip denomination is 5¢.
+    // Home games: smallest chip is 5.
     sl.step = 5;
     sl.value = nextValue;
     sl.disabled = false;
