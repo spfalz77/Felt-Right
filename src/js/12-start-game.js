@@ -2,8 +2,9 @@
 // START GAME
 // ════════════════════════════════════════════════════════════════════════════
 function startGame() {
-  // Server-run game: the server seats everyone and deals (38-server-rules.js)
-  if (SERVER_RULES && sb && currentLobbyId && me.id !== 'demo') { serverStartGame(); return; }
+  // Every real game is run by the server: it seats everyone and deals
+  // (38-server-rules.js). Below: Demo mode only, played locally on this phone.
+  if (me.id !== 'demo') { serverStartGame(); return; }
   // lobbyPlayers already contains only joined/playing/waiting (invited filtered out)
   let playerSource = lobbyPlayers;
 
@@ -12,11 +13,6 @@ function startGame() {
       { user: me, seat_index: 0 },
       ...DEMO_FRIENDS.slice(0, 3).map((f, i) => ({ user: f, seat_index: i+1 })),
     ];
-  }
-
-  if (me.id !== 'demo' && playerSource.length < 2) {
-    toast(`Need at least 2 players — only ${playerSource.length} joined`);
-    return;
   }
 
   // Build player array. Starting chips depends on format (tournament=1500 abstract chips,
@@ -75,26 +71,7 @@ function startGame() {
     readyForBreakEnd: [],     // tournament: players who've tapped Ready during break
   };
 
-  if (me.id !== 'demo' && sb && currentLobbyId) {
-    amHost = true;
-    stopLobbyWatchdog();
-    sb.from('games').update({
-      status: 'active',
-      state: initialState,
-      started_at: new Date().toISOString(),
-      last_host_seen: new Date().toISOString(),
-      blind_config: {
-        levels: BLIND_LEVELS,
-        duration: blindDurationSeconds,
-        rebuys_enabled: !!gameRebuysEnabled,
-      },
-      buy_in_amount: gameBuyIn,
-    }).eq('id', currentLobbyId).then(({ error }) => {
-      if (error) console.error('startGame UPDATE failed:', error);
-    });
-  } else {
-    amHost = me.id === 'demo'; // demo always acts as host
-  }
+  amHost = true; // demo acts as the table
 
   enterGame(currentLobbyId, initialState);
 }

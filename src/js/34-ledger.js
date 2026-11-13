@@ -5,84 +5,9 @@
 // the loser owes the winner. We use kind='game' for these. Manual settle-ups
 // use kind='settle' and have a negative amount that cancels prior balance.
 
-async function recordGameToLedger(gameId, buyIn, totalPlayers, finalPlacements, isChop) {
-  if (!sb || me.id === 'demo' || !buyIn || buyIn <= 0) return { error: 'no buyin' };
-
-  // Same actual-pool logic as the overlay: rebuys add to prize pool
-  const actualPool = G?.rebuysEnabled ? actualPrizePool() : null;
-  const payouts = computePayouts(buyIn, totalPlayers, isChop, actualPool);
-  if (!payouts.length) return { error: 'no payouts' };
-
-  // Find each player's user_id from G.players (matched by name+emoji to finalPlacements)
-  // finalPlacements has { name, emoji, chips } but we need user_ids.
-  // Use G.players as the source of truth.
-  if (!G || !G.players) return { error: 'no game state' };
-
-  // Build placement -> player mapping from finalPlacements
-  const placementOrder = finalPlacements.map(fp => {
-    return G.players.find(p => p.name === fp.name);
-  }).filter(Boolean);
-
-  // Net per user: positive = winner, negative = loser
-  // Each player put in buyIn; each finisher receives their placement amount.
-  const netByUser = {};
-  for (const player of G.players) {
-    if (!player.id || player.id === 'demo') continue;
-    // They paid the buy-in plus any re-buys/add-ons (with re-buys on)
-    netByUser[player.id] = G.rebuysEnabled ? -buyInCentsOf(player) / 100 : -buyIn;
-  }
-  // Distribute payouts
-  payouts.forEach((payout, idx) => {
-    const player = placementOrder[idx];
-    if (!player) return;
-    netByUser[player.id] = (netByUser[player.id] || 0) + payout.amount;
-  });
-
-  // Build pairwise debts: each loser owes each winner proportionally
-  const winners = Object.entries(netByUser).filter(([_, n]) => n > 0);
-  const losers = Object.entries(netByUser).filter(([_, n]) => n < 0);
-  const totalWinnings = winners.reduce((s, [_, n]) => s + n, 0);
-  if (totalWinnings <= 0) return { error: 'no winners' };
-
-  const rows = [];
-  for (const [winnerId, winAmt] of winners) {
-    for (const [loserId, lossAmt] of losers) {
-      // Loser owes the winner a share = (winner's win / total winnings) * loser's loss
-      const owe = Math.round((winAmt / totalWinnings) * Math.abs(lossAmt) * 100) / 100;
-      if (owe <= 0) continue;
-      // Each user creates their OWN row (RLS: auth.uid() = user_id)
-      // From the winner's perspective: they receive `owe` from opponent_id (loser)
-      if (winnerId === me.id) {
-        rows.push({
-          game_id: gameId,
-          user_id: winnerId,
-          opponent_id: loserId,
-          amount: owe,
-          kind: 'game',
-          note: `Game payout`,
-        });
-      }
-      // From the loser's perspective: they owe `owe` to opponent_id (winner)
-      if (loserId === me.id) {
-        rows.push({
-          game_id: gameId,
-          user_id: loserId,
-          opponent_id: winnerId,
-          amount: -owe,
-          kind: 'game',
-          note: `Game buy-in`,
-        });
-      }
-    }
-  }
-
-  if (!rows.length) return { error: 'no rows for me' };
-  try {
-    const { error } = await sb.from('payout_ledger').insert(rows);
-    if (error) return { error };
-    return { ok: true, count: rows.length };
-  } catch(e) { return { error: e }; }
-}
+// Tournament ledger rows are written by the server when a tournament ends
+// (both sides of every pair); home games by settle_home_game_ledger. Phones
+// only add their own settle-up rows.
 
 // Ask the server to (re)write a home game's ledger entries for all players.
 // Returns { final, ledger_rows } or { skipped } / { error }, or null on failure.

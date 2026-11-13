@@ -1,6 +1,6 @@
 # Server-authoritative game rules — migration plan
 
-_Status: **in progress.** Phases 0–5 done (PRs #19–#24, 2026-11-11); the server-rules tables and the games lock-down are on the live database. Phase 6a done (PR #25). Live-play fixes from the 2026-11-12 session in PR #32. Phase 6b-1 (this PR): server rules on for everyone. Next: 6b-2, deleting the phone-run engine. Written 2026-11-08, after PR #16. Roadmap step 2._
+_Status: **in progress.** Phases 0–5 done (PRs #19–#24, 2026-11-11); the server-rules tables and the games lock-down are on the live database. Phase 6a done (PR #25). Live-play fixes from the 2026-11-12 session in PR #32. Phase 6b done (PRs #33–#34): every game is run by the server, and phones can't write game state. Written 2026-11-08, after PR #16. Roadmap step 2._
 _To run it, ask Claude to "execute docs/server-authoritative-migration.md, phase N". Each phase is one PR, and each phase is merged only when the full E2E suite is green._
 
 ## Why
@@ -74,7 +74,8 @@ phone ──(action + JWT)──▶ Edge Function `table` ──▶ Postgres
   - Redeploying: the function was deployed through the Supabase connector. Any change under `supabase/functions/` needs a redeploy; a deploy workflow with a `SUPABASE_ACCESS_TOKEN` repo secret would make that automatic.
   - Real-phone session: the host opens `https://spfalz77.github.io/Felt-Right/?server=1`; others open the site normally. Worth trying: dealer's choice (Hold'em, Omaha, Guts), a re-buy, quitting, closing the app mid-hand and rejoining, the host closing the app, pause, cash out; and a tournament to the end (the ledger records itself).
 - ✅ **Phase 6b-1 (2026-11-12):** `SERVER_RULES_DEFAULT = true`: every new game is run by the server; the `?server=` switch is gone. The phone-run engine stays (for the E2E phone-run shards) until 6b-2.
-- ⏭ **Phase 6b-2:** `SERVER_RULES_DEFAULT = true` for everyone; once no phone-run games are left, drop the remaining phone update policy on `games`, the client `private_hands` writes and the per-player tournament ledger insert path, and delete the phone-run engine code.
+- ✅ **Phase 6b-2 (2026-11-12):** no phone-run games were left on the live database. Migration `20261113090000_phase_6b_lock_down.sql`: a host can edit only their own lobby; nobody's phone writes `private_hands`, deletes `player_actions`, seats someone else (a host can still invite), or writes `game` ledger rows (only their own settle-ups). The app no longer has host heartbeats, host takeover, the host's action listener, phone-written hole cards or the per-player tournament ledger button; the return-to-app refresh goes through the same path as the backup poller. CI runs the phone tests on server rules in all three shards.
+  - **Kept on purpose: the in-app engine for Demo mode** (offline, against simulated friends; saves nothing). Deleting it would delete Demo; that's a separate decision. A table from before the switch can't be rejoined (none exist).
 
 ## Phases and estimates
 

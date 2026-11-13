@@ -343,19 +343,8 @@ function continueGutsProgression() {
   }
 }
 
-function writeGutsPrivateHands() {
-  if (!sb || !currentGameId || me.id === 'demo') return;
-  const handNum = G.handNumber;
-  const rows = G.players
-    .filter(p => !p.eliminated && !p.broke && p.hand?.length)
-    .map(p => ({ game_id: currentGameId, hand_number: handNum, player_id: p.id, cards: p.hand }));
-  (async () => {
-    try {
-      await sb.from('private_hands').delete().eq('game_id', currentGameId).eq('hand_number', handNum);
-      await sb.from('private_hands').insert(rows);
-    } catch(e) { console.warn('guts private_hands:', e); }
-  })();
-}
+// Demo mode only (local table): nothing is saved
+function writeGutsPrivateHands() {}
 
 function showGutsReveal() {
   const r = G.gutsResults;

@@ -160,15 +160,6 @@ function declineRebuy() {
     syncGameState();
     closeRebuyOverlay();
     renderGame();
-    // Host migration: if I'm the host and just got eliminated, trigger immediate migration
-    if (amHost && me.id !== 'demo') {
-      const stillIn = G.players.filter(p => !p.eliminated && p.id !== me.id);
-      if (stillIn.length > 0) {
-        // Trigger immediate host migration (don't wait for heartbeat timeout)
-        toast('Migrating host…');
-        setTimeout(() => attemptHostMigration(currentGameId, me.id), 400);
-      }
-    }
   } else if (sb && currentGameId) {
     postAction({
       game_id: currentGameId,

@@ -15,8 +15,9 @@ async function rejoinActiveGame(gameId, gameRef) {
     const { data, error } = await sb.from('games').select('state,host_id,blind_config,buy_in_amount,game_format,game_variant').eq('id', gameId).single();
     if (error || !data?.state) { toast('Could not load game'); return; }
 
-    const serverRun = isServerState(data.state);
-    amHost = !serverRun && data.host_id === me.id;
+    // Every real game is run by the server; an old phone-run table can't continue
+    if (!isServerState(data.state)) { toast('This game was started on an older version and can\'t continue'); return; }
+    amHost = false;
     gameHostId = data.host_id;
     if (data.blind_config) {
       BLIND_LEVELS = data.blind_config.levels || BLIND_LEVELS;
@@ -29,7 +30,7 @@ async function rejoinActiveGame(gameId, gameRef) {
     if (data.game_variant) gameVariant = data.game_variant;
     currentGameId = gameId;
     G = data.state;
-    if (serverRun) enterServerGame(gameId);
+    enterServerGame(gameId);
 
     // Close chat panel if it was open (so it doesn't cover the rejoined game)
     const chatPanel = document.getElementById('chat-panel');
@@ -45,40 +46,24 @@ async function rejoinActiveGame(gameId, gameRef) {
     startNudgeListener(gameId);
     startPresence(gameId);
 
-    if (amHost) {
-      // Host's local G was wiped by rejoin — fetch own private cards so we see our hand
-      if (G.handNumber > 0) await fetchMyPrivateHand(gameId, G.handNumber);
-      renderGame();
-      hostListenForActions(gameId);
-      startHostHeartbeat(gameId);
-      resumeHostDuties();
-      if (!isMyTurn()) setTimeout(runCpuTurn, 800);
-    } else {
-      // Clear any stale auto-action from previous session
-      _autoAction = null;
-      guestSubscribeToGame(gameId);
-      if (!serverRun) startDisconnectWatcher(gameId);
-      // Fetch our private hole cards before first render
-      if (G.handNumber > 0) await fetchMyPrivateHand(gameId, G.handNumber);
-      renderGame();
-      if (isMyTurn()) {
-        startTurnTimer(30);
-        pushTurnNotification();
-      }
+    // Clear any stale auto-action from previous session
+    _autoAction = null;
+    guestSubscribeToGame(gameId);
+    // Fetch our private hole cards before first render
+    if (G.handNumber > 0) await fetchMyPrivateHand(gameId, G.handNumber);
+    renderGame();
+    if (G.tournamentOver) guestShowGameOver();
+    else maybeShowHandResult(null);
+    if (isMyTurn()) {
+      startTurnTimer(30);
+      pushTurnNotification();
     }
     toast('Rejoined game');
 
     // If I was previously marked away, send a sit_back action to clear the flag
     const myP = G?.players?.find(p => p.id === me.id);
     if (myP?.awayFromTable) {
-      if (amHost) {
-        // Host clears their own flag directly
-        myP.awayFromTable = false;
-        myP.disconnected = false;
-        myP.lastAction = null;
-        syncGameState();
-        renderGame();
-      } else if (sb && currentGameId) {
+      if (sb && currentGameId) {
         postAction({
           game_id: currentGameId,
           player_id: me.id,
