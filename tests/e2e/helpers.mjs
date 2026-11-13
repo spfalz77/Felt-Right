@@ -32,7 +32,7 @@ function appHtml() {
     .replace(/const SUPABASE_URL\s*=\s*'[^']*'/, `const SUPABASE_URL = '${SUPABASE_URL}'`)
     .replace(/const SUPABASE_ANON_KEY\s*=\s*'[^']*'/, `const SUPABASE_ANON_KEY = '${ANON_KEY}'`)
     // E2E_SERVER_RULES=1: games are run by the `table` Edge Function
-    .replace(/const SERVER_RULES_DEFAULT = false;/, `const SERVER_RULES_DEFAULT = ${SERVER_RULES};`);
+    .replace(/const SERVER_RULES_DEFAULT = (true|false);/, `const SERVER_RULES_DEFAULT = ${SERVER_RULES};`);
 }
 
 /** Taps Quit on this player's screen (the confirm prompt is accepted). */
