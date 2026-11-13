@@ -214,9 +214,10 @@ export async function botStep(p, strategy = () => 'checkcall') {
   const { page } = p;
   const v = await tableView(p);
   // Server games: the next hand waits until everyone taps Got It on the result
-  if (v?.stage === 'showdown' && v.overlay === 'showdown' && v.server && p.gotItHand !== v.hand) {
+  // (only once the result is on screen: the hidden button of the last result doesn't count)
+  if (v?.stage === 'showdown' && v.server && p.gotItHand !== v.hand && v.overlays.includes('showdown-overlay')) {
     const got = page.locator('#showdown-overlay button[onclick="dismissShowdown()"]');
-    if (await got.count()) { p.gotItHand = v.hand; await tap(got.first()); return 'got it'; }
+    if (await got.count() && await tap(got.first())) { p.gotItHand = v.hand; return 'got it'; }
   }
   const pick = page.locator(`button[onclick="dealerPickedVariant('holdem')"]`);
   if (await pick.isVisible().catch(() => false)) {
