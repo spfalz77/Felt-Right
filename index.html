@@ -588,6 +588,120 @@ h3 { font-size: 1rem; font-weight: 600; }
 .format-btn:hover:not(:disabled):not(.format-selected) {
   border-color: var(--gold-dim);
 }
+
+/* ═══ TABLE REFRESH (2026-11-12) ═════════════════════════════════════════════
+   The table is a table: an oval of felt inside a leather rail. Opponents sit
+   on the far rail, your seat on the near one; the board and the pot sit on
+   the felt. The room around it stays dark so the felt is the bright thing. */
+:root {
+  --rail:        #2b1a10;
+  --rail-hi:     #4a2e1c;
+  --felt-center: #1d5a3a;
+  --felt-edge:   #0c3220;
+  --oxblood:     #5c1a1f;
+  --oxblood-hi:  #7a2730;
+  --act-check:   #1f5b3c;
+  --act-fold:    #4a1d1b;
+}
+#screen-game {
+  background:
+    radial-gradient(ellipse 120% 70% at 50% 45%, #13241a 0%, #0a120d 60%, #060a07 100%);
+}
+.table-wrap > .table-area {
+  display: flex; flex-direction: column; padding: 4px 10px 0;
+}
+
+/* Far rail: opponents sit over the top edge of the table */
+.opponents-ring {
+  position: relative; z-index: 2;
+  padding: 6px 4px 0; margin-bottom: -26px;
+}
+.player-seat .name { color: var(--text); opacity: 0.75; }
+.player-seat.folded .hole-cards { opacity: 0.3; }
+
+/* The table */
+.community-area {
+  flex: 1 0 auto; min-height: 210px; margin: 0 2px;
+  padding: 40px 12px 44px;
+  border-radius: 50% / 44%;
+  background: radial-gradient(ellipse 70% 60% at 50% 45%, var(--felt-center) 0%, var(--felt) 62%, var(--felt-edge) 100%);
+  border: 11px solid var(--rail);
+  box-shadow:
+    inset 0 0 0 1px rgba(212,168,67,0.35),        /* gold inlay where felt meets rail */
+    inset 0 10px 28px rgba(0,0,0,0.45),            /* the rail's shadow on the felt */
+    0 0 0 1px var(--rail-hi),                      /* the rail's outer edge */
+    0 14px 30px rgba(0,0,0,0.6);
+  gap: 12px;
+}
+
+/* Pot: a chip on the felt with the amount beside it */
+.pot-label {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 4px 14px 4px 6px; border-radius: 999px;
+  background: rgba(0,0,0,0.32); border: 1px solid rgba(212,168,67,0.3);
+  font-size: 1.15rem; color: var(--gold-pale); text-shadow: none;
+}
+.pot-label::before {
+  content: ''; width: 18px; height: 18px; border-radius: 50%; flex-shrink: 0;
+  background:
+    radial-gradient(circle, var(--gold) 0 34%, transparent 35%),
+    repeating-conic-gradient(var(--gold-pale) 0 22.5deg, var(--oxblood) 22.5deg 45deg);
+  box-shadow: 0 0 0 1.5px var(--gold-dim);
+}
+#community-stage { color: rgba(240,208,128,0.45); }
+.game-topbar .stage-label { color: var(--gold-pale); opacity: 0.8; }
+
+/* Burn pile: one offset stack, label underneath (no longer hidden by the cards) */
+.burn-stack { gap: 0; }
+.burn-stack .burn-card { margin-bottom: 0; background: var(--oxblood); border-color: rgba(212,168,67,0.35);
+  box-shadow: 2px 2px 0 -0.5px var(--oxblood), 2px 2px 0 0 rgba(212,168,67,0.3), 4px 4px 0 -0.5px var(--oxblood), 4px 4px 0 0 rgba(212,168,67,0.3); }
+.burn-stack .burn-card + .burn-card { display: none; }
+.burn-stack .burn-label { margin-top: 8px; color: rgba(240,208,128,0.45); }
+
+/* Card backs: oxblood with a fine gold lattice and an inset border */
+.card.back {
+  background:
+    repeating-linear-gradient(45deg, rgba(212,168,67,0.16) 0 1px, transparent 1px 6px),
+    repeating-linear-gradient(-45deg, rgba(212,168,67,0.16) 0 1px, transparent 1px 6px),
+    linear-gradient(160deg, var(--oxblood-hi), var(--oxblood));
+  border: 1.5px solid #f3e6c8;
+  box-shadow: inset 0 0 0 2px var(--oxblood), inset 0 0 0 3px rgba(212,168,67,0.45), 0 3px 8px rgba(0,0,0,0.5);
+}
+.card.back::after { content: none; }
+.card { background: #faf3e3; }
+
+/* Near rail: your cards rest over the bottom edge of the table */
+.my-hand-area { position: relative; z-index: 2; margin-top: -30px; padding-top: 0; }
+.my-cards .card.lg { box-shadow: 0 6px 18px rgba(0,0,0,0.55); }
+
+/* Action buttons: each move has its own color, the raise stays gold */
+.action-bar { background: linear-gradient(to bottom, rgba(0,0,0,0.25), rgba(0,0,0,0.55)); gap: 6px; }
+.action-bar .btn { border-radius: 10px; font-weight: 600; letter-spacing: 0.02em; }
+.action-bar .btn-surface { background: #1b241e; color: var(--text); border: 1px solid rgba(212,168,67,0.14); }
+.action-bar button[onclick="playerAction('fold')"] { background: var(--act-fold); color: #f3b7ae; border: 1px solid rgba(231,76,60,0.35); }
+.action-bar button[onclick="playerAction('check')"],
+.action-bar button[onclick="playerAction('call')"] { background: var(--act-check); color: #d8f0df; border: 1px solid rgba(46,204,113,0.3); }
+.action-bar button[onclick="playerAction('allin')"] { color: var(--gold-pale); border-color: rgba(212,168,67,0.45); }
+.action-bar .btn:disabled { opacity: 0.3; }
+
+@media (prefers-reduced-motion: reduce) {
+  .card.deal-anim { animation: none; }
+}
+/* (the table keeps a table's proportions on tall phones; the extra height goes around it) */
+.table-wrap > .table-area { justify-content: center; }
+.community-area { flex: 0 1 auto; min-height: 200px; height: min(46vh, 330px); }
+.game-topbar { gap: 8px; }
+/* (centered with auto margins: unlike justify-content:center they never push the seats off the top on small phones) */
+.table-wrap > .table-area { justify-content: flex-start; }
+.table-area > .opponents-ring { margin-top: auto; }
+.table-area > .my-hand-area { margin-bottom: auto; }
+.community-area { min-height: 170px; height: min(40vh, 330px); }
+@media (max-height: 700px) {
+  .my-cards .card.lg { width: 62px; height: 89px; }
+  .my-cards .card.lg .card-rank { font-size: 1.35rem; }
+  .my-cards .card.lg .card-center { font-size: 1.9rem; }
+  .my-hand-area { margin-top: -24px; gap: 4px; }
+}
 </style>
 <script>
 // Capture console output from the very start, before any other script runs
