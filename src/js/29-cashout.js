@@ -134,13 +134,6 @@ async function confirmCashOut() {
   G.stage = 'finished';
   closeModal('modal-cashout');
 
-  if (sb && currentGameId && me.id !== 'demo') {
-    // Save final cash-outs, then record the ledger for everyone (both sides)
-    try { await syncGameState(); } catch(e) { /* retry via button */ }
-    sb.from('games').update({ status: 'finished', finished_at: new Date().toISOString() }).eq('id', currentGameId).then(() => {});
-    const res = await settleHomeGameLedger(currentGameId);
-    if (res && !res.error) sessionStorage.setItem(`fr_ledger_recorded_${currentGameId}`, '1');
-  }
   showHomeGameEnd();
 }
 
@@ -356,13 +349,6 @@ function endTournament() {
   G.stage = 'finished';
   G.tournamentOver = true;
 
-  // Host: mark game finished in DB and push final state so guests see the same overlay
-  if (amHost && sb && currentGameId) {
-    syncGameState();
-    sb.from('games').update({ status: 'finished' }).eq('id', currentGameId).then(() => {});
-    sb.from('private_hands').delete().eq('game_id', currentGameId).then(() => {});
-    // Chat history preserved as rolling 200-message log
-  }
 
   // ── STATS: record tournament finish ──
   // Each client computes their own placement based on finalPlacements (1 = winner)
@@ -417,19 +403,11 @@ function showTournamentOverlay(winner) {
   const payoutByPlace = {};
   payouts.forEach(p => payoutByPlace[p.placement] = p.amount);
 
-  // Ledger button - shown to anyone who has a buy-in game and hasn't recorded yet for this game
-  const ledgerKey = `fr_ledger_recorded_${currentGameId}`;
-  // Server-run games: the server writes everyone's ledger rows when the tournament ends
-  const alreadyRecorded = (isServerState(G) && G.ledgerRecorded) || sessionStorage.getItem(ledgerKey);
-  const ledgerBtnHtml = (gameBuyIn > 0 && me.id !== 'demo' && !alreadyRecorded) ? `
-    <button id="record-ledger-btn" onclick="onRecordLedgerClicked()" style="background:none;
-      border:1px solid var(--gold-dim);color:var(--gold);
-      font-size:0.85rem;padding:10px 18px;border-radius:8px;cursor:pointer;margin-top:10px;font-weight:600">
-      📒 Record to Friends Ledger
-    </button>` : (alreadyRecorded ? `
+  // The server writes everyone's Friends Ledger rows when the tournament ends
+  const ledgerBtnHtml = G.ledgerRecorded ? `
     <div style="font-size:0.78rem;color:var(--gold-pale);margin-top:8px;font-style:italic">
       ✓ Recorded to ledger
-    </div>` : '');
+    </div>` : '';
 
   if (isChop) {
     overlay.innerHTML = `
@@ -481,33 +459,12 @@ function showTournamentOverlay(winner) {
     </div>`;
 }
 
-async function onRecordLedgerClicked() {
-  const btn = document.getElementById('record-ledger-btn');
-  if (btn) { btn.disabled = true; btn.textContent = 'Recording…'; }
-  const stillIn = G.players.filter(p => !p.eliminated && p.chips > 0);
-  const isChop = stillIn.length > 1;
-  const totalPlayers = G.players?.length || 0;
-  const result = await recordGameToLedger(currentGameId, gameBuyIn, totalPlayers, G.finalPlacements, isChop);
-  if (result.error) {
-    toast('Could not record: ' + (result.error.message || result.error));
-    if (btn) { btn.disabled = false; btn.textContent = '📒 Record to Friends Ledger'; }
-    return;
-  }
-  sessionStorage.setItem(`fr_ledger_recorded_${currentGameId}`, '1');
-  if (btn) {
-    btn.outerHTML = `<div style="font-size:0.78rem;color:var(--gold-pale);margin-top:8px;font-style:italic">✓ Recorded to ledger</div>`;
-  }
-  toast('Recorded to ledger');
-}
-
 function goHome() {
   G = null; currentGameId = null; currentLobbyId = null; amHost = false;
   stopServerTicker(); gameHostId = null;
   _gamePaused = false;
   stopBlindTimer();
   stopTurnTimer();
-  stopHostHeartbeat();
-  stopDisconnectWatcher();
   stopPresence();
   unsubscribeFromChat();
   stopNudgeListener();
@@ -519,7 +476,6 @@ function goHome() {
   if (panel) panel.style.display = 'none';
   if (backdrop) backdrop.style.display = 'none';
   updateChatBadge();
-  clearInterval(_migrationCountdown); _migrationCountdown = null;
   // Keep listening for invites on Home (this used to stop the 10s invite poll
   // for good, leaving only the realtime feed)
   if (me && me.id !== 'demo' && sb) subscribeToInvites();

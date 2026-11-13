@@ -1,11 +1,5 @@
 // ── DEAL ─────────────────────────────────────────────────────────────────────
 function dealNewHand() {
-  // Safety net: never deal over a hand still in progress (chips in the pot
-  // would vanish). Call it off and return the bets first; that deals again.
-  if (amHost && me.id !== 'demo' && (G?.pot || 0) > 0 && ['preflop', 'flop', 'turn', 'river'].includes(G?.stage)) {
-    voidHandInProgress('Hand called off, bets returned');
-    return;
-  }
   const activePlayers = G.players.filter(p => !p.eliminated && p.chips > 0);
   if (activePlayers.length < 2) { endTournament(); return; }
 
@@ -284,29 +278,6 @@ function proceedToDeal() {
     }
   }
   applyRiggedHand(numHoleCards);
-
-  // Write each player's hole cards to private_hands BEFORE syncing state
-  // So guests always find their cards waiting when they react to the hand number change
-  if (sb && currentGameId && me.id !== 'demo') {
-    const handNum = G.handNumber;
-    const rows = G.players
-      .filter(p => !p.folded && !p.eliminated && p.hand?.length)
-      .map(p => ({
-        game_id: currentGameId,
-        hand_number: handNum,
-        player_id: p.id,
-        cards: p.hand,
-      }));
-    if (rows.length) {
-      // Fire-and-forget: delete stale, insert fresh
-      (async () => {
-        try {
-          await sb.from('private_hands').delete().eq('game_id', currentGameId).eq('hand_number', handNum);
-          await sb.from('private_hands').insert(rows);
-        } catch(e) { console.warn('private_hands write:', e); }
-      })();
-    }
-  }
 
   // ── BRANCH ON VARIANT STYLE ──
   // Community games (Hold'em, Omaha): post blinds, enter preflop betting

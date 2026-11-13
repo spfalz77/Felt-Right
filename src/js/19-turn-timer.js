@@ -74,8 +74,11 @@ function autoActAway(playerId) {
   const p = G.players.find(pl => pl.id === playerId);
   if (!p) return;
   const canCheck = G.currentBet === p.bet;
-  const action = canCheck ? 'check' : 'fold';
-  applyRemoteAction(playerId, action, 0);
+  // (demo mode: the local table acts for them)
+  if (canCheck) p.lastAction = { type: 'check', label: 'Away' };
+  else { p.folded = true; p.lastAction = { type: 'fold', label: 'Away' }; }
+  renderGame();
+  setTimeout(advanceAction, 400);
 }
 
 function setAutoAction(action) {

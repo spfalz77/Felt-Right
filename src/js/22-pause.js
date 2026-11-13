@@ -239,14 +239,9 @@ async function endGameForAll() {
     serverHostControl('end_game');
     return;
   }
-  if (!amHost || !G || !currentGameId) return;
+  if (!amHost || !G) return; // demo mode
   if (!confirm('End the game for everyone? This cannot be undone.')) return;
-  try {
-    await sb.from('games').update({ status: 'finished' }).eq('id', currentGameId);
-    await sb.from('private_hands').delete().eq('game_id', currentGameId);
-    // Chat preserved as 200-message rolling history
-    toast('Game ended');
-  } catch(e) { console.warn('endGameForAll:', e); }
+  toast('Game ended');
 
   sessionStorage.setItem('fr_auto_restore', '1');
   setTimeout(() => { window.location.href = window.location.pathname; }, 300);
