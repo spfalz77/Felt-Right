@@ -218,8 +218,7 @@ async function signOut() {
     await sb.auth.signOut();
   }
   me = null; myFriends = []; myGames = []; G = null;
-  stopBlindTimer(); stopTurnTimer(); stopHostHeartbeat();
-  stopDisconnectWatcher(); stopPresence();
+  stopBlindTimer(); stopTurnTimer(); stopServerTicker(); stopPresence();
   document.getElementById('nav').classList.remove('visible');
   showScreen('splash');
 }

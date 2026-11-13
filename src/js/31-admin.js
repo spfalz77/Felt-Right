@@ -11,12 +11,12 @@ async function archiveMyGames() {
   try {
     let archivedCount = 0;
 
-    // 1. Mark stale lobbies (older than 1hr) as finished
+    // 1. Delete my stale lobbies (older than 1hr, never started)
     const cutoff = new Date(Date.now() - 60 * 60 * 1000).toISOString();
     const { data: stale } = await sb.from('games')
       .select('id').eq('host_id', me.id).eq('status', 'lobby').lt('created_at', cutoff);
     if (stale?.length) {
-      for (const g of stale) await sb.from('games').update({ status: 'finished' }).eq('id', g.id);
+      for (const g of stale) await sb.from('games').delete().eq('id', g.id);
       archivedCount += stale.length;
     }
 
@@ -40,10 +40,9 @@ async function archiveMyGames() {
 
 let _gamesKilled = false; // flag to prevent loadGames from re-populating after a kill
 
-// Ends every active game I host that's stuck: a server game the same way the
-// host's End Game does (home game: cash out; tournament: called off), a
-// phone-run game is marked finished. Only games I host: the database doesn't
-// let anyone end, delete or un-seat other people's games.
+// Ends every active game I host that's stuck, the same way the host's End
+// Game does (home game: cash out; tournament: called off). Only games I host:
+// the database doesn't let anyone end, delete or un-seat other people's games.
 async function killStuckGames() {
   if (me.id === 'demo') { toast('Not available in demo'); return; }
   const { data: rows, error } = await sb.from('games')
@@ -53,14 +52,9 @@ async function killStuckGames() {
   if (!confirm(`End ${rows.length} active game${rows.length === 1 ? '' : 's'} you host? Home games cash out; tournaments are called off with nothing recorded.`)) return;
   let ended = 0;
   for (const g of rows) {
-    if (isServerState(g.state)) {
-      const r = await callTable(g.id, 'end_game');
-      if (!r.error) ended++;
-      else console.warn('end_game', g.id, r.error);
-    } else {
-      const { error: e } = await sb.from('games').update({ status: 'finished', finished_at: new Date().toISOString() }).eq('id', g.id);
-      if (!e) ended++;
-    }
+    const r = await callTable(g.id, 'end_game');
+    if (!r.error) ended++;
+    else console.warn('end_game', g.id, r.error);
   }
   toast(`Ended ${ended} of ${rows.length} game${rows.length === 1 ? '' : 's'}`);
   await loadGames();

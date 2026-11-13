@@ -2753,8 +2753,9 @@ async function rejoinActiveGame(gameId, gameRef) {
     const { data, error } = await sb.from('games').select('state,host_id,blind_config,buy_in_amount,game_format,game_variant').eq('id', gameId).single();
     if (error || !data?.state) { toast('Could not load game'); return; }
 
-    const serverRun = isServerState(data.state);
-    amHost = !serverRun && data.host_id === me.id;
+    // Every real game is run by the server; an old phone-run table can't continue
+    if (!isServerState(data.state)) { toast('This game was started on an older version and can\'t continue'); return; }
+    amHost = false;
     gameHostId = data.host_id;
     if (data.blind_config) {
       BLIND_LEVELS = data.blind_config.levels || BLIND_LEVELS;
@@ -2767,7 +2768,7 @@ async function rejoinActiveGame(gameId, gameRef) {
     if (data.game_variant) gameVariant = data.game_variant;
     currentGameId = gameId;
     G = data.state;
-    if (serverRun) enterServerGame(gameId);
+    enterServerGame(gameId);
 
     // Close chat panel if it was open (so it doesn't cover the rejoined game)
     const chatPanel = document.getElementById('chat-panel');
@@ -2783,40 +2784,24 @@ async function rejoinActiveGame(gameId, gameRef) {
     startNudgeListener(gameId);
     startPresence(gameId);
 
-    if (amHost) {
-      // Host's local G was wiped by rejoin — fetch own private cards so we see our hand
-      if (G.handNumber > 0) await fetchMyPrivateHand(gameId, G.handNumber);
-      renderGame();
-      hostListenForActions(gameId);
-      startHostHeartbeat(gameId);
-      resumeHostDuties();
-      if (!isMyTurn()) setTimeout(runCpuTurn, 800);
-    } else {
-      // Clear any stale auto-action from previous session
-      _autoAction = null;
-      guestSubscribeToGame(gameId);
-      if (!serverRun) startDisconnectWatcher(gameId);
-      // Fetch our private hole cards before first render
-      if (G.handNumber > 0) await fetchMyPrivateHand(gameId, G.handNumber);
-      renderGame();
-      if (isMyTurn()) {
-        startTurnTimer(30);
-        pushTurnNotification();
-      }
+    // Clear any stale auto-action from previous session
+    _autoAction = null;
+    guestSubscribeToGame(gameId);
+    // Fetch our private hole cards before first render
+    if (G.handNumber > 0) await fetchMyPrivateHand(gameId, G.handNumber);
+    renderGame();
+    if (G.tournamentOver) guestShowGameOver();
+    else maybeShowHandResult(null);
+    if (isMyTurn()) {
+      startTurnTimer(30);
+      pushTurnNotification();
     }
     toast('Rejoined game');
 
     // If I was previously marked away, send a sit_back action to clear the flag
     const myP = G?.players?.find(p => p.id === me.id);
     if (myP?.awayFromTable) {
-      if (amHost) {
-        // Host clears their own flag directly
-        myP.awayFromTable = false;
-        myP.disconnected = false;
-        myP.lastAction = null;
-        syncGameState();
-        renderGame();
-      } else if (sb && currentGameId) {
+      if (sb && currentGameId) {
         postAction({
           game_id: currentGameId,
           player_id: me.id,
@@ -3350,8 +3335,9 @@ function startDemoLobby() {
 // START GAME
 // ════════════════════════════════════════════════════════════════════════════
 function startGame() {
-  // Server-run game: the server seats everyone and deals (38-server-rules.js)
-  if (SERVER_RULES && sb && currentLobbyId && me.id !== 'demo') { serverStartGame(); return; }
+  // Every real game is run by the server: it seats everyone and deals
+  // (38-server-rules.js). Below: Demo mode only, played locally on this phone.
+  if (me.id !== 'demo') { serverStartGame(); return; }
   // lobbyPlayers already contains only joined/playing/waiting (invited filtered out)
   let playerSource = lobbyPlayers;
 
@@ -3360,11 +3346,6 @@ function startGame() {
       { user: me, seat_index: 0 },
       ...DEMO_FRIENDS.slice(0, 3).map((f, i) => ({ user: f, seat_index: i+1 })),
     ];
-  }
-
-  if (me.id !== 'demo' && playerSource.length < 2) {
-    toast(`Need at least 2 players — only ${playerSource.length} joined`);
-    return;
   }
 
   // Build player array. Starting chips depends on format (tournament=1500 abstract chips,
@@ -3423,26 +3404,7 @@ function startGame() {
     readyForBreakEnd: [],     // tournament: players who've tapped Ready during break
   };
 
-  if (me.id !== 'demo' && sb && currentLobbyId) {
-    amHost = true;
-    stopLobbyWatchdog();
-    sb.from('games').update({
-      status: 'active',
-      state: initialState,
-      started_at: new Date().toISOString(),
-      last_host_seen: new Date().toISOString(),
-      blind_config: {
-        levels: BLIND_LEVELS,
-        duration: blindDurationSeconds,
-        rebuys_enabled: !!gameRebuysEnabled,
-      },
-      buy_in_amount: gameBuyIn,
-    }).eq('id', currentLobbyId).then(({ error }) => {
-      if (error) console.error('startGame UPDATE failed:', error);
-    });
-  } else {
-    amHost = me.id === 'demo'; // demo always acts as host
-  }
+  amHost = true; // demo acts as the table
 
   enterGame(currentLobbyId, initialState);
 }
@@ -3885,258 +3847,10 @@ function updateBlindTimerDisplay() {
 // GAME TABLE — MULTIPLAYER ENGINE
 // ════════════════════════════════════════════════════════════════════════════
 
-// ── HOST HEARTBEAT ────────────────────────────────────────────────────────────
-const HEARTBEAT_INTERVAL  = 5000;  // host pings every 5s
-const DISCONNECT_TIMEOUT  = 20000; // 20s without host ping = migrate (more generous)
-const MIGRATION_COUNTDOWN = 5;     // brief 5s warning before migration
-const DISCONNECT_GRACE_MS = 15000; // 15s grace after joining before checking
-
-let _heartbeatInterval    = null;
-let _disconnectWatchTimer = null;
-let _migrationCountdown   = null;
-let _gamePaused           = false;
-
-function startHostHeartbeat(gameId) {
-  stopHostHeartbeat();
-  // Write immediately, then every 15s
-  pingHostSeen(gameId);
-  _heartbeatInterval = setInterval(() => pingHostSeen(gameId), HEARTBEAT_INTERVAL);
-}
-
-function stopHostHeartbeat() {
-  clearInterval(_heartbeatInterval);
-  _heartbeatInterval = null;
-}
-
-async function pingHostSeen(gameId) {
-  if (!sb || !gameId) return;
-  await sb.from('games')
-    .update({ last_host_seen: new Date().toISOString() })
-    .eq('id', gameId);
-}
-
-// ── GUEST DISCONNECT WATCHER ──────────────────────────────────────────────────
-let _disconnectWatcherStartedAt = 0;
-
-function startDisconnectWatcher(gameId) {
-  stopDisconnectWatcher();
-  _disconnectWatcherStartedAt = Date.now();
-  _disconnectWatchTimer = setInterval(() => checkHostAlive(gameId), 5000);
-}
-
-function stopDisconnectWatcher() {
-  clearInterval(_disconnectWatchTimer);
-  _disconnectWatchTimer = null;
-}
-
-async function checkHostAlive(gameId) {
-  // Stop if I somehow became host
-  if (amHost) { stopDisconnectWatcher(); clearDisconnectBanner(); return; }
-  if (!sb || !gameId) return;
-  // Grace period after joining — don't migrate during initial sync
-  if (Date.now() - _disconnectWatcherStartedAt < DISCONNECT_GRACE_MS) return;
-
-  try {
-    const { data } = await sb.from('games')
-      .select('last_host_seen, host_id, status')
-      .eq('id', gameId)
-      .maybeSingle();
-
-    if (!data) return;
-    // Game finished — stop watching
-    if (data.status === 'finished') { stopDisconnectWatcher(); return; }
-    // If host changed (migration elsewhere), update local and stop
-    if (data.host_id === me.id) {
-      amHost = true;
-      stopDisconnectWatcher();
-      clearDisconnectBanner();
-      return;
-    }
-    // No heartbeat ever written yet — be patient, don't migrate
-    if (!data.last_host_seen) return;
-
-    const age = Date.now() - new Date(data.last_host_seen).getTime();
-    if (age > DISCONNECT_TIMEOUT && !_gamePaused) {
-      showDisconnectPause(gameId, data.host_id);
-    } else if (age < DISCONNECT_TIMEOUT && _gamePaused) {
-      // Host came back — clear the banner
-      _gamePaused = false;
-      clearInterval(_migrationCountdown);
-      _migrationCountdown = null;
-      clearDisconnectBanner();
-    }
-  } catch(e) { /* silent */ }
-}
-
-function showDisconnectPause(gameId, oldHostId) {
-  if (_gamePaused) return;
-  _gamePaused = true;
-  stopTurnTimer();
-
-  let secsLeft = MIGRATION_COUNTDOWN;
-
-  // Subtle top banner instead of full overlay — no UI flash
-  let banner = document.getElementById('host-disconnect-banner');
-  if (!banner) {
-    banner = document.createElement('div');
-    banner.id = 'host-disconnect-banner';
-    banner.style.cssText = `
-      position: fixed; top: 0; left: 0; right: 0; z-index: 400;
-      background: rgba(212,168,67,0.15); border-bottom: 1px solid var(--gold-dim);
-      color: var(--gold-pale); font-size: 0.8rem; text-align: center;
-      padding: 6px 12px; backdrop-filter: blur(8px);
-    `;
-    document.body.appendChild(banner);
-  }
-
-  const render = () => {
-    banner.textContent = `📡 Host offline — migrating in ${secsLeft}s…`;
-  };
-  render();
-
-  _migrationCountdown = setInterval(async () => {
-    secsLeft--;
-    render();
-    if (secsLeft <= 0) {
-      clearInterval(_migrationCountdown);
-      _migrationCountdown = null;
-      await attemptHostMigration(gameId, oldHostId);
-    }
-  }, 1000);
-}
-
-function clearDisconnectBanner() {
-  const banner = document.getElementById('host-disconnect-banner');
-  if (banner) banner.remove();
-}
-
-async function attemptHostMigration(gameId, oldHostId) {
-  // Determine who should become host: non-eliminated player with lowest seat index
-  // All clients run this same logic independently — only the "winner" will succeed
-  // because the DB update is conditional on host_id still being the old host
-  if (!G) return;
-
-  const candidates = G.players
-    .filter(p => !p.eliminated && p.chips > 0 && p.id !== oldHostId)
-    .sort((a, b) => a.seatIndex - b.seatIndex);
-
-  if (!candidates.length) return;
-  const newHostPlayer = candidates[0];
-
-  // Only the designated new host does the migration
-  if (newHostPlayer.id !== me.id) {
-    // I'm not the designated new host — just wait and re-subscribe
-    // The new host will update host_id and we'll continue as guest
-    setTimeout(() => {
-      _gamePaused = false;
-      document.getElementById('showdown-overlay').style.display = 'none';
-      guestSubscribeToGame(gameId);
-    }, 3000);
-    return;
-  }
-
-  // I AM the new host — take over
-  try {
-    const { error } = await sb.from('games')
-      .update({
-        host_id: me.id,
-        last_host_seen: new Date().toISOString(),
-      })
-      .eq('id', gameId)
-      .eq('host_id', oldHostId); // only succeeds if no one else already migrated
-
-    if (error) {
-      // Someone else won the migration race — become a guest
-      _gamePaused = false;
-      document.getElementById('showdown-overlay').style.display = 'none';
-      amHost = false;
-      guestSubscribeToGame(gameId);
-      return;
-    }
-
-    // Migration successful — take over as host
-    amHost = true;
-    _gamePaused = false;
-    stopDisconnectWatcher();
-    clearDisconnectBanner();
-    document.getElementById('showdown-overlay').style.display = 'none';
-    toast('You are now the host');
-    startHostHeartbeat(gameId);
-    hostListenForActions(gameId);
-
-    // Resume the game — if mid-hand, continue from current state
-    // If we're waiting between hands, deal a new one
-    renderGame();
-    if (G.stage === 'deal' || G.stage === 'showdown') {
-      setTimeout(dealNewHand, 1000);
-    } else {
-      resumeHostDuties(oldHostId);
-      if (!isMyTurn()) setTimeout(runCpuTurn, 800);
-    }
-
-  } catch(e) {
-    console.warn('Migration failed:', e);
-    _gamePaused = false;
-  }
-}
-
-// A phone that has just become host (took over, or rejoined as host) picks up
-// the host's timers for whatever is in progress: the turn backstop for the
-// player on action (so a player who's gone is checked/folded instead of the
-// table waiting forever) and the dealer's-choice timeout. Who is connected is
-// re-read from presence, and the host we took over from counts as gone.
-function resumeHostDuties(oldHostId) {
-  if (!amHost || !G?.players) return;
-  G.players.forEach(p => {
-    if (p.id === me.id || p.eliminated) return;
-    if (oldHostId && p.id === oldHostId) { p.disconnected = true; return; }
-    p.disconnected = !isPlayerOnline(p.id);
-  });
-  // Took over mid-hand: the other players' cards are private, so this phone
-  // can't decide the hand fairly. Call it off, return the bets, deal again.
-  const othersHidden = G.players.some(p => p.id !== me.id && !p.folded && !p.eliminated
-    && (p.hand || []).some(c => !c || c.hidden));
-  if (['preflop', 'flop', 'turn', 'river'].includes(G.stage) && othersHidden) {
-    voidHandInProgress('Host changed mid-hand — hand called off, bets returned');
-    return;
-  }
-  if (G.pendingDealerChoice) startDealerChoiceTimer();
-  else if (['preflop', 'flop', 'turn', 'river'].includes(G.stage)) startHostTurnEnforcer();
-}
-
-// Host-only: cancel the hand in progress. Everyone still seated gets back what
-// they put in this hand; any pot that can't be attributed (e.g. a Guts
-// carry-over) is split evenly, remainder to the first seated player. Same rule
-// as Cash Out mid-hand and cleanup_stale_games().
-function voidHandInProgress(message) {
-  if (!amHost || !G) return;
-  stopHostTurnEnforcer();
-  const seated = G.players.filter(p => !p.eliminated && !p.cashedOutCents);
-  const pot = Math.max(G.pot || 0, 0);
-  const refundable = seated.reduce((a, p) => a + Math.max(p.totalBet || 0, 0), 0);
-  let leftover = 0;
-  if (refundable > pot) {
-    seated.forEach(p => { p.chips += Math.round(Math.max(p.totalBet || 0, 0) * pot / refundable); });
-  } else {
-    seated.forEach(p => { p.chips += Math.max(p.totalBet || 0, 0); });
-    leftover = pot - refundable;
-  }
-  if (leftover > 0 && seated.length) {
-    const share = Math.floor(leftover / seated.length);
-    seated.forEach(p => { p.chips += share; });
-    seated[0].chips += leftover - share * seated.length;
-  }
-  G.players.forEach(p => { p.bet = 0; p.totalBet = 0; p.folded = false; p.allIn = false; p.lastAction = null; });
-  G.pot = 0;
-  G.currentBet = 0;
-  G.community = [];
-  G.actionIndex = -1;
-  G.stage = 'deal';
-  if (message) toast(message);
-  renderGame();
-  syncGameState();
-  setTimeout(dealNewHand, 1500);
-}
+// Server games only (phase 6b-2): the table lives on the server, so there is
+// no host heartbeat, host takeover or voided hand. Demo mode still plays
+// locally on this phone with the old engine and saves nothing.
+let _gamePaused = false;
 
 // ── ENTER GAME ────────────────────────────────────────────────────────────────
 function enterGame(gameId, state) {
@@ -4167,24 +3881,17 @@ function enterGame(gameId, state) {
   subscribeToChatForGame(gameId);
   startNudgeListener(gameId);
 
-  if (me.id === 'demo' || amHost) {
-    if (amHost && sb) {
-      hostListenForActions(gameId);
-      startHostHeartbeat(gameId);
-      // Wait 5 seconds so guests can fully sync their subscriptions before first deal
-      showInitializingOverlay();
-      setTimeout(() => {
-        hideInitializingOverlay();
-        dealNewHand();
-      }, 5000);
-    } else {
-      // Demo mode: deal immediately
-      dealNewHand();
-    }
+  if (me.id === 'demo') {
+    // Demo mode: plays locally, deals immediately
+    dealNewHand();
+  } else if (!serverRun) {
+    // A table from before every game ran on the server: nothing can run it now
+    toast('This game was started on an older version and can\'t continue');
+    currentGameId = null;
+    showScreen('home');
   } else {
     guestSubscribeToGame(gameId);
-    if (!serverRun) startDisconnectWatcher(gameId); // nobody to take over from in a server game
-    if (serverRun && G.handNumber > 0) fetchMyPrivateHand(gameId, G.handNumber).then(() => { applyMyPrivateHand(); renderGame(); });
+    if (G.handNumber > 0) fetchMyPrivateHand(gameId, G.handNumber).then(() => { applyMyPrivateHand(); renderGame(); });
     renderGame();
   }
 }
@@ -4222,51 +3929,9 @@ function hideInitializingOverlay() {
 // _lastTurnKey tracks hand:stage:actionIndex — unique per turn across hands
 let _lastTurnKey = null;
 
-function redactForSync(state) {
-  // Copy state, strip hole cards from all players UNLESS showdown is public
-  const redacted = JSON.parse(JSON.stringify(state));
-  redacted.players = redacted.players.map(p => {
-    // During showdown, reveal all non-folded players' cards (publicly shown)
-    const showCards = state.stage === 'showdown' && !p.folded && !p.eliminated;
-    if (!showCards) {
-      // Keep the ARRAY LENGTH so UI can draw card backs, but hide card values
-      p.hand = (p.hand || []).map(() => ({ hidden: true }));
-    }
-    return p;
-  });
-  return redacted;
-}
-
-function syncGameState() {
-  if (!sb || !currentGameId || me.id === 'demo') return;
-  // Stamp turn start time when the turn (hand:stage:actionIndex) changes
-  if (G && G.actionIndex >= 0) {
-    const turnKey = `${G.handNumber}:${G.stage}:${G.actionIndex}`;
-    if (turnKey !== _lastTurnKey) {
-      G.turnStartAt = new Date().toISOString();
-      _lastTurnKey = turnKey;
-    }
-  }
-  // One write at a time, latest state last. Callers often sync twice in a row
-  // (e.g. dealer's choice → proceedToDeal); unawaited parallel PATCHes can land
-  // out of order and leave an older state in the DB, freezing guests' screens.
-  if (_syncInFlight) { _syncDirty = true; return _syncInFlight; }
-  _syncInFlight = (async () => {
-    do {
-      _syncDirty = false;
-      if (!G || !currentGameId) break;
-      const gameId = currentGameId;
-      G.syncSeq = (G.syncSeq || 0) + 1; // phones ignore any copy older than the one they show
-      const { error } = await sb.from('games')
-        .update({ state: redactForSync(G), hand_number: G.handNumber, last_host_seen: new Date().toISOString() })
-        .eq('id', gameId);
-      if (error) console.warn('sync error:', error);
-    } while (_syncDirty);
-  })().finally(() => { _syncInFlight = null; });
-  return _syncInFlight;
-}
-let _syncInFlight = null;
-let _syncDirty = false;
+// Demo mode plays locally and saves nothing; every real game is saved by the
+// server. (Kept as a no-op because the local engine calls it after each move.)
+function syncGameState() {}
 
 let _myPrivateHand = null; // { handNumber, cards }
 let _prevPaused = false;
@@ -4313,170 +3978,6 @@ function applyMyPrivateHand() {
   } else if (!myP.hand?.length) {
     myP.hand = _myPrivateHand.cards;
   }
-}
-
-// ── HOST: listen for actions submitted by non-host players ───────────────────
-function hostListenForActions(gameId) {
-  if (actionSubscription) actionSubscription.unsubscribe();
-  actionSubscription = sb.channel(`actions:${gameId}`)
-    .on('postgres_changes', {
-      event: 'INSERT', schema: 'public', table: 'player_actions',
-      filter: `game_id=eq.${gameId}`,
-    }, payload => {
-      const { player_id, action, amount, target_id } = payload.new;
-      // pick_variant is from the dealer during home-game dealer's choice — bypass turn check
-      if (action === 'pick_variant') {
-        if (G && G.dealerId === player_id && G.pendingDealerChoice) {
-          // Variant is encoded in `amount`: 1=holdem, 2=omaha, 3=guts3
-          const variantMap = { 1: 'holdem', 2: 'omaha', 3: 'guts3' };
-          G.variant = variantMap[amount] || 'holdem';
-          G.pendingDealerChoice = false;
-          // Hide the dealer-choice overlay on the host (it was showing while waiting)
-          const sd = document.getElementById('showdown-overlay');
-          if (sd && sd.dataset.kind === 'dealer-choice') {
-            sd.style.display = 'none';
-            sd.dataset.kind = '';
-          }
-          syncGameState();
-          proceedToDeal();
-        }
-        return;
-      }
-      // Guts decisions
-      if (action === 'guts_in' || action === 'guts_out') {
-        if (G && G.stage === 'guts_decision') {
-          applyGutsDecision(player_id, action === 'guts_in' ? 'in' : 'out');
-        }
-        return;
-      }
-      // Re-buy: add chips, track buy-in cost, mark not broke
-      if (action === 'rebuy') {
-        if (G) {
-          const isTournament = !getFormatConfig().moneyMode;
-          // The guest sends the CHIP amount in `amount`. The cost varies by format.
-          const chipAmount = amount || ((gameBuyIn || 0) * 100);
-          const costCents = isTournament
-            ? Math.floor((gameBuyIn || 0) * 100 / 2) // half the buy-in cost
-            : chipAmount; // home: 1:1
-          applyRebuy(player_id, chipAmount, costCents);
-        }
-        return;
-      }
-      // Sit out: player declined to re-buy. They're done, become spectator.
-      if (action === 'sit_out') {
-        if (G) {
-          const p = G.players.find(pl => pl.id === player_id);
-          if (p) {
-            const isTournament = !getFormatConfig().moneyMode;
-            p.eliminated = true;
-            p.broke = false;
-            // Tournament: add to placements if not already there
-            if (isTournament && G.finalPlacements && !G.finalPlacements.some(fp => fp.name === p.name)) {
-              G.finalPlacements.unshift({ name: p.name, emoji: p.emoji });
-            }
-            syncGameState();
-            renderGame();
-          }
-        }
-        return;
-      }
-      // Quit (home game): player cashes out at current stack and leaves
-      if (action === 'quit_cashout') {
-        if (G) {
-          const p = G.players.find(pl => pl.id === player_id);
-          if (p && p.cashedOutCents == null) {
-            // Bank what they take home (host's own count, not the client's)
-            const wasUp = G.players[G.actionIndex]?.id === player_id;
-            p.cashedOutCents = p.chips || 0;
-            p.chips = 0;
-            p.eliminated = true;
-            p.folded = true; // out of this hand; what they already bet stays in the pot
-            p.quitHand = G.handNumber;
-            p.broke = false;
-            p.lastAction = { type: 'quit', label: 'Quit' };
-            renderGame();
-            Promise.resolve(syncGameState()).then(() => settleHomeGameLedger(currentGameId));
-            // Keep the hand moving: they were on action, or only one player is left in it
-            const inHand = G.players.filter(x => !x.folded && !x.eliminated);
-            if (['preflop', 'flop', 'turn', 'river'].includes(G.stage) && (wasUp || inHand.length === 1)) {
-              setTimeout(advanceAction, 300);
-            }
-          }
-        }
-        return;
-      }
-      // Tournament step-away: player has chips but stepped away from table
-      if (action === 'step_away') {
-        if (G) {
-          const p = G.players.find(pl => pl.id === player_id);
-          if (p) {
-            p.awayFromTable = true;
-            p.disconnected = true;
-            p.lastAction = { type: 'away', label: 'Away' };
-            syncGameState();
-            renderGame();
-            // If this player was up, auto-action so the table doesn't wait
-            if (G.players[G.actionIndex]?.id === player_id) {
-              autoActAway(player_id);
-            }
-          }
-        }
-        return;
-      }
-      // Tournament sit-back-down: clear away flag, rejoin play
-      if (action === 'sit_back') {
-        if (G) {
-          const p = G.players.find(pl => pl.id === player_id);
-          if (p) {
-            p.awayFromTable = false;
-            p.disconnected = false;
-            p.lastAction = null;
-            syncGameState();
-            renderGame();
-          }
-        }
-        return;
-      }
-      // Tournament break: player tapped Ready
-      if (action === 'break_ready') {
-        if (G && G.breakActive) applyBreakReady(player_id);
-        return;
-      }
-      // Tournament break: player tapped Add-On
-      if (action === 'add_on') {
-        if (G && G.breakActive) {
-          const tournamentStartingChips = (FORMATS.tournament).startingChips;
-          const addOnCostCents = Math.floor((gameBuyIn || 0) * 100 / 2);
-          const chipAmount = amount || Math.floor(tournamentStartingChips / 2);
-          applyAddOn(player_id, chipAmount, addOnCostCents);
-        }
-        return;
-      }
-      // Social/non-turn actions bypass the turn filter
-      const SOCIAL_ACTIONS = ['chop_offer', 'chop_accept', 'chop_decline', 'chop_cancel', 'nudge', 'pause_request'];
-      if (SOCIAL_ACTIONS.includes(action)) {
-        applyRemoteAction(player_id, action, amount);
-        return;
-      }
-      // 'reveal' bypasses turn filter as well (can happen any time after fold)
-      if (action === 'reveal') {
-        applyRemoteAction(player_id, action, amount);
-        return;
-      }
-      // Winner explicitly mucked their fold-win cards — sync the flag
-      if (action === 'muck') {
-        if (G) {
-          G.winnerMucked = true;
-          syncGameState();
-        }
-        return;
-      }
-      // Game actions require it to be the player's turn
-      const acting = G?.players[G.actionIndex];
-      if (!acting || acting.id !== player_id) return;
-      applyRemoteAction(player_id, action, amount);
-    })
-    .subscribe();
 }
 
 // ── NUDGE ─────────────────────────────────────────────────────────────────────
@@ -4603,111 +4104,6 @@ function showNudgeToast(name, fromId) {
   }, 2800);
 }
 let _nudgeToastTimer = null;
-
-function applyRemoteAction(playerId, action, amount) {
-  // Nudges are handled by the universal nudge listener — ignore here
-  if (action === 'nudge') return;
-
-  // Chop offer/accept/decline/cancel
-  if (action === 'chop_offer') {
-    G.chopOfferedBy = playerId;
-    G.chopOfferedAt = new Date().toISOString();
-    renderGame();
-    syncGameState();
-    return;
-  }
-  if (action === 'chop_accept') {
-    if (G.chopOfferedBy && G.chopOfferedBy !== playerId) {
-      finalizeChop();
-    }
-    return;
-  }
-  if (action === 'chop_decline') {
-    G.chopOfferedBy = null;
-    G.chopDeclined = true;
-    renderGame();
-    syncGameState();
-    return;
-  }
-  if (action === 'chop_cancel') {
-    G.chopOfferedBy = null;
-    renderGame();
-    syncGameState();
-    return;
-  }
-
-  // Guest-initiated pause request — host applies the pause
-  if (action === 'pause_request') {
-    if (!G.paused && amHost) {
-      const requester = G.players.find(p => p.id === playerId);
-      const name = requester?.name || 'Someone';
-      toast(`${name} requested pause`);
-      // Same logic as host tapping pause — queue if mid-hand, apply otherwise
-      const handInProgress = G.stage && G.stage !== 'deal' && G.stage !== 'showdown' && G.stage !== 'finished';
-      if (handInProgress) {
-        G.pauseQueued = true;
-        syncGameState();
-        renderGame();
-      } else {
-        applyPause();
-      }
-    }
-    return;
-  }
-
-  // Handle reveal specially — not a game action, just reveals folded cards
-  if (action === 'reveal') {
-    // Fetch the player's private hand and publish it
-    if (sb && currentGameId) {
-      sb.from('private_hands')
-        .select('cards')
-        .eq('game_id', currentGameId)
-        .eq('hand_number', G.handNumber)
-        .eq('player_id', playerId)
-        .maybeSingle()
-        .then(({ data }) => {
-          if (data?.cards && G) {
-            if (!G.revealedHands) G.revealedHands = {};
-            G.revealedHands[playerId] = data.cards;
-            renderGame();
-            syncGameState();
-          }
-        });
-    }
-    return;
-  }
-
-  const p = G.players.find(pl => pl.id === playerId);
-  if (!p || p.folded || p.eliminated) return;
-  stopTurnTimer();
-  stopHostTurnEnforcer();
-  // Player responded — they're not away, clear the flag
-  if (p.disconnected) { p.disconnected = false; }
-
-  if (action === 'fold') {
-    p.folded = true; p.lastAction = { type:'fold', label:'Fold' };
-  } else if (action === 'check') {
-    p.lastAction = { type:'check', label:'Check' };
-  } else if (action === 'call') {
-    const amt = Math.min(G.currentBet - p.bet, p.chips);
-    p.chips -= amt; p.bet += amt; p.totalBet += amt; G.pot += amt;
-    if (p.chips === 0) p.allIn = true;
-    p.lastAction = { type:'bet', label:`Call ${amt}` };
-  } else if (['raise','twobet','twobb','threebb','pot','allin'].includes(action)) {
-    const raiseTotal = Math.min(amount || 0, p.chips + p.bet);
-    const add = raiseTotal - p.bet;
-    if (add > 0) { p.chips -= add; p.bet = raiseTotal; p.totalBet += add; G.pot += add; }
-    if (p.chips === 0) p.allIn = true;
-    G.currentBet = raiseTotal;
-    const label = action === 'allin' ? 'All In' : `Raise ${raiseTotal}`;
-    p.lastAction = { type:'bet', label };
-    G.players.forEach(op => {
-      if (op.id !== p.id && !op.folded && !op.eliminated && !op.allIn) op.lastAction = null;
-    });
-  }
-  renderGame();
-  setTimeout(advanceAction, 400);
-}
 
 // ── GUEST: receive state updates from host ────────────────────────────────────
 let _guestStatePoller = null;
@@ -4871,35 +4267,10 @@ function guestSubscribeToGame(gameId) {
       const prevStage = G?.stage;
       const prevDealSeq = G?.dealSeq;
 
-      // Host changed (migration happened) — update our role accordingly
-      let justPromoted = false;
-      if (isServerState(row.state)) {
-        gameHostId = row.host_id; // a server game has no table host to migrate
-      } else if (row.host_id && row.host_id !== me.id && amHost) {
-        // I used to be host but am not anymore — downgrade to guest cleanly
-        amHost = false;
-        stopHostHeartbeat();
-        if (actionSubscription) { actionSubscription.unsubscribe(); actionSubscription = null; }
-        toast('Someone else is host now');
-      } else if (row.host_id === me.id && !amHost) {
-        // We got promoted to host — upgrade
-        amHost = true;
-        hostListenForActions(gameId);
-        startHostHeartbeat(gameId);
-        clearDisconnectBanner();
-        toast('You are now the host');
-        justPromoted = true;
-        setTimeout(() => resumeHostDuties(), 0); // after G is updated below
-      }
-      // The host's own G is the real table (it holds everyone's cards). Saved
-      // state is redacted, so never let an echo of it overwrite the host's G.
-      if (amHost && !justPromoted) return;
-
-      if (_gamePaused) {
-        _gamePaused = false;
-        clearInterval(_migrationCountdown); _migrationCountdown = null;
-        clearDisconnectBanner();
-      }
+      // Only server-run tables are followed (an old phone-run table can't change any more)
+      if (!isServerState(row.state)) return;
+      gameHostId = row.host_id; // the lobby owner keeps the host's buttons
+      _gamePaused = false;
 
       G = row.state;
       // Called off: leave before anything else tries to draw a table that has ended
@@ -5099,12 +4470,6 @@ function pushTurnNotification() {
 
 // ── DEAL ─────────────────────────────────────────────────────────────────────
 function dealNewHand() {
-  // Safety net: never deal over a hand still in progress (chips in the pot
-  // would vanish). Call it off and return the bets first; that deals again.
-  if (amHost && me.id !== 'demo' && (G?.pot || 0) > 0 && ['preflop', 'flop', 'turn', 'river'].includes(G?.stage)) {
-    voidHandInProgress('Hand called off, bets returned');
-    return;
-  }
   const activePlayers = G.players.filter(p => !p.eliminated && p.chips > 0);
   if (activePlayers.length < 2) { endTournament(); return; }
 
@@ -5383,29 +4748,6 @@ function proceedToDeal() {
     }
   }
   applyRiggedHand(numHoleCards);
-
-  // Write each player's hole cards to private_hands BEFORE syncing state
-  // So guests always find their cards waiting when they react to the hand number change
-  if (sb && currentGameId && me.id !== 'demo') {
-    const handNum = G.handNumber;
-    const rows = G.players
-      .filter(p => !p.folded && !p.eliminated && p.hand?.length)
-      .map(p => ({
-        game_id: currentGameId,
-        hand_number: handNum,
-        player_id: p.id,
-        cards: p.hand,
-      }));
-    if (rows.length) {
-      // Fire-and-forget: delete stale, insert fresh
-      (async () => {
-        try {
-          await sb.from('private_hands').delete().eq('game_id', currentGameId).eq('hand_number', handNum);
-          await sb.from('private_hands').insert(rows);
-        } catch(e) { console.warn('private_hands write:', e); }
-      })();
-    }
-  }
 
   // ── BRANCH ON VARIANT STYLE ──
   // Community games (Hold'em, Omaha): post blinds, enter preflop betting
@@ -5856,19 +5198,8 @@ function continueGutsProgression() {
   }
 }
 
-function writeGutsPrivateHands() {
-  if (!sb || !currentGameId || me.id === 'demo') return;
-  const handNum = G.handNumber;
-  const rows = G.players
-    .filter(p => !p.eliminated && !p.broke && p.hand?.length)
-    .map(p => ({ game_id: currentGameId, hand_number: handNum, player_id: p.id, cards: p.hand }));
-  (async () => {
-    try {
-      await sb.from('private_hands').delete().eq('game_id', currentGameId).eq('hand_number', handNum);
-      await sb.from('private_hands').insert(rows);
-    } catch(e) { console.warn('guts private_hands:', e); }
-  })();
-}
+// Demo mode only (local table): nothing is saved
+function writeGutsPrivateHands() {}
 
 function showGutsReveal() {
   const r = G.gutsResults;
@@ -6584,8 +5915,11 @@ function autoActAway(playerId) {
   const p = G.players.find(pl => pl.id === playerId);
   if (!p) return;
   const canCheck = G.currentBet === p.bet;
-  const action = canCheck ? 'check' : 'fold';
-  applyRemoteAction(playerId, action, 0);
+  // (demo mode: the local table acts for them)
+  if (canCheck) p.lastAction = { type: 'check', label: 'Away' };
+  else { p.folded = true; p.lastAction = { type: 'fold', label: 'Away' }; }
+  renderGame();
+  setTimeout(advanceAction, 400);
 }
 
 function setAutoAction(action) {
@@ -7184,14 +6518,9 @@ async function endGameForAll() {
     serverHostControl('end_game');
     return;
   }
-  if (!amHost || !G || !currentGameId) return;
+  if (!amHost || !G) return; // demo mode
   if (!confirm('End the game for everyone? This cannot be undone.')) return;
-  try {
-    await sb.from('games').update({ status: 'finished' }).eq('id', currentGameId);
-    await sb.from('private_hands').delete().eq('game_id', currentGameId);
-    // Chat preserved as 200-message rolling history
-    toast('Game ended');
-  } catch(e) { console.warn('endGameForAll:', e); }
+  toast('Game ended');
 
   sessionStorage.setItem('fr_auto_restore', '1');
   setTimeout(() => { window.location.href = window.location.pathname; }, 300);
@@ -7551,12 +6880,6 @@ function finalizeChop() {
   G.tournamentOver = true;
   G.chopOfferedBy = null;
 
-  if (amHost && sb && currentGameId) {
-    syncGameState();
-    sb.from('games').update({ status: 'finished' }).eq('id', currentGameId).then(() => {});
-    sb.from('private_hands').delete().eq('game_id', currentGameId).then(() => {});
-    // Chat history is preserved across the game's lifetime
-  }
 
   // Same results screen as a normal finish (chop payouts + Record to Friends
   // Ledger). The host used to get a bare "Chop!" card with no ledger button,
@@ -8460,15 +7783,6 @@ function declineRebuy() {
     syncGameState();
     closeRebuyOverlay();
     renderGame();
-    // Host migration: if I'm the host and just got eliminated, trigger immediate migration
-    if (amHost && me.id !== 'demo') {
-      const stillIn = G.players.filter(p => !p.eliminated && p.id !== me.id);
-      if (stillIn.length > 0) {
-        // Trigger immediate host migration (don't wait for heartbeat timeout)
-        toast('Migrating host…');
-        setTimeout(() => attemptHostMigration(currentGameId, me.id), 400);
-      }
-    }
   } else if (sb && currentGameId) {
     postAction({
       game_id: currentGameId,
@@ -8571,14 +7885,6 @@ async function quitGame() {
       myP.disconnected = true; // shows as "📡 Away" in opponent badge
       myP.lastAction = { type: 'away', label: 'Away' };
       syncGameState();
-      // Trigger host migration since I'm leaving the device
-      if (amHost && me.id !== 'demo') {
-        const stillIn = G.players.filter(p => !p.eliminated && p.id !== me.id);
-        if (stillIn.length > 0) {
-          toast('Migrating host…');
-          setTimeout(() => attemptHostMigration(currentGameId, me.id), 400);
-        }
-      }
     } else if (sb && currentGameId) {
       try {
         await postAction({
@@ -8610,13 +7916,6 @@ async function quitGame() {
         G.finalPlacements.unshift({ name: myP.name, emoji: myP.emoji });
       }
       syncGameState();
-      if (amHost && me.id !== 'demo') {
-        const stillIn = G.players.filter(p => !p.eliminated && p.id !== me.id);
-        if (stillIn.length > 0) {
-          toast('Migrating host…');
-          setTimeout(() => attemptHostMigration(currentGameId, me.id), 400);
-        }
-      }
     } else if (sb && currentGameId) {
       try {
         await postAction({
@@ -8651,11 +7950,6 @@ async function quitGame() {
     if (me.id !== 'demo') {
       try { await syncGameState(); } catch(e) { /* still leave */ }
       await settleHomeGameLedger(currentGameId);
-      const stillIn = G.players.filter(p => !p.eliminated && p.id !== me.id);
-      if (stillIn.length > 0) {
-        toast('Migrating host…');
-        setTimeout(() => attemptHostMigration(currentGameId, me.id), 400);
-      }
     }
   } else if (sb && currentGameId) {
     try {
@@ -8852,13 +8146,6 @@ async function confirmCashOut() {
   G.stage = 'finished';
   closeModal('modal-cashout');
 
-  if (sb && currentGameId && me.id !== 'demo') {
-    // Save final cash-outs, then record the ledger for everyone (both sides)
-    try { await syncGameState(); } catch(e) { /* retry via button */ }
-    sb.from('games').update({ status: 'finished', finished_at: new Date().toISOString() }).eq('id', currentGameId).then(() => {});
-    const res = await settleHomeGameLedger(currentGameId);
-    if (res && !res.error) sessionStorage.setItem(`fr_ledger_recorded_${currentGameId}`, '1');
-  }
   showHomeGameEnd();
 }
 
@@ -9074,13 +8361,6 @@ function endTournament() {
   G.stage = 'finished';
   G.tournamentOver = true;
 
-  // Host: mark game finished in DB and push final state so guests see the same overlay
-  if (amHost && sb && currentGameId) {
-    syncGameState();
-    sb.from('games').update({ status: 'finished' }).eq('id', currentGameId).then(() => {});
-    sb.from('private_hands').delete().eq('game_id', currentGameId).then(() => {});
-    // Chat history preserved as rolling 200-message log
-  }
 
   // ── STATS: record tournament finish ──
   // Each client computes their own placement based on finalPlacements (1 = winner)
@@ -9135,19 +8415,11 @@ function showTournamentOverlay(winner) {
   const payoutByPlace = {};
   payouts.forEach(p => payoutByPlace[p.placement] = p.amount);
 
-  // Ledger button - shown to anyone who has a buy-in game and hasn't recorded yet for this game
-  const ledgerKey = `fr_ledger_recorded_${currentGameId}`;
-  // Server-run games: the server writes everyone's ledger rows when the tournament ends
-  const alreadyRecorded = (isServerState(G) && G.ledgerRecorded) || sessionStorage.getItem(ledgerKey);
-  const ledgerBtnHtml = (gameBuyIn > 0 && me.id !== 'demo' && !alreadyRecorded) ? `
-    <button id="record-ledger-btn" onclick="onRecordLedgerClicked()" style="background:none;
-      border:1px solid var(--gold-dim);color:var(--gold);
-      font-size:0.85rem;padding:10px 18px;border-radius:8px;cursor:pointer;margin-top:10px;font-weight:600">
-      📒 Record to Friends Ledger
-    </button>` : (alreadyRecorded ? `
+  // The server writes everyone's Friends Ledger rows when the tournament ends
+  const ledgerBtnHtml = G.ledgerRecorded ? `
     <div style="font-size:0.78rem;color:var(--gold-pale);margin-top:8px;font-style:italic">
       ✓ Recorded to ledger
-    </div>` : '');
+    </div>` : '';
 
   if (isChop) {
     overlay.innerHTML = `
@@ -9199,33 +8471,12 @@ function showTournamentOverlay(winner) {
     </div>`;
 }
 
-async function onRecordLedgerClicked() {
-  const btn = document.getElementById('record-ledger-btn');
-  if (btn) { btn.disabled = true; btn.textContent = 'Recording…'; }
-  const stillIn = G.players.filter(p => !p.eliminated && p.chips > 0);
-  const isChop = stillIn.length > 1;
-  const totalPlayers = G.players?.length || 0;
-  const result = await recordGameToLedger(currentGameId, gameBuyIn, totalPlayers, G.finalPlacements, isChop);
-  if (result.error) {
-    toast('Could not record: ' + (result.error.message || result.error));
-    if (btn) { btn.disabled = false; btn.textContent = '📒 Record to Friends Ledger'; }
-    return;
-  }
-  sessionStorage.setItem(`fr_ledger_recorded_${currentGameId}`, '1');
-  if (btn) {
-    btn.outerHTML = `<div style="font-size:0.78rem;color:var(--gold-pale);margin-top:8px;font-style:italic">✓ Recorded to ledger</div>`;
-  }
-  toast('Recorded to ledger');
-}
-
 function goHome() {
   G = null; currentGameId = null; currentLobbyId = null; amHost = false;
   stopServerTicker(); gameHostId = null;
   _gamePaused = false;
   stopBlindTimer();
   stopTurnTimer();
-  stopHostHeartbeat();
-  stopDisconnectWatcher();
   stopPresence();
   unsubscribeFromChat();
   stopNudgeListener();
@@ -9237,7 +8488,6 @@ function goHome() {
   if (panel) panel.style.display = 'none';
   if (backdrop) backdrop.style.display = 'none';
   updateChatBadge();
-  clearInterval(_migrationCountdown); _migrationCountdown = null;
   // Keep listening for invites on Home (this used to stop the 10s invite poll
   // for good, leaving only the realtime feed)
   if (me && me.id !== 'demo' && sb) subscribeToInvites();
@@ -9467,8 +8717,7 @@ async function signOut() {
     await sb.auth.signOut();
   }
   me = null; myFriends = []; myGames = []; G = null;
-  stopBlindTimer(); stopTurnTimer(); stopHostHeartbeat();
-  stopDisconnectWatcher(); stopPresence();
+  stopBlindTimer(); stopTurnTimer(); stopServerTicker(); stopPresence();
   document.getElementById('nav').classList.remove('visible');
   showScreen('splash');
 }
@@ -9485,12 +8734,12 @@ async function archiveMyGames() {
   try {
     let archivedCount = 0;
 
-    // 1. Mark stale lobbies (older than 1hr) as finished
+    // 1. Delete my stale lobbies (older than 1hr, never started)
     const cutoff = new Date(Date.now() - 60 * 60 * 1000).toISOString();
     const { data: stale } = await sb.from('games')
       .select('id').eq('host_id', me.id).eq('status', 'lobby').lt('created_at', cutoff);
     if (stale?.length) {
-      for (const g of stale) await sb.from('games').update({ status: 'finished' }).eq('id', g.id);
+      for (const g of stale) await sb.from('games').delete().eq('id', g.id);
       archivedCount += stale.length;
     }
 
@@ -9514,10 +8763,9 @@ async function archiveMyGames() {
 
 let _gamesKilled = false; // flag to prevent loadGames from re-populating after a kill
 
-// Ends every active game I host that's stuck: a server game the same way the
-// host's End Game does (home game: cash out; tournament: called off), a
-// phone-run game is marked finished. Only games I host: the database doesn't
-// let anyone end, delete or un-seat other people's games.
+// Ends every active game I host that's stuck, the same way the host's End
+// Game does (home game: cash out; tournament: called off). Only games I host:
+// the database doesn't let anyone end, delete or un-seat other people's games.
 async function killStuckGames() {
   if (me.id === 'demo') { toast('Not available in demo'); return; }
   const { data: rows, error } = await sb.from('games')
@@ -9527,14 +8775,9 @@ async function killStuckGames() {
   if (!confirm(`End ${rows.length} active game${rows.length === 1 ? '' : 's'} you host? Home games cash out; tournaments are called off with nothing recorded.`)) return;
   let ended = 0;
   for (const g of rows) {
-    if (isServerState(g.state)) {
-      const r = await callTable(g.id, 'end_game');
-      if (!r.error) ended++;
-      else console.warn('end_game', g.id, r.error);
-    } else {
-      const { error: e } = await sb.from('games').update({ status: 'finished', finished_at: new Date().toISOString() }).eq('id', g.id);
-      if (!e) ended++;
-    }
+    const r = await callTable(g.id, 'end_game');
+    if (!r.error) ended++;
+    else console.warn('end_game', g.id, r.error);
   }
   toast(`Ended ${ended} of ${rows.length} game${rows.length === 1 ? '' : 's'}`);
   await loadGames();
@@ -9922,84 +9165,9 @@ function updateChatBadge() {
 // the loser owes the winner. We use kind='game' for these. Manual settle-ups
 // use kind='settle' and have a negative amount that cancels prior balance.
 
-async function recordGameToLedger(gameId, buyIn, totalPlayers, finalPlacements, isChop) {
-  if (!sb || me.id === 'demo' || !buyIn || buyIn <= 0) return { error: 'no buyin' };
-
-  // Same actual-pool logic as the overlay: rebuys add to prize pool
-  const actualPool = G?.rebuysEnabled ? actualPrizePool() : null;
-  const payouts = computePayouts(buyIn, totalPlayers, isChop, actualPool);
-  if (!payouts.length) return { error: 'no payouts' };
-
-  // Find each player's user_id from G.players (matched by name+emoji to finalPlacements)
-  // finalPlacements has { name, emoji, chips } but we need user_ids.
-  // Use G.players as the source of truth.
-  if (!G || !G.players) return { error: 'no game state' };
-
-  // Build placement -> player mapping from finalPlacements
-  const placementOrder = finalPlacements.map(fp => {
-    return G.players.find(p => p.name === fp.name);
-  }).filter(Boolean);
-
-  // Net per user: positive = winner, negative = loser
-  // Each player put in buyIn; each finisher receives their placement amount.
-  const netByUser = {};
-  for (const player of G.players) {
-    if (!player.id || player.id === 'demo') continue;
-    // They paid the buy-in plus any re-buys/add-ons (with re-buys on)
-    netByUser[player.id] = G.rebuysEnabled ? -buyInCentsOf(player) / 100 : -buyIn;
-  }
-  // Distribute payouts
-  payouts.forEach((payout, idx) => {
-    const player = placementOrder[idx];
-    if (!player) return;
-    netByUser[player.id] = (netByUser[player.id] || 0) + payout.amount;
-  });
-
-  // Build pairwise debts: each loser owes each winner proportionally
-  const winners = Object.entries(netByUser).filter(([_, n]) => n > 0);
-  const losers = Object.entries(netByUser).filter(([_, n]) => n < 0);
-  const totalWinnings = winners.reduce((s, [_, n]) => s + n, 0);
-  if (totalWinnings <= 0) return { error: 'no winners' };
-
-  const rows = [];
-  for (const [winnerId, winAmt] of winners) {
-    for (const [loserId, lossAmt] of losers) {
-      // Loser owes the winner a share = (winner's win / total winnings) * loser's loss
-      const owe = Math.round((winAmt / totalWinnings) * Math.abs(lossAmt) * 100) / 100;
-      if (owe <= 0) continue;
-      // Each user creates their OWN row (RLS: auth.uid() = user_id)
-      // From the winner's perspective: they receive `owe` from opponent_id (loser)
-      if (winnerId === me.id) {
-        rows.push({
-          game_id: gameId,
-          user_id: winnerId,
-          opponent_id: loserId,
-          amount: owe,
-          kind: 'game',
-          note: `Game payout`,
-        });
-      }
-      // From the loser's perspective: they owe `owe` to opponent_id (winner)
-      if (loserId === me.id) {
-        rows.push({
-          game_id: gameId,
-          user_id: loserId,
-          opponent_id: winnerId,
-          amount: -owe,
-          kind: 'game',
-          note: `Game buy-in`,
-        });
-      }
-    }
-  }
-
-  if (!rows.length) return { error: 'no rows for me' };
-  try {
-    const { error } = await sb.from('payout_ledger').insert(rows);
-    if (error) return { error };
-    return { ok: true, count: rows.length };
-  } catch(e) { return { error: e }; }
-}
+// Tournament ledger rows are written by the server when a tournament ends
+// (both sides of every pair); home games by settle_home_game_ledger. Phones
+// only add their own settle-up rows.
 
 // Ask the server to (re)write a home game's ledger entries for all players.
 // Returns { final, ledger_rows } or { skipped } / { error }, or null on failure.
@@ -10624,46 +9792,10 @@ document.addEventListener('visibilitychange', async () => {
   if (!sb || !currentGameId || !G) return;
 
   try {
-    // Pull latest state fresh from the DB — subscription may have missed events while hidden
-    const { data } = await sb.from('games').select('state, host_id, status').eq('id', currentGameId).maybeSingle();
-    if (!data?.state || isOlderState(data.state, G)) return;
-
-    // If host changed while we were away, update role
-    if (isServerState(data.state)) {
-      gameHostId = data.host_id; // server game: no table host
-    } else if (data.host_id === me.id && !amHost) {
-      amHost = true;
-      startHostHeartbeat(currentGameId);
-      hostListenForActions(currentGameId);
-    } else if (data.host_id !== me.id && amHost) {
-      amHost = false;
-      stopHostHeartbeat();
-    }
-
-    // CRITICAL: host's local G has real hole cards. DB state is redacted.
-    // Only overwrite G for guests. Host trusts their own in-memory state.
-    if (!amHost) {
-      G = data.state;
-      if (G.handNumber > 0) {
-        await fetchMyPrivateHand(currentGameId, G.handNumber);
-      }
-      applyMyPrivateHand();
-    } else {
-      // Host: check if my own cards are redacted (shouldn't happen but after page reload it might)
-      const myP = G.players.find(p => p.id === me.id);
-      if (myP && myP.hand?.length && myP.hand.every(c => c?.hidden)) {
-        if (G.handNumber > 0) {
-          await fetchMyPrivateHand(currentGameId, G.handNumber);
-          applyMyPrivateHand();
-        }
-      }
-    }
-    renderGame();
-
-    // Host re-checks turn enforcer
-    if (amHost && G.actionIndex >= 0 && !G.paused) {
-      startHostTurnEnforcer();
-    }
+    // Pull the latest table: realtime may have missed updates while the phone
+    // slept. Same path as the backup poller, so a result or the end of the
+    // game that happened meanwhile shows up too. (Demo mode has nothing saved.)
+    if (me?.id !== 'demo' && isServerGame()) await refreshGuestState();
 
     // Re-track presence to tell everyone we're back
     if (_presenceChannel) {
@@ -10689,25 +9821,12 @@ document.addEventListener('visibilitychange', async () => {
 // A game's own state says which engine runs it (G.rules === 'server'), so a
 // game started before the switch finishes on the engine it started with.
 //
-// Off by default on the live site until cutover (phase 6); the E2E tests turn
-// it on. A phone can opt in for testing with ?server=1 (remembered on that
-// phone; ?server=0 turns it off). Only the host's setting matters: it decides
-// how a game they start is run, and every other phone follows the game.
-const SERVER_RULES_DEFAULT = false;
-const SERVER_RULES = SERVER_RULES_DEFAULT || serverRulesOptIn();
-
-function serverRulesOptIn() {
-  try {
-    const q = new URLSearchParams(location.search).get('server');
-    if (q === '1') localStorage.setItem('fr_server_rules', '1');
-    if (q === '0') localStorage.removeItem('fr_server_rules');
-    return localStorage.getItem('fr_server_rules') === '1';
-  } catch (e) { return false; }
-}
-// Tell a phone that opted in, so a test session knows which engine it's on
-if (SERVER_RULES && !SERVER_RULES_DEFAULT) {
-  setTimeout(() => { if (typeof toast === 'function') toast('Server rules on (test): games you host run on the server'); }, 1500);
-}
+// On for everyone since phase 6b (2026-11-12): every new game is run by the
+// server. (The phone-run engine is still here for games started before the
+// switch and for the E2E phone-run shards, which set this to false; it is
+// deleted in phase 6b-2.)
+const SERVER_RULES_DEFAULT = true;
+const SERVER_RULES = SERVER_RULES_DEFAULT;
 
 let gameHostId = null;          // the lobby owner of the current game
 let _serverClockOffsetMs = 0;   // server clock − this phone's clock (from replies)

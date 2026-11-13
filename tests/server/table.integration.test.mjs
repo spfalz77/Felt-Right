@@ -211,6 +211,18 @@ test('lock-down: phones cannot rewrite a server game; outsiders cannot touch any
   assert.equal(g.status, 'active');
   assert.equal(g.state.rules, 'server');
   assert.equal(g.state.players.length, 2);
+
+  // Phase 6b: phones can't write hole cards, delete moves, seat other people,
+  // or write game ledger rows (only their own settle-ups)
+  const post = (who, table, body) => http(`/rest/v1/${table}`, { token: who.token, method: 'POST', headers: { Prefer: 'return=representation' }, body });
+  const hands = await post(t.host, 'private_hands', { game_id: t.gameId, hand_number: 99, player_id: t.host.id, cards: [] });
+  assert.ok(hands.status >= 400, `private_hands insert rejected: ${hands.status}`);
+  const seat = await post(outsider, 'game_players', { game_id: t.gameId, user_id: t.host.id, status: 'joined' });
+  assert.ok(seat.status >= 400, `seating someone else rejected: ${seat.status}`);
+  const fake = await post(t.host, 'payout_ledger', { user_id: t.host.id, opponent_id: outsider.id, amount: 500, kind: 'game', note: 'fake' });
+  assert.ok(fake.status >= 400, `game ledger row from a phone rejected: ${fake.status}`);
+  const settle = await post(t.host, 'payout_ledger', { user_id: t.host.id, opponent_id: outsider.id, amount: 0, kind: 'settle', note: 'Settled up' });
+  assert.ok(settle.status < 300, `own settle-up allowed: ${settle.status} ${JSON.stringify(settle.data)}`);
 });
 
 test("home game: dealer's choice, quit takes the stack home, host cash-out writes a balanced ledger", async () => {

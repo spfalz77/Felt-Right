@@ -90,12 +90,6 @@ function finalizeChop() {
   G.tournamentOver = true;
   G.chopOfferedBy = null;
 
-  if (amHost && sb && currentGameId) {
-    syncGameState();
-    sb.from('games').update({ status: 'finished' }).eq('id', currentGameId).then(() => {});
-    sb.from('private_hands').delete().eq('game_id', currentGameId).then(() => {});
-    // Chat history is preserved across the game's lifetime
-  }
 
   // Same results screen as a normal finish (chop payouts + Record to Friends
   // Ledger). The host used to get a bare "Chop!" card with no ledger button,

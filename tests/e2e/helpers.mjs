@@ -32,7 +32,7 @@ function appHtml() {
     .replace(/const SUPABASE_URL\s*=\s*'[^']*'/, `const SUPABASE_URL = '${SUPABASE_URL}'`)
     .replace(/const SUPABASE_ANON_KEY\s*=\s*'[^']*'/, `const SUPABASE_ANON_KEY = '${ANON_KEY}'`)
     // E2E_SERVER_RULES=1: games are run by the `table` Edge Function
-    .replace(/const SERVER_RULES_DEFAULT = false;/, `const SERVER_RULES_DEFAULT = ${SERVER_RULES};`);
+    .replace(/const SERVER_RULES_DEFAULT = (true|false);/, `const SERVER_RULES_DEFAULT = ${SERVER_RULES};`);
 }
 
 /** Taps Quit on this player's screen (the confirm prompt is accepted). */
@@ -214,18 +214,21 @@ export async function botStep(p, strategy = () => 'checkcall') {
   const { page } = p;
   const v = await tableView(p);
   // Server games: the next hand waits until everyone taps Got It on the result
-  // (only once the result is on screen: the hidden button of the last result doesn't count)
-  if (v?.stage === 'showdown' && v.server && p.gotItHand !== v.hand && v.overlays.includes('showdown-overlay')) {
+  // (whenever the result is on screen: a tap that didn't land is simply tried again)
+  if (v?.stage === 'showdown' && v.server && v.overlays.includes('showdown-overlay') && Date.now() - (p.gotItAt || 0) > 1500) {
     const got = page.locator('#showdown-overlay button[onclick="dismissShowdown()"]');
-    if (await got.count() && await tap(got.first())) { p.gotItHand = v.hand; return 'got it'; }
+    if (await got.count()) { p.gotItAt = Date.now(); await tap(got.first()); return 'got it'; }
   }
   const pick = page.locator(`button[onclick="dealerPickedVariant('holdem')"]`);
   if (await pick.isVisible().catch(() => false)) {
+    // Which hand the picker is for, read now: the table may have moved on since v was read
+    const hand = await page.evaluate(() => (G && G.pendingDealerChoice ? G.handNumber : null)).catch(() => null);
+    if (hand == null) return null;
     // A test can allow the pick only for one hand number, to set up the deal first
     // (a hand number, or a function of the hand number)
-    if (typeof p.pickHand === 'function' ? !p.pickHand(v?.hand) : (p.pickHand != null && v?.hand !== p.pickHand)) return null;
+    if (typeof p.pickHand === 'function' ? !p.pickHand(hand) : (p.pickHand != null && hand !== p.pickHand)) return null;
     // A test can choose the variant per hand (p.pickVariants = { 3: 'omaha' })
-    const variant = p.pickVariants?.[v?.hand] || 'holdem';
+    const variant = p.pickVariants?.[hand] || 'holdem';
     const btn = page.locator(`button[onclick="dealerPickedVariant('${variant}')"]`);
     await tap(btn.first()); return `picked ${variant}`;
   }
@@ -258,8 +261,18 @@ export async function botStep(p, strategy = () => 'checkcall') {
     const dkey = `${v.hand}:draw`;
     if (p.lastTurnKey === dkey && Date.now() - p.lastTapAt < 5_000) return null;
     p.lastTurnKey = dkey; p.lastTapAt = Date.now();
-    for (const i of m[1].split(',').filter(Boolean)) {
-      if (!(await tap(page.locator(`#draw-cards button[onclick="toggleDrawCard(${i})"]`)))) return null;
+    // Set each card to the wanted state (a retry after a missed tap must not undo earlier picks)
+    const want = new Set(m[1].split(',').filter(Boolean).map(Number));
+    for (let i = 0; i < 5; i++) {
+      const card = page.locator(`#draw-cards button[onclick="toggleDrawCard(${i})"]`);
+      if (!(await card.count())) return null;
+      const on = (await card.first().getAttribute('aria-pressed')) === 'true';
+      if (on !== want.has(i) && !(await tap(card.first()))) return null;
+    }
+    // (only submit once the screen shows exactly the wanted picks)
+    for (let i = 0; i < 5; i++) {
+      const on = (await page.locator(`#draw-cards button[onclick="toggleDrawCard(${i})"]`).first().getAttribute('aria-pressed').catch(() => null)) === 'true';
+      if (on !== want.has(i)) { p.lastTapAt = 0; return null; }
     }
     return (await tap(page.locator('#draw-submit'))) && `draw ${m[1] || 'none'}`;
   }

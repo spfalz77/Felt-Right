@@ -1,6 +1,6 @@
 # Server-authoritative game rules — migration plan
 
-_Status: **in progress.** Phases 0–5 done (PRs #19–#24, 2026-11-11); the server-rules tables and the games lock-down are on the live database. Phase 6a done: the `table` function is live and `?server=1` opts a host's phone in. Next: your real-phone session, then 6b. Written 2026-11-08, after PR #16. Roadmap step 2._
+_Status: **in progress.** Phases 0–5 done (PRs #19–#24, 2026-11-11); the server-rules tables and the games lock-down are on the live database. Phase 6a done (PR #25). Live-play fixes from the 2026-11-12 session in PR #32. Phase 6b done (PRs #33–#34): every game is run by the server, and phones can't write game state. Written 2026-11-08, after PR #16. Roadmap step 2._
 _To run it, ask Claude to "execute docs/server-authoritative-migration.md, phase N". Each phase is one PR, and each phase is merged only when the full E2E suite is green._
 
 ## Why
@@ -73,7 +73,9 @@ phone ──(action + JWT)──▶ Edge Function `table` ──▶ Postgres
 - ✅ **Phase 6a (PR #25, live 2026-11-11):** `?server=1` opts a phone in to server rules (only the host's phone matters; everyone else follows the game; `?server=0` turns it off). The pg_cron backstop authenticates with a random secret generated in Vault (`table_tick_secret`, read by the function through `table_tick_secret()`, service role only). On the live project: migration applied, Vault entries `table_function_url` and `table_anon_key` added, `table` function deployed (verify_jwt on; the engine is bundled in `engine/` next to `index.ts`). Checked live: `tick_all` with the secret answers 200, without it 401.
   - Redeploying: the function was deployed through the Supabase connector. Any change under `supabase/functions/` needs a redeploy; a deploy workflow with a `SUPABASE_ACCESS_TOKEN` repo secret would make that automatic.
   - Real-phone session: the host opens `https://spfalz77.github.io/Felt-Right/?server=1`; others open the site normally. Worth trying: dealer's choice (Hold'em, Omaha, Guts), a re-buy, quitting, closing the app mid-hand and rejoining, the host closing the app, pause, cash out; and a tournament to the end (the ledger records itself).
-- ⏭ **Phase 6b (after your real-phone session):** `SERVER_RULES_DEFAULT = true` for everyone; once no phone-run games are left, drop the remaining phone update policy on `games`, the client `private_hands` writes and the per-player tournament ledger insert path, and delete the phone-run engine code.
+- ✅ **Phase 6b-1 (2026-11-12):** `SERVER_RULES_DEFAULT = true`: every new game is run by the server; the `?server=` switch is gone. The phone-run engine stays (for the E2E phone-run shards) until 6b-2.
+- ✅ **Phase 6b-2 (2026-11-12):** no phone-run games were left on the live database. Migration `20261113090000_phase_6b_lock_down.sql`: a host can edit only their own lobby; nobody's phone writes `private_hands`, deletes `player_actions`, seats someone else (a host can still invite), or writes `game` ledger rows (only their own settle-ups). The app no longer has host heartbeats, host takeover, the host's action listener, phone-written hole cards or the per-player tournament ledger button; the return-to-app refresh goes through the same path as the backup poller. CI runs the phone tests on server rules in all three shards.
+  - **Kept on purpose: the in-app engine for Demo mode** (offline, against simulated friends; saves nothing). Deleting it would delete Demo; that's a separate decision. A table from before the switch can't be rejoined (none exist).
 
 ## Phases and estimates
 
@@ -118,6 +120,12 @@ _(Each item: what happened, what it does now.)_
 - Everyone quit the tournament but it kept dealing; End Game didn't work for tournaments → a tournament where everyone still in has quit is called off; the host's End Game for All calls a tournament off; nothing goes to the ledger; phones go Home. Startup no longer pulls a phone back into a game its player quit.
 - "Kill Stuck Games" deleted every seat in every game for every user → it now ends only active games you host ("End My Stuck Games"), and seats can be deleted only by their own player or the game's host.
 - Live: function redeployed and migration `20261112090000_presence_clock_and_seat_lockdown.sql` applied (2026-11-11).
+
+**Heads-up tournament, 2026-11-12 (server rules), fixed in PR #32:**
+- Sounds didn't match what was on screen → chips for every bet, knock knock for every check (not when checked as Away), a riffle on the shuffle, one flip per card. The server numbers each move (`recentMoves`).
+- All-in dealt the whole board at once → hands face up, one card every 4s (`RUNOUT_CARD_SECONDS`); stud one street at a time.
+- The result screen showed only sometimes; the end of the game froze until a rejoin → the backup poller now does everything the live update does. The result stays up until everyone taps Got It (30s at most) and shows each pot, its winner, and each stack before → after.
+- "The pot didn't go to the winner" → the chips were paid, but bets stayed drawn in front of each seat after the showdown. Bets are cleared when the pot is paid. The server keeps a per-hand payout log (`resultLog`, last 100 hands) to check a disputed pot.
 
 ## How to execute (for Claude)
 1. Read this file and `claude/roadmap-and-decisions.md` in the project. The decisions are answered; fold in the "Adjustments" list.

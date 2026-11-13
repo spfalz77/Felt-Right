@@ -40,14 +40,6 @@ async function quitGame() {
       myP.disconnected = true; // shows as "📡 Away" in opponent badge
       myP.lastAction = { type: 'away', label: 'Away' };
       syncGameState();
-      // Trigger host migration since I'm leaving the device
-      if (amHost && me.id !== 'demo') {
-        const stillIn = G.players.filter(p => !p.eliminated && p.id !== me.id);
-        if (stillIn.length > 0) {
-          toast('Migrating host…');
-          setTimeout(() => attemptHostMigration(currentGameId, me.id), 400);
-        }
-      }
     } else if (sb && currentGameId) {
       try {
         await postAction({
@@ -79,13 +71,6 @@ async function quitGame() {
         G.finalPlacements.unshift({ name: myP.name, emoji: myP.emoji });
       }
       syncGameState();
-      if (amHost && me.id !== 'demo') {
-        const stillIn = G.players.filter(p => !p.eliminated && p.id !== me.id);
-        if (stillIn.length > 0) {
-          toast('Migrating host…');
-          setTimeout(() => attemptHostMigration(currentGameId, me.id), 400);
-        }
-      }
     } else if (sb && currentGameId) {
       try {
         await postAction({
@@ -120,11 +105,6 @@ async function quitGame() {
     if (me.id !== 'demo') {
       try { await syncGameState(); } catch(e) { /* still leave */ }
       await settleHomeGameLedger(currentGameId);
-      const stillIn = G.players.filter(p => !p.eliminated && p.id !== me.id);
-      if (stillIn.length > 0) {
-        toast('Migrating host…');
-        setTimeout(() => attemptHostMigration(currentGameId, me.id), 400);
-      }
     }
   } else if (sb && currentGameId) {
     try {
