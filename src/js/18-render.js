@@ -174,7 +174,7 @@ function renderGame() {
   }
 
   const vStyle = (VARIANTS[G.variant] || VARIANTS.holdem).style;
-  const stages = vStyle === 'stud' ? { preflop:'2ND STREET', flop:'3RD STREET', turn:'4TH STREET', river:'5TH STREET', showdown:'SHOWDOWN' }
+  const stages = vStyle === 'stud' ? { preflop:'2ND STREET', flop:'3RD STREET', turn:'4TH STREET', river:'5TH STREET', showdown:'SHOWDOWN', runout:'ALL IN · RUNNING IT OUT' }
     : vStyle === 'draw' ? { preflop:'BEFORE THE DRAW', draw:'DRAW', river:'AFTER THE DRAW', showdown:'SHOWDOWN' }
     : { preflop:'PRE-FLOP', flop:'FLOP', turn:'TURN', river:'RIVER', showdown:'SHOWDOWN', discard:'DISCARD', runout:'ALL IN · RUNNING IT OUT' };
   const variantTag = ['omaha', 'pineapple', 'crazy_pineapple', 'draw5', 'stud5'].includes(G.variant) ? ' · ' + VARIANTS[G.variant].short : '';

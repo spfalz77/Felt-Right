@@ -583,12 +583,7 @@ function firstToActAfterDealer(G, ctx) {
 function runOutToShowdown(G, ctx) {
   returnUncalledBets(G);
   const style = styleOf(G);
-  if (style === 'stud') {
-    G.players.forEach((p) => { p.bet = 0; });
-    while (G.players.some((p) => !p.folded && !p.eliminated && p.hand.length < 5)) dealStudStreet(G);
-    showdown(G, ctx);
-    return;
-  }
+  if (style === 'stud') { startRunout(G, ctx); return; } // one upcard street at a time
   if (style === 'draw') {
     if (G.drawDone !== G.handNumber) { G.players.forEach((p) => { p.bet = 0; }); G.currentBet = 0; startDraw(G, 'runout', ctx); return; }
     showdown(G, ctx);
@@ -615,14 +610,21 @@ function startRunout(G, ctx) {
   G.actionIndex = -1;
   G.turnStartAt = null;
   G.turnDeadline = null;
-  if (G.community.length >= 5) { showdown(G, ctx); return; }
+  if (runoutDone(G)) { showdown(G, ctx); return; }
   G.stage = 'runout';
   G.runoutNextAt = ctx.now + RUNOUT_CARD_MS;
 }
 
+// Board games: five community cards. Stud: everyone in the hand has five.
+function runoutDone(G) {
+  if (styleOf(G) === 'stud') return !G.players.some((p) => !p.folded && !p.eliminated && p.hand.length < 5);
+  return G.community.length >= 5;
+}
+
 function dealRunoutCard(G, ctx) {
-  G.community.push(G.deck.pop());
-  if (G.community.length >= 5) { G.runoutNextAt = null; showdown(G, ctx); return; }
+  if (styleOf(G) === 'stud') { dealStudStreet(G); G.dealSeq++; } // (phones re-read their own cards)
+  else G.community.push(G.deck.pop());
+  if (runoutDone(G)) { G.runoutNextAt = null; showdown(G, ctx); return; }
   G.runoutNextAt = ctx.now + RUNOUT_CARD_MS;
 }
 

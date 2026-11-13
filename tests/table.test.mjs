@@ -866,12 +866,20 @@ test('5-card stud: showing scores rank pairs over high cards; folded upcards are
   assert.ok(pub.hand.every((c) => c.hidden));
 });
 
-test('5-card stud: all-in on 2nd street runs out to five cards each', () => {
+test('5-card stud: all-in on 2nd street runs out one street at a time, to five cards each', () => {
   const t = table({ format: 'home', names: ['Ace', 'Bo'] });
   homeAtPicker(t);
   t.must(t.G.dealerId, 'pick_variant', 'stud5');
   t.must(t.actor(), 'allin');
   t.must(t.actor(), 'call');
+  assert.equal(t.G.stage, 'runout');
+  assert.ok(T.redact(t.G).players.every((p) => p.hand.every((c) => c.rank)), 'hands face up');
+  for (const n of [3, 4]) {
+    t.wait(T.RUNOUT_CARD_MS);
+    assert.ok(t.G.players.every((p) => p.hand.length === n), `street ${n}`);
+    assert.equal(t.G.stage, 'runout');
+  }
+  t.wait(T.RUNOUT_CARD_MS);
   assert.equal(t.G.stage, 'showdown');
   assert.ok(t.G.players.every((p) => p.hand.length === 5));
   assert.equal(t.total(), 4000);
