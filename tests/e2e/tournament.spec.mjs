@@ -69,7 +69,7 @@ test('tournament: eliminations, final placements, prize and ledger', async ({ br
       const rows = ov.locator('.place-row');
       await expect(rows).toHaveCount(3);
       await expect(rows.nth(0)).toContainText('Ace');
-      await expect(rows.nth(0)).toContainText('$60');
+      await expect(rows.nth(0)).toContainText('6,000');
       await expect(rows.nth(1)).toContainText('Bo');
       await expect(rows.nth(2)).toContainText('Cy');
     }
@@ -82,7 +82,7 @@ test('tournament: eliminations, final placements, prize and ledger', async ({ br
   await test.step('everyone records to the friends ledger: Bo and Cy each owe Ace $20', async () => {
     for (const p of all) {
       await tapRecordLedger(p);
-      await expect(p.page.locator('#tourney-overlay .tourney-result')).toContainText('Recorded to ledger', { timeout: 10_000 });
+      await expect(p.page.locator('#tourney-overlay .tourney-result')).toContainText('Recorded to Standings', { timeout: 10_000 });
     }
     const rows = await ledgerRows(gameId);
     const net = (id) => rows.filter((r) => r.user_id === id).reduce((a, r) => a + Number(r.amount), 0);

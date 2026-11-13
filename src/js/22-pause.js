@@ -234,7 +234,7 @@ async function endGameForAll() {
   if (G && isServerGame()) {
     const msg = getFormatConfig().moneyMode
       ? 'End the game for everyone? This cannot be undone.'
-      : 'End the tournament for everyone? It will be called off and nothing is recorded to the Friends Ledger.';
+      : 'End the tournament for everyone? It will be called off and nothing is recorded to Standings.';
     if (!isTableHost() || !confirm(msg)) return;
     serverHostControl('end_game');
     return;

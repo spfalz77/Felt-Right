@@ -49,7 +49,7 @@ async function killStuckGames() {
     .select('id, name, state').eq('host_id', me.id).eq('status', 'active');
   if (error) { toast('Could not load your games: ' + error.message); return; }
   if (!rows?.length) { toast('You have no active games to end'); return; }
-  if (!confirm(`End ${rows.length} active game${rows.length === 1 ? '' : 's'} you host? Home games cash out; tournaments are called off with nothing recorded.`)) return;
+  if (!confirm(`End ${rows.length} active game${rows.length === 1 ? '' : 's'} you host? Home games are recorded to Standings; tournaments are called off with nothing recorded.`)) return;
   let ended = 0;
   for (const g of rows) {
     const r = await callTable(g.id, 'end_game');

@@ -31,13 +31,12 @@ function showRebuyOverlay(opts = {}) {
 
   const isTournament = !getFormatConfig().moneyMode;
   const totalBuyInCents = myPlayer.totalBuyInCents || ((gameBuyIn || 0) * 100);
-  const totalSoFar = totalBuyInCents / 100;
 
   // Rebuy cost + chips:
   // - Tournament: half the buy-in cost for half the starting chips
-  // - Home: full buy-in cost for full chip amount (1:1 with dollar value)
+  // - Home: a full buy-in for a full stack
   const tournamentStartingChips = (FORMATS.tournament).startingChips;
-  const rebuyCostDollars = isTournament ? gameBuyIn / 2 : gameBuyIn;
+  const rebuyCostChips = isTournament ? Math.floor((gameBuyIn || 0) * 100 / 2) : (gameBuyIn || 0) * 100;
   const rebuyChipsAmount = isTournament
     ? Math.floor(tournamentStartingChips / 2)
     : gameBuyIn * 100;
@@ -53,17 +52,15 @@ function showRebuyOverlay(opts = {}) {
   _rebuyOverlayShown = true;
 
   const rebuyDescription = isTournament
-    ? `Re-buy: <strong style="color:var(--gold)">$${rebuyCostDollars}</strong> → <strong style="color:var(--gold)">${rebuyChipsAmount.toLocaleString()}</strong> chips`
-    : `Re-buy: <strong style="color:var(--gold)">$${rebuyCostDollars}</strong> → $${rebuyCostDollars} in chips`;
-  const totalSoFarLine = isTournament
-    ? `Your buy-ins so far: <strong>$${totalSoFar.toFixed(2)}</strong>`
-    : `Your total buy-in so far: <strong>$${totalSoFar.toFixed(2)}</strong>`;
+    ? `Re-buy costs <strong style="color:var(--gold)">${chipAmt(rebuyCostChips)}</strong> and gives you <strong style="color:var(--gold)">${rebuyChipsAmount.toLocaleString()}</strong> tournament chips`
+    : `Re-buy: <strong style="color:var(--gold)">${chipAmt(rebuyCostChips)}</strong> chips`;
+  const totalSoFarLine = `Bought in so far: <strong>${chipAmt(totalBuyInCents)}</strong>`;
 
   let rebuyBtnHtml;
   if (rebuyAllowed) {
     rebuyBtnHtml = `
       <button class="btn btn-primary" id="rebuy-btn" onclick="requestRebuy()">
-        Re-Buy $${rebuyCostDollars}
+        Re-Buy
       </button>`;
   } else {
     rebuyBtnHtml = `

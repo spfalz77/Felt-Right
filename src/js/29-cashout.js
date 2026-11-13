@@ -1,16 +1,15 @@
 // ════════════════════════════════════════════════════════════════════════════
 // HOME GAME — CASH OUT FLOW
 // ════════════════════════════════════════════════════════════════════════════
-// At end of a home game, each player's chip stack converts back to dollars.
-// Net P/L per player = (current stack in cents) − (total buy-ins in cents).
-// Pairwise pool/ledger entries are recorded so the friends ledger updates.
+// At end of a home game each player's net = final stack − total buy-ins (all in
+// chips). Pairwise rows are recorded so Standings update.
 
 let _cashOutState = null;
 
 function openCashOutModal() {
   if (!G || !isTableHost()) return;
   if (!getFormatConfig().moneyMode) {
-    toast('Cash out only applies to home games');
+    toast('Only home games are ended this way');
     return;
   }
   // Build participants from current G.players. Each player's effective buy-in is the
@@ -65,11 +64,10 @@ function renderCashOutModal() {
       <div class="avatar sm">${p.emoji}</div>
       <div style="flex:1;min-width:0">
         <div style="font-weight:600;font-size:0.88rem">${p.name}</div>
-        <div style="font-size:0.7rem;color:var(--text-dim)">Bought in: $${(p.buyInCents/100).toFixed(2)}${p.leftTable ? ' · left early' : ''}</div>
+        <div style="font-size:0.7rem;color:var(--text-dim)">Bought in: ${chipAmt(p.buyInCents)}${p.leftTable ? ' · left early' : ''}</div>
       </div>
       <div style="display:flex;align-items:center;gap:4px">
-        <span style="color:var(--gold)">$</span>
-        <input type="number" min="0" step="0.05" value="${(p.stackCents/100).toFixed(2)}"
+        <input type="number" min="0" step="5" value="${Math.round(p.stackCents)}" aria-label="Final chips"
           oninput="updateCashOut(${i}, this.value)"
           style="width:72px;background:var(--surface2);border:1px solid var(--border);
             color:var(--gold);border-radius:6px;padding:6px 6px;font-size:0.9rem;
@@ -81,8 +79,7 @@ function renderCashOutModal() {
 
 function updateCashOut(idx, value) {
   if (!_cashOutState) return;
-  const dollars = Math.max(0, parseFloat(value) || 0);
-  _cashOutState.players[idx].stackCents = Math.round(dollars * 100);
+  _cashOutState.players[idx].stackCents = Math.max(0, Math.round(parseFloat(value) || 0));
   updateCashOutTotals();
 }
 
@@ -90,17 +87,17 @@ function updateCashOutTotals() {
   const players = _cashOutState?.players || [];
   const poolCents = players.reduce((s, p) => s + p.buyInCents, 0);
   const sumCents  = players.reduce((s, p) => s + p.stackCents, 0);
-  document.getElementById('cashout-pool').textContent = '$' + (poolCents/100).toFixed(2);
-  document.getElementById('cashout-sum').textContent  = '$' + (sumCents/100).toFixed(2);
+  document.getElementById('cashout-pool').textContent = chipAmt(poolCents);
+  document.getElementById('cashout-sum').textContent  = chipAmt(sumCents);
   const msg = document.getElementById('cashout-balance-msg');
   const btn = document.getElementById('cashout-confirm-btn');
   if (poolCents === sumCents) {
-    msg.textContent = '✓ Cash-outs balance the pool';
+    msg.textContent = '✓ Final stacks match the chips bought in';
     msg.style.color = 'var(--gold)';
     if (btn) btn.disabled = false;
   } else {
-    const diff = (sumCents - poolCents) / 100;
-    msg.textContent = diff > 0 ? `⚠ Cash-outs exceed pool by $${diff.toFixed(2)}` : `⚠ Pool exceeds cash-outs by $${Math.abs(diff).toFixed(2)} (some chips lost?)`;
+    const diff = sumCents - poolCents;
+    msg.textContent = diff > 0 ? `⚠ Final stacks are ${chipAmt(diff)} more than bought in` : `⚠ Final stacks are ${chipAmt(-diff)} short of what was bought in`;
     msg.style.color = 'var(--red-light)';
     if (btn) btn.disabled = false; // Still allow — host may have a reason
   }
@@ -149,21 +146,21 @@ function showHomeGameEnd() {
     <button id="record-ledger-btn" onclick="onRecordHomeGameLedger()" style="background:none;
       border:1px solid var(--gold-dim);color:var(--gold);
       font-size:0.85rem;padding:10px 18px;border-radius:8px;cursor:pointer;margin-top:10px;font-weight:600">
-      📒 Record to Friends Ledger
+      📒 Record to Standings
     </button>` : (alreadyRecorded ? `
     <div style="font-size:0.78rem;color:var(--gold-pale);margin-top:8px;font-style:italic">
-      ✓ Recorded to ledger
+      ✓ Recorded to Standings
     </div>` : '');
 
   overlay.innerHTML = `
     <div class="tourney-result">
-      <div class="trophy">💵</div>
+      <div class="trophy">🪙</div>
       <div class="tourney-title">Game Over</div>
-      <div class="tourney-sub" style="margin-bottom:14px">Home Game · Cash Out</div>
+      <div class="tourney-sub" style="margin-bottom:14px">Home Game · Final standings</div>
       <div class="final-places">
         ${cashOuts.map((p, i) => {
-          const net = p.netCents / 100;
-          const netStr = (net >= 0 ? '+' : '−') + '$' + Math.abs(net).toFixed(2);
+          const net = p.netCents;
+          const netStr = chipNet(net);
           const color = net > 0 ? 'var(--gold)' : net < 0 ? 'var(--red-light)' : 'var(--text-dim)';
           return `<div class="place-row">
             <div class="place-medal">${i+1}.</div>
@@ -186,14 +183,14 @@ async function onRecordHomeGameLedger() {
   if (btn) { btn.disabled = true; btn.textContent = 'Recording…'; }
   const res = await settleHomeGameLedger(currentGameId);
   if (!res || res.error) {
-    toast('Could not record to ledger');
-    if (btn) { btn.disabled = false; btn.textContent = '📒 Record to Friends Ledger'; }
+    toast('Could not record to Standings');
+    if (btn) { btn.disabled = false; btn.textContent = '📒 Record to Standings'; }
     return;
   }
   sessionStorage.setItem(`fr_ledger_recorded_${currentGameId}`, '1');
-  const msg = res.ledger_rows ? '✓ Recorded to ledger' : '✓ Nothing to record (everyone broke even)';
+  const msg = res.ledger_rows ? '✓ Recorded to Standings' : '✓ Nothing to record (everyone broke even)';
   if (btn) btn.outerHTML = `<div style="font-size:0.78rem;color:var(--gold-pale);margin-top:8px;font-style:italic">${msg}</div>`;
-  if (res.ledger_rows) toast('Recorded to ledger');
+  if (res.ledger_rows) toast('Recorded to Standings');
 }
 
 let _autoDealTimer = null;
@@ -295,7 +292,7 @@ function nextHand() {
   if (!getFormatConfig().moneyMode && remaining.length <= 1) { endTournament(); return; }
   // Home game: if only 1 player has chips, just skip the deal but don't end
   if (getFormatConfig().moneyMode && remaining.length < 2) {
-    toast('Not enough players with chips. Host: tap End to cash out.');
+    toast('Not enough players with chips. Host: tap End to finish the game.');
     return;
   }
 
@@ -406,7 +403,7 @@ function showTournamentOverlay(winner) {
   // The server writes everyone's Friends Ledger rows when the tournament ends
   const ledgerBtnHtml = G.ledgerRecorded ? `
     <div style="font-size:0.78rem;color:var(--gold-pale);margin-top:8px;font-style:italic">
-      ✓ Recorded to ledger
+      ✓ Recorded to Standings
     </div>` : '';
 
   if (isChop) {
@@ -417,7 +414,7 @@ function showTournamentOverlay(winner) {
         <div class="tourney-sub" style="margin-bottom:14px">Game ended by agreement</div>
         ${gameBuyIn > 0 ? `<div style="font-size:0.78rem;color:var(--gold-pale);text-align:center;margin-bottom:14px;
           padding:8px 14px;background:rgba(212,168,67,0.08);border:1px solid var(--gold-dim);border-radius:8px">
-          $${gameBuyIn * totalPlayers} pool · split equally
+          ${chipAmt((actualPool ?? gameBuyIn * totalPlayers) * 100)} prize pool · split equally
         </div>` : ''}
         <div class="final-places">
           ${G.finalPlacements.map((p,i) => `
@@ -425,7 +422,7 @@ function showTournamentOverlay(winner) {
               <div class="place-medal">${['🥇','🥈','🥉'][i]||`${i+1}.`}</div>
               <div class="place-name">${p.emoji} ${p.name}</div>
               ${payoutByPlace[i+1] ? `<div style="font-family:'Bebas Neue',sans-serif;color:var(--gold);font-size:1.1rem;margin-left:auto">
-                $${payoutByPlace[i+1]}
+                ${chipAmt(payoutByPlace[i+1] * 100)}
               </div>` : ''}
             </div>`).join('')}
         </div>
@@ -442,7 +439,7 @@ function showTournamentOverlay(winner) {
       <div class="tourney-sub" style="margin-bottom:14px">Tournament Complete</div>
       ${gameBuyIn > 0 ? `<div style="font-size:0.78rem;color:var(--gold-pale);text-align:center;margin-bottom:14px;
         padding:8px 14px;background:rgba(212,168,67,0.08);border:1px solid var(--gold-dim);border-radius:8px">
-        $${gameBuyIn * totalPlayers} pool · ${totalPlayers} buy-ins of $${gameBuyIn}
+        ${chipAmt((actualPool ?? gameBuyIn * totalPlayers) * 100)} prize pool · ${totalPlayers} buy-ins of ${chipAmt(gameBuyIn * 100)}
       </div>` : ''}
       <div class="final-places">
         ${G.finalPlacements.map((p,i) => `
@@ -450,7 +447,7 @@ function showTournamentOverlay(winner) {
             <div class="place-medal">${['🥇','🥈','🥉'][i]||`${i+1}.`}</div>
             <div class="place-name">${p.emoji} ${p.name}</div>
             ${payoutByPlace[i+1] ? `<div style="font-family:'Bebas Neue',sans-serif;color:var(--gold);font-size:1.1rem;margin-left:auto">
-              $${payoutByPlace[i+1]}
+              ${chipAmt(payoutByPlace[i+1] * 100)}
             </div>` : ''}
           </div>`).join('')}
       </div>

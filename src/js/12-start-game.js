@@ -16,7 +16,7 @@ function startGame() {
   }
 
   // Build player array. Starting chips depends on format (tournament=1500 abstract chips,
-  // home=2000¢ representing $20 buy-in)
+  // home=2000 chips, matching the 2,000-chip buy-in)
   const startingChips = (FORMATS[gameFormat] || FORMATS.tournament).startingChips;
   const players = playerSource.map((lp, i) => ({
     id: lp.user?.id || lp.id || `p${i}`,

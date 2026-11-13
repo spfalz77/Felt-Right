@@ -10,7 +10,7 @@
 // Mutable — can be edited in lobby before game starts
 let BLIND_LEVELS = DEFAULT_BLIND_LEVELS.map(l => ({ ...l }));
 let blindDurationSeconds = DEFAULT_BLIND_DURATION;
-let gameBuyIn = 20; // Default $20 buy-in
+let gameBuyIn = 20; // Stored in hundreds of chips: 20 = a 2,000-chip buy-in
 let gameFormat = 'tournament'; // 'tournament' | 'home'
 let gameVariant = 'holdem';    // for tournament: 'holdem' | 'omaha'
 
@@ -18,29 +18,24 @@ function getFormatConfig() {
   return FORMATS[G?.format || gameFormat] || FORMATS.tournament;
 }
 
-// Format a chip count for display. In tournament mode, returns "1,500".
-// In home (money) mode, returns "$20.00" (chips represent cents).
+// Format a chip count for display: whole chips, e.g. "1,500". Home games
+// store stacks in what used to be cents; on screen 1 unit = 1 chip, and there
+// is no currency anywhere in the app.
 function formatChips(chipCount) {
   if (chipCount == null) return '—';
-  if (getFormatConfig().moneyMode) {
-    // Chip count is in cents. Render as dollars with 2 decimals.
-    const dollars = chipCount / 100;
-    if (Math.abs(dollars) >= 10) return '$' + dollars.toFixed(2);
-    return '$' + dollars.toFixed(2);
-  }
-  return chipCount.toLocaleString();
+  return Math.round(chipCount).toLocaleString();
+}
+function formatChipsCompact(chipCount) {
+  return formatChips(chipCount);
 }
 
-// Compact version for tiny labels (opponent badges). Drops zero-cent decimals.
-function formatChipsCompact(chipCount) {
-  if (chipCount == null) return '—';
-  if (getFormatConfig().moneyMode) {
-    const dollars = chipCount / 100;
-    // Show cents if non-zero, else just $X
-    if (chipCount % 100 === 0) return '$' + Math.floor(dollars);
-    return '$' + dollars.toFixed(2);
-  }
-  return chipCount.toLocaleString();
+// Amounts outside a hand (buy-ins, re-buys, cash-outs, prizes, standings) are
+// stored as cents for history (buy_in_amount and payout_ledger.amount are in
+// "dollars", i.e. hundreds of chips). Show them as whole chips.
+function chipAmt(cents) { return Math.round(cents || 0).toLocaleString(); }
+function chipNet(cents) {
+  const v = Math.round(cents || 0);
+  return (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toLocaleString();
 }
 function getVariantConfig() {
   return VARIANTS[G?.variant || gameVariant] || VARIANTS.holdem;
@@ -55,8 +50,6 @@ function buyInCentsOf(p) {
 
 function actualPrizePool() {
   if (!G || !G.players) return 0;
-  // Was: sum of totalBuyInCents only, so a tournament pool with one $10
-  // re-buy came out as $30 instead of $70.
   const totalCents = G.players.reduce((sum, p) => sum + buyInCentsOf(p), 0);
   return totalCents / 100;
 }

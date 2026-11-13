@@ -64,7 +64,7 @@ function doShowdown() {
           <div class="avatar" style="font-size:1.4rem">${winner.emoji}</div>
           <div class="showdown-result ${iWon?'win':'lose'}">${winner.name} Wins</div>
           <div class="showdown-hand" style="color:var(--text-dim)">Everyone else folded</div>
-          <div class="winner-pot">+${formatChipsCompact(winAmt)}${getFormatConfig().moneyMode?'':' chips'}</div>
+          <div class="winner-pot">+${formatChipsCompact(winAmt)} chips</div>
           ${myFolded ? `<button class="btn btn-ghost btn-sm" onclick="showMyFoldedCards()" style="margin-top:6px">Show My Cards</button>` : ''}
           <button class="btn btn-primary btn-sm" onclick="dismissShowdown()"
             style="margin-top:8px;min-width:140px">Got It</button>
@@ -513,7 +513,7 @@ function showMuckOrShow(winner, winAmt) {
   overlay.innerHTML = `
     <div class="showdown-bar">
       <div class="showdown-result win" style="font-size:1.6rem">You Win!</div>
-      <div class="winner-pot" style="margin-bottom:4px">+${formatChipsCompact(winAmt)}${getFormatConfig().moneyMode?'':' chips'} — everyone folded</div>
+      <div class="winner-pot" style="margin-bottom:4px">+${formatChipsCompact(winAmt)} chips — everyone folded</div>
       ${stackChangeHtml(winner)}
       <div style="font-size:0.85rem;color:var(--text-dim);margin-bottom:14px;text-align:center;line-height:1.4">
         Tap cards to ${isOmaha ? 'select which to reveal' : 'select which to show'}

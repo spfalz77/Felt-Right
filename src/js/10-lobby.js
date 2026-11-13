@@ -97,7 +97,7 @@ async function openLobby(gameId) {
         if (cb) cb.checked = gameRebuysEnabled;
       }
       const inp = document.getElementById('buy-in-input');
-      if (inp) inp.value = gameBuyIn;
+      if (inp) inp.value = gameBuyIn * 100;
       updatePayoutPreview();
       updateLobbyVariantBadge();
       toggleBlindEditorSection();

@@ -47,12 +47,12 @@ test('tournament: heads-up chop splits the pool; ledger balances', async ({ brow
     for (const p of all) {
       const ov = p.page.locator('#tourney-overlay .tourney-result');
       await expect(ov, `${p.name} sees the chop result`).toContainText('Chop', { timeout: 15_000 });
-      await expect(ov).toContainText('$30');
+      await expect(ov).toContainText('3,000');
       const rows = ov.locator('.place-row');
       await expect(rows, 'Cy is still listed, 3rd').toHaveCount(3);
       await expect(rows.nth(2)).toContainText('Cy');
       await tapRecordLedger(p);
-      await expect(ov).toContainText('Recorded to ledger', { timeout: 10_000 });
+      await expect(ov).toContainText('Recorded to Standings', { timeout: 10_000 });
     }
     const rows = await ledgerRows(gameId);
     const net = (id) => rows.filter((r) => r.user_id === id).reduce((a, r) => a + Number(r.amount), 0);

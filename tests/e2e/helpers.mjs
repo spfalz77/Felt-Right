@@ -481,7 +481,7 @@ export async function adminSelect(table, query) {
   return res.json();
 }
 
-/** Taps Record to Friends Ledger (the results screen can redraw mid-tap; retry). */
+/** Taps Record to Standings (the results screen can redraw mid-tap; retry). */
 // A game's Friends Ledger rows, once there are any (server games write them
 // just after the final save)
 export async function ledgerRows(gameId) {
@@ -497,8 +497,8 @@ export async function tapRecordLedger(p) {
   await expect(async () => {
     const btn = p.page.locator('#record-ledger-btn');
     if (!(await btn.count())) {
-      if (await p.page.locator('#tourney-overlay').getByText('Recorded to ledger').count()) return;
-      throw new Error('Record to Friends Ledger button not shown yet');
+      if (await p.page.locator('#tourney-overlay').getByText('Recorded to Standings').count()) return;
+      throw new Error('Record to Standings button not shown yet');
     }
     await btn.scrollIntoViewIfNeeded({ timeout: 2_000 });
     await btn.click({ timeout: 2_000 });
