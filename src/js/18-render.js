@@ -284,9 +284,12 @@ function renderGame() {
   // A new betting round is on screen: clear any leftover result overlay from the
   // last hand (on guests it could stay up and cover the action buttons on
   // their turn, e.g. after a hand won by everyone else folding)
+  // Server games: a result belongs to the showdown it came from. Once the
+  // table has moved on (next deal, the dealer's pick) it must not sit on top
+  // of the picker or the buttons, whether or not this player tapped Got It.
   const staleSd = document.getElementById('showdown-overlay');
   if (staleSd && staleSd.style.display !== 'none' && staleSd.dataset.kind === 'showdown'
-      && ['preflop', 'flop', 'turn', 'river'].includes(G?.stage)) {
+      && (['preflop', 'flop', 'turn', 'river'].includes(G?.stage) || (isServerGame() && G?.stage !== 'showdown'))) {
     staleSd.style.display = 'none';
     staleSd.dataset.kind = '';
   }

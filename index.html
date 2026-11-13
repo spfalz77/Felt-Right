@@ -4777,16 +4777,21 @@ function maybeShowHandResult(prevMyChips) {
   const won = G.lastResult && G.lastResult.hand === G.handNumber ? (G.lastResult.winnings?.[me.id] || 0) : null;
   const before = won != null && myP ? (myP.chips || 0) - won : prevMyChips;
   const stillIn = G.players.filter(p => !p.folded && !p.eliminated);
+  // (drawn a beat later; by then the table may have moved on: draw nothing)
+  const hand = G.handNumber;
+  const later = (fn) => setTimeout(() => {
+    if (G && G.stage === 'showdown' && G.handNumber === hand && !G.pendingDealerChoice && !G.tournamentOver) fn();
+  }, 200);
   if (stillIn.length === 1 && stillIn[0].id === me.id) {
     if (myP && myP.hand?.length && !myP.hand.some(c => c.hidden)) {
       const winAmt = (myP.chips || 0) - (before || 0);
-      if (winAmt > 0) setTimeout(() => showMuckOrShow(myP, winAmt), 200);
+      if (winAmt > 0) later(() => showMuckOrShow(myP, winAmt));
       else ackHandResult();
     }
   } else if (stillIn.length > 1) {
-    setTimeout(() => guestShowShowdown(before), 200);
+    later(() => guestShowShowdown(before));
   } else if (stillIn.length === 1) {
-    setTimeout(() => guestShowFoldWinOverlay(stillIn[0]), 200);
+    later(() => guestShowFoldWinOverlay(stillIn[0]));
   }
 }
 
@@ -4826,6 +4831,11 @@ async function refreshGuestState() {
       if (!sd || sd.dataset.kind !== 'guts-reveal') showGutsReveal();
     }
     if (G.pendingDealerChoice) showDealerChoice();
+    else {
+      // the pick is made: take the picker down (the live update would have)
+      const sd = document.getElementById('showdown-overlay');
+      if (sd && sd.dataset.kind === 'dealer-choice') { sd.style.display = 'none'; sd.dataset.kind = ''; }
+    }
     if (G.breakActive) showBreakOverlay(); else hideBreakOverlay();
     if (G.handNumber > 0) fetchMyPrivateHand(currentGameId, G.handNumber);
     if (G.stage === 'showdown') setTimeout(offerRebuyIfBroke, 4500);
@@ -6251,9 +6261,12 @@ function renderGame() {
   // A new betting round is on screen: clear any leftover result overlay from the
   // last hand (on guests it could stay up and cover the action buttons on
   // their turn, e.g. after a hand won by everyone else folding)
+  // Server games: a result belongs to the showdown it came from. Once the
+  // table has moved on (next deal, the dealer's pick) it must not sit on top
+  // of the picker or the buttons, whether or not this player tapped Got It.
   const staleSd = document.getElementById('showdown-overlay');
   if (staleSd && staleSd.style.display !== 'none' && staleSd.dataset.kind === 'showdown'
-      && ['preflop', 'flop', 'turn', 'river'].includes(G?.stage)) {
+      && (['preflop', 'flop', 'turn', 'river'].includes(G?.stage) || (isServerGame() && G?.stage !== 'showdown'))) {
     staleSd.style.display = 'none';
     staleSd.dataset.kind = '';
   }
