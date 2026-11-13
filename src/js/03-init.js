@@ -88,10 +88,6 @@ function enterApp() {
   const killBtn = document.getElementById('admin-kill-btn');
   if (killBtn) killBtn.style.display = me.display_name === 'Fallz' ? 'inline-flex' : 'none';
 
-  // Request notification permission for turn alerts
-  if (me.id !== 'demo' && 'Notification' in window && Notification.permission === 'default') {
-    Notification.requestPermission();
-  }
 
   renderFriendsList();
   loadGames();
@@ -101,6 +97,8 @@ function enterApp() {
     _soundsEnabled = localStorage.getItem('fr_sounds_enabled') !== '0';
     _notificationsEnabled = localStorage.getItem('fr_notifications_enabled') !== '0';
   } catch(e) {}
+  // Push notifications: renew this device's signup (the Android app asks once)
+  syncPushOnSignIn();
 
   // Auto-refresh home games every 20s while user is on home screen
   clearInterval(_homeRefreshInterval);

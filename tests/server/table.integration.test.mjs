@@ -357,3 +357,32 @@ test('seats: only your own seat, or the host, can be removed', async () => {
   assert.equal((await del(lu, lu.id)).data.length, 1, 'a guest can leave');
   assert.equal((await del(jo, kim.id)).data.length, 1, 'the host can remove a seat');
 });
+
+test('push: the Web Push key is made once; tokens are saved per user and private; a bad endpoint never blocks the table', async () => {
+  const t = await lobby('tournament', ['Pia', 'Quin']);
+  const k1 = await http('/functions/v1/table', { token: t.host.token, method: 'POST', body: { action: 'push_key' } });
+  assert.equal(k1.status, 200, JSON.stringify(k1.data));
+  assert.match(k1.data.key, /^[A-Za-z0-9_-]{87}$/, 'a 65-byte P-256 public key');
+  const k2 = await http('/functions/v1/table', { token: t.players[1].token, method: 'POST', body: { action: 'push_key' } });
+  assert.equal(k2.data.key, k1.data.key, 'same key every time');
+  assert.equal((await http('/functions/v1/table', { method: 'POST', body: { action: 'push_key' } })).status, 401);
+
+  // A subscription that can't be delivered to (keys are a real P-256 point)
+  const sub = { endpoint: `https://push.invalid/${RUN}`, keys: { p256dh: k1.data.key, auth: 'AAAAAAAAAAAAAAAAAAAAAA' } };
+  for (const p of t.players) {
+    const r = await http('/rest/v1/rpc/save_push_token', { token: p.token, method: 'POST', body: { p_platform: 'web', p_token: sub.endpoint + p.name, p_subscription: sub } });
+    assert.ok(r.status < 300, JSON.stringify(r.data));
+  }
+  const mine = await http('/rest/v1/push_tokens?select=user_id', { token: t.host.token });
+  assert.deepEqual(mine.data.map((r) => r.user_id), [t.host.id], 'each player sees only their own tokens');
+  assert.ok((await http('/rest/v1/push_tokens', { token: t.host.token, method: 'POST', body: { user_id: t.players[1].id, platform: 'web', token: 'x'.repeat(20) } })).status >= 400, 'no direct writes');
+  // The same device signing in as someone else moves to that account
+  await http('/rest/v1/rpc/save_push_token', { token: t.players[1].token, method: 'POST', body: { p_platform: 'web', p_token: sub.endpoint + 'Pia', p_subscription: sub } });
+  assert.equal((await http('/rest/v1/push_tokens?select=id', { token: t.host.token })).data.length, 0);
+
+  await t.must(t.host, 'start');
+  await t.skip(2000);
+  assert.equal((await t.state()).state.stage, 'preflop', 'the table still moves with undeliverable push subscriptions');
+  await http('/rest/v1/rpc/remove_push_token', { token: t.players[1].token, method: 'POST', body: { p_token: sub.endpoint + 'Quin' } });
+  assert.equal((await admin(`/rest/v1/push_tokens?token=eq.${encodeURIComponent(sub.endpoint + 'Quin')}&select=id`)).data.length, 0);
+});

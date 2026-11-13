@@ -7,6 +7,7 @@ let _lobbyStatusPoller = null;
 async function openLobby(gameId) {
   document.getElementById('invite-banner')?.remove();
   currentLobbyId = gameId;
+  renderPushLobbyCard();
   // Subscribe to chat for this game (lobby + game share same chat thread)
   subscribeToChatForGame(gameId);
   startNudgeListener(gameId);

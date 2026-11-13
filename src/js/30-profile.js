@@ -215,6 +215,7 @@ async function saveProfile() {
 
 async function signOut() {
   if (me.id !== 'demo' && sb) {
+    await disablePush(); // this device stops getting this account's notifications
     await sb.auth.signOut();
   }
   me = null; myFriends = []; myGames = []; G = null;

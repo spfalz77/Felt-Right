@@ -298,7 +298,7 @@ function startPreflopBetting(G, idx, ctx) {
 //   then = 'preflop' (Pineapple), 'flop' (Crazy Pineapple), or 'runout'
 //   (everyone all-in before the Crazy Pineapple discard: discard, then run it out)
 const keepCards = (G) => (VARIANTS[G.variant] || {}).keepCards || 0;
-const discardPending = (G) => G.players.filter((p) => !p.folded && !p.eliminated && p.hand && keepCards(G) && p.hand.length > keepCards(G));
+export const discardPending = (G) => G.players.filter((p) => !p.folded && !p.eliminated && p.hand && keepCards(G) && p.hand.length > keepCards(G));
 const needsDiscard = (G) => !!(VARIANTS[G.variant] || {}).discardAt && discardPending(G).length > 0;
 
 function startDiscard(G, then, nextIdx, ctx) {
@@ -371,7 +371,7 @@ export function queueRig(G, rig, ctx) {
 //   one in    → takes the pot; the progression ends
 //   two+ in   → best hand takes the pot; each other "in" player matches it
 //               (up to their stack) into the next round's pot, same dealer
-const gutsEligible = (G) => G.players.filter((p) => !p.eliminated && !p.broke && p.hand && p.hand.length);
+export const gutsEligible = (G) => G.players.filter((p) => !p.eliminated && !p.broke && p.hand && p.hand.length);
 
 function postAntes(G, amount, ctx) {
   G.currentBet = 0;
@@ -712,7 +712,7 @@ function studFirstToAct(G, ctx) {
 // left of the dealer. A deck that runs short is topped up with the shuffled
 // discards.
 //   then = 'river' (bet again) or 'runout' (everyone all-in: straight to showdown)
-const drawPending = (G) => G.players.filter((p) => !p.folded && !p.eliminated && G.draws && G.draws[p.id] == null);
+export const drawPending = (G) => G.players.filter((p) => !p.folded && !p.eliminated && G.draws && G.draws[p.id] == null);
 
 function startDraw(G, then, ctx) {
   G.stage = 'draw';

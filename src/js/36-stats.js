@@ -175,13 +175,16 @@ async function toggleNotifications() {
   if (_notificationsEnabled) {
     _notificationsEnabled = false;
     try { localStorage.setItem('fr_notifications_enabled', '0'); } catch(e) {}
+    disablePush();
     updateNotificationButton();
     toast('Notifications off');
     return;
   }
 
-  // Turning on — request browser permission if needed
-  if ('Notification' in window) {
+  // Turning on: sign this device up for pushes from the server
+  if (pushSupported()) {
+    if (!(await enablePush({ ask: true }))) { toast('Notifications are blocked. Turn them on in your phone’s settings.'); updateNotificationButton(); return; }
+  } else if ('Notification' in window) {
     if (Notification.permission === 'denied') {
       toast('Browser notifications are blocked — enable in site settings');
       return;

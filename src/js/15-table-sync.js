@@ -612,7 +612,7 @@ async function submitAction(action, amount) {
 
 // ── NOTIFICATIONS ─────────────────────────────────────────────────────────────
 function pushTurnNotification() {
-  if (!_notificationsEnabled) return;
+  if (!_notificationsEnabled || _pushActive) return; // the server sends it
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
   if (document.visibilityState === 'visible') return;
   new Notification('Felt Right — Your Turn', {

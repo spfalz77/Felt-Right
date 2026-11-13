@@ -2,7 +2,7 @@
 // Builds www/, the web bundle the Android and iPhone apps ship with: the same
 // index.html GitHub Pages serves, plus the bundled vendor files and icons.
 // Then run `npx cap sync` to copy it into android/ and ios/.
-import { cpSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
+import { cpSync, rmSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from './build.mjs';
@@ -16,8 +16,11 @@ await import('node:child_process').then(({ execFileSync }) =>
 
 rmSync(www, { recursive: true, force: true });
 mkdirSync(www);
-writeFileSync(join(www, 'index.html'), build());
-for (const f of ['manifest.json', 'icon-192.svg', 'icon-512.svg', 'vendor']) {
+// Android push needs Firebase (android/app/google-services.json); without it,
+// asking the plugin to register would crash the app, so it stays switched off.
+const pushReady = existsSync(join(root, 'android', 'app', 'google-services.json'));
+writeFileSync(join(www, 'index.html'), build().replace('const NATIVE_PUSH_READY = false;', `const NATIVE_PUSH_READY = ${pushReady};`));
+for (const f of ['manifest.json', 'icon-192.svg', 'icon-512.svg', 'icon-192.png', 'icon-badge.png', 'vendor']) {
   cpSync(join(root, f), join(www, f), { recursive: true });
 }
-console.log('Built www/ for the apps');
+console.log(`Built www/ for the apps (Android push ${pushReady ? 'on' : 'off: no google-services.json'})`);
