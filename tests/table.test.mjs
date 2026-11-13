@@ -27,8 +27,11 @@ function table({ format = 'tournament', names = ['Ace', 'Bo', 'Cy'], seed = 1, r
     chips: () => Object.fromEntries(G.players.map((p) => [p.id, p.chips])),
     total: () => G.players.reduce((a, p) => a + p.chips + (p.cashedOutCents || 0), 0) + G.pot,
     // Everyone on action does `fn(player)` until the hand ends
-    playHand: (fn) => { let guard = 0; while (T.isBetting(G) && guard++ < 200) { const who = api.actor(); const [a, amt] = [].concat(fn(who)); api.must(who, a, amt); } },
-    deal: () => { api.wait(T.NEXT_HAND_MS); if (G.pendingDealerChoice) api.must(G.dealerId, 'pick_variant', 'holdem'); },
+    playHand: (fn) => { let guard = 0; while (T.isBetting(G) && guard++ < 200) { const who = api.actor(); const [a, amt] = [].concat(fn(who)); api.must(who, a, amt); } api.runout(); },
+    // All-in: the board comes one card per RUNOUT_CARD_MS
+    runout: () => { let guard = 0; while (G.stage === 'runout' && guard++ < 10) api.wait(T.RUNOUT_CARD_MS); },
+    // Next hand: at the deal time (the result waits for everyone's OK, else RESULT_MAX_MS)
+    deal: () => { api.runout(); api.wait(G.nextDealAt ? Math.max(G.nextDealAt - ctx.now, 0) : T.NEXT_HAND_MS); if (G.pendingDealerChoice) api.must(G.dealerId, 'pick_variant', 'holdem'); },
   };
   return api;
 }
@@ -68,10 +71,78 @@ test('check/call a hand to showdown: chips conserved, result recorded, next hand
   assert.equal(t.total(), 4500);
   assert.equal(Object.values(t.G.lastResult.winnings).reduce((a, b) => a + b, 0), 60);
   assert.ok(T.redact(t.G).players.every((p) => p.hand.every((c) => c.rank)), 'hands shown at showdown');
-  assert.equal(t.wait(T.NEXT_HAND_MS - 1), false);
+  assert.ok(t.G.players.every((p) => p.bet === 0), 'chips in front went to the pot (and the winner)');
+  assert.equal(t.wait(T.RESULT_MAX_MS - 1), false, 'the result stays up while nobody has tapped OK');
   t.wait(1);
   assert.equal(t.G.handNumber, 2);
   assert.equal(t.G.stage, 'preflop');
+});
+
+test('the result stays up until everyone at the table taps OK, then the next hand comes', () => {
+  const t = table(); t.deal();
+  t.playHand(checkCall(t));
+  assert.equal(t.G.stage, 'showdown');
+  t.must('Ace', 'result_ok');
+  t.must('Bo', 'result_ok');
+  assert.equal(t.wait(T.RESULT_ACK_DEAL_MS), false, 'still waiting on Cy');
+  t.must('Cy', 'result_ok');
+  assert.equal(t.wait(T.RESULT_ACK_DEAL_MS - 1), false);
+  t.wait(1);
+  assert.equal(t.G.handNumber, 2);
+  t.must('Ace', 'result_ok'); // a late tap mid-hand changes nothing
+  assert.equal(t.G.stage, 'preflop');
+  // A player whose app is gone isn't waited for
+  t.playHand(checkCall(t));
+  t.ctx.isGone = (id) => id === 'Cy';
+  t.must('Ace', 'result_ok');
+  t.must('Bo', 'result_ok');
+  t.wait(T.RESULT_ACK_DEAL_MS);
+  assert.equal(t.G.handNumber, 3);
+  // ...nor one who goes after the others tapped
+  t.ctx.isGone = () => false;
+  t.playHand(checkCall(t));
+  t.must('Ace', 'result_ok');
+  t.must('Bo', 'result_ok');
+  assert.equal(t.wait(1000), false);
+  t.ctx.isGone = (id) => id === 'Cy';
+  assert.equal(t.wait(1), true);
+  t.wait(T.RESULT_ACK_DEAL_MS);
+  assert.equal(t.G.handNumber, 4);
+});
+
+test('home game: a player who quits during the all-in runout leaves the pot to the other', () => {
+  const t = table({ format: 'home', names: ['Ace', 'Bo'] });
+  homeAtPicker(t);
+  t.must(t.G.dealerId, 'pick_variant', 'holdem');
+  t.must(t.actor(), 'allin');
+  t.must(t.actor(), 'call');
+  assert.equal(t.G.stage, 'runout');
+  t.must('Bo', 'quit');
+  assert.equal(t.G.stage, 'showdown');
+  assert.equal(t.G.players.find((p) => p.id === 'Ace').chips, 4000);
+});
+
+test('all-in: hands face up, the board comes one card every RUNOUT_CARD_MS, then the showdown', () => {
+  const t = table({ names: ['Ace', 'Bo'] });
+  T.queueRig(t.G, { hands: { Ace: cards('As Ah'), Bo: cards('Kc Kd') }, board: BOARD }, t.ctx);
+  t.deal();
+  t.must(t.actor(), 'allin');
+  t.must(t.actor(), 'call');
+  assert.equal(t.G.stage, 'runout');
+  assert.equal(t.G.community.length, 0);
+  assert.ok(t.G.players.every((p) => p.bet === 0), 'bets pulled into the pot');
+  assert.ok(T.redact(t.G).players.every((p) => p.hand.every((c) => c.rank)), 'hands face up during the runout');
+  for (let n = 1; n <= 4; n++) {
+    assert.equal(t.wait(T.RUNOUT_CARD_MS - 1), false);
+    t.wait(1);
+    assert.equal(t.G.community.length, n);
+    assert.equal(t.G.stage, 'runout');
+  }
+  t.wait(T.RUNOUT_CARD_MS);
+  assert.equal(t.G.community.length, 5);
+  assert.equal(t.G.stage, 'showdown');
+  assert.equal(t.total(), 3000);
+  assert.ok(t.G.recentMoves.some((m) => m.label === 'All In'), 'moves logged for sounds');
 });
 
 test('everyone folds to one player: they win the pot and cards stay hidden', () => {
@@ -131,7 +202,7 @@ test('tournament to the end: eliminations, placements, winner holds every chip',
   t.deal();
   t.playHand(() => 'allin');
   assert.equal(t.G.tournamentOver, undefined, 'the result shows first');
-  t.wait(T.NEXT_HAND_MS);
+  t.wait(T.RESULT_MAX_MS);
   assert.equal(t.G.tournamentOver, true);
   assert.deepEqual(t.G.finalPlacements.map((p) => p.name), ['Ace', 'Bo', 'Cy']);
   assert.equal(t.G.players.find((p) => p.id === 'Ace').chips, 4500);
@@ -160,7 +231,7 @@ test("home game: dealer's choice, auto Hold'em after 25s, only the dealer picks"
   assert.equal(t.G.stage, 'preflop');
   assert.equal(t.G.pot, 15);
   t.playHand(() => 'fold');
-  t.wait(T.NEXT_HAND_MS);
+  t.wait(T.RESULT_MAX_MS);
   t.must(t.G.dealerId, 'pick_variant', 'omaha');
   assert.ok(t.G.players.every((p) => p.hand.length === 4));
 });
@@ -171,7 +242,7 @@ test('home game: bust → re-buy or sit out; the table waits, then sits out afte
   t.deal();
   t.playHand(() => 'allin');
   assert.deepEqual(t.chips(), { Ace: 6000, Bo: 0, Cy: 0 });
-  assert.equal(t.wait(T.NEXT_HAND_MS), false, 'waits for the decisions');
+  assert.equal(t.wait(T.RESULT_MAX_MS), false, 'waits for the decisions');
   t.must('Bo', 'rebuy');
   assert.equal(t.G.players.find((p) => p.id === 'Bo').totalBuyInCents, 4000);
   assert.equal(t.wait(1000), false, 'still waiting on Cy');
@@ -291,7 +362,7 @@ test('Guts progression: two in → match the pot; next round one in → takes it
   const shown = T.redact(t.G).players;
   assert.ok(shown.find((p) => p.id === 'Cy').hand.every((c) => c.hidden), 'an out player keeps their cards hidden');
   assert.ok(shown.find((p) => p.id === 'Bo').hand.every((c) => c.rank));
-  t.wait(T.NEXT_HAND_MS);
+  t.wait(T.RESULT_MAX_MS);
   assert.equal(t.G.pendingDealerChoice, false, 'same dealer, no new pick');
   assert.equal(t.G.stage, 'guts_decision');
   assert.equal(t.G.handNumber, 2);
@@ -299,7 +370,7 @@ test('Guts progression: two in → match the pot; next round one in → takes it
   t.must('Ace', 'guts_in'); t.must('Bo', 'guts_out'); t.must('Cy', 'guts_out');
   assert.equal(t.G.gutsResults.progressionEnded, true);
   assert.deepEqual(t.chips(), { Ace: 2070, Bo: 1950, Cy: 1980 });
-  t.wait(T.NEXT_HAND_MS);
+  t.wait(T.RESULT_MAX_MS);
   assert.equal(t.G.pendingDealerChoice, true, 'progression over → next dealer picks');
   assert.equal(t.G.handNumber, 3);
   assert.equal(t.total(), 6000);
@@ -327,9 +398,9 @@ test('Guts: 200 random rounds never create or lose a chip', () => {
   const t = table({ format: 'home', names: ['A', 'B', 'C', 'D'], seed: 9 });
   let bought = 0;
   for (let r = 0; r < 200; r++) {
-    t.wait(T.NEXT_HAND_MS);
+    t.wait(T.RESULT_MAX_MS);
     for (const p of t.G.players.filter((x) => x.broke && !x.eliminated)) { t.must(p.id, 'rebuy'); bought += 2000; }
-    t.wait(T.NEXT_HAND_MS);
+    t.wait(T.RESULT_MAX_MS);
     if (t.G.pendingDealerChoice) t.must(t.G.dealerId, 'pick_variant', 'guts3');
     if (t.G.stage !== 'guts_decision') continue;
     for (const p of t.G.players) if (!t.G.gutsDecisions[p.id] && t.G.stage === 'guts_decision' && p.hand.length && !p.broke && !p.eliminated) t.act(p.id, pick() < 0.5 ? 'guts_in' : 'guts_out');
@@ -470,7 +541,7 @@ test('gone dealer → Hold\'em after 5s; gone busted player → sat out at the n
   u.playHand(() => 'allin');
   u.ctx.isGone = (id) => id === 'Cy';
   u.must('Bo', 'rebuy');
-  u.wait(T.NEXT_HAND_MS);
+  u.wait(T.RESULT_MAX_MS);
   assert.equal(u.G.players.find((p) => p.id === 'Cy').eliminated, true);
   assert.equal(u.G.handNumber, 2);
 });
@@ -487,7 +558,7 @@ test('tournament: when everyone still in has quit, it is called off; hand voided
   assert.equal(t.G.stage, 'finished');
   assert.equal(t.G.pot, 0);
   assert.equal(t.total(), 4500, 'bets went back: no chip created or lost');
-  assert.equal(t.wait(T.NEXT_HAND_MS * 10), false, 'no more hands are dealt');
+  assert.equal(t.wait(T.RESULT_MAX_MS * 10), false, 'no more hands are dealt');
   t.G.finalPlacements = [{ name: 'Ace' }, { name: 'Bo' }, { name: 'Cy' }];
   assert.deepEqual(payouts.tournamentLedger(t.G), [], 'nothing goes to the Friends Ledger');
 });
@@ -598,6 +669,8 @@ test('Crazy Pineapple: all-in preflop → flop, discard, then run it out', () =>
   assert.equal(t.G.stage, 'discard');
   assert.equal(t.G.community.length, 3);
   discardAll(t, 0);
+  assert.equal(t.G.stage, 'runout');
+  t.runout();
   assert.equal(t.G.stage, 'showdown');
   assert.equal(t.G.community.length, 5);
   assert.equal(t.total(), 4000);
@@ -654,9 +727,9 @@ test('Pineapple variants: 300 random hands never create or lose a chip, and neve
     const pick = rngFrom(seed * 104729);
     let bought = 0;
     for (let h = 0; h < 15; h++) {
-      t.wait(T.NEXT_HAND_MS);
+      t.wait(T.RESULT_MAX_MS);
       for (const p of t.G.players.filter((x) => x.broke && !x.eliminated)) { t.must(p.id, 'rebuy'); bought += 2000; }
-      if (!t.G.pendingDealerChoice) t.wait(T.NEXT_HAND_MS);
+      if (!t.G.pendingDealerChoice) t.wait(T.RESULT_MAX_MS);
       if (!t.G.pendingDealerChoice) break;
       t.must(t.G.dealerId, 'pick_variant', seed % 2 ? 'pineapple' : 'crazy_pineapple');
       let guard = 0;
@@ -671,6 +744,7 @@ test('Pineapple variants: 300 random hands never create or lose a chip, and neve
         const a = r < 0.12 ? 'fold' : r < 0.2 ? 'allin' : r < 0.35 ? ['raise', Math.floor(pick() * 400)] : (t.G.currentBet > p.bet ? 'call' : 'check');
         t.must(who, ...[].concat(a));
       }
+      t.runout();
       assert.equal(t.G.stage, 'showdown', `seed ${seed} hand ${h} ended`);
       assert.equal(t.total(), names.length * 2000 + bought, `seed ${seed} hand ${h}: chips conserved`);
       if (!t.G.wonByFold) assert.ok(t.G.players.filter((p) => !p.folded && !p.eliminated).every((p) => p.hand.length === 2), 'everyone at showdown kept 2');
@@ -817,9 +891,9 @@ test('draw and stud: 400 random hands never create or lose a chip, and never sta
     const pick = rngFrom(seed * 15485863);
     let bought = 0;
     for (let h = 0; h < 20; h++) {
-      t.wait(T.NEXT_HAND_MS);
+      t.wait(T.RESULT_MAX_MS);
       for (const p of t.G.players.filter((x) => x.broke && !x.eliminated)) { t.must(p.id, 'rebuy'); bought += 2000; }
-      if (!t.G.pendingDealerChoice) t.wait(T.NEXT_HAND_MS);
+      if (!t.G.pendingDealerChoice) t.wait(T.RESULT_MAX_MS);
       if (!t.G.pendingDealerChoice) break;
       t.must(t.G.dealerId, 'pick_variant', h % 2 ? 'draw5' : 'stud5');
       let guard = 0;
@@ -837,6 +911,7 @@ test('draw and stud: 400 random hands never create or lose a chip, and never sta
         const a = r < 0.12 ? 'fold' : r < 0.2 ? 'allin' : r < 0.35 ? ['raise', Math.floor(pick() * 400)] : (t.G.currentBet > p.bet ? 'call' : 'check');
         t.must(who, ...[].concat(a));
       }
+      t.runout();
       assert.equal(t.G.stage, 'showdown', `seed ${seed} hand ${h} ended`);
       assert.equal(t.total(), names.length * 2000 + bought, `seed ${seed} hand ${h}: chips conserved`);
       if (!t.G.wonByFold) assert.ok(t.G.players.filter((p) => !p.folded && !p.eliminated).every((p) => p.hand.length === 5), 'five cards at showdown');

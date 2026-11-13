@@ -63,10 +63,19 @@ async function lobby(format, names) {
     byId: (id) => players.find((p) => p.id === id),
     // Skip the server clock ahead and apply whatever came due
     skip: (ms) => t.must(host, 'clock_offset', ms),
+    // All-in: the board comes one card every 4s
+    runout: async () => {
+      for (let i = 0; i < 6; i++) {
+        const { state } = await t.state();
+        if (state.stage !== 'runout') return state;
+        await t.skip(4000);
+      }
+      throw new Error('runout did not finish');
+    },
     playHand: async (choose) => {
       for (let i = 0; i < 100; i++) {
         const { state } = await t.state();
-        if (!['preflop', 'flop', 'turn', 'river'].includes(state.stage)) return state;
+        if (!['preflop', 'flop', 'turn', 'river'].includes(state.stage)) return state.stage === 'runout' ? t.runout() : state;
         const actor = state.players[state.actionIndex];
         const [a, amt] = [].concat(choose(t.byId(actor.id), state, actor));
         await t.must(t.byId(actor.id), a, amt);
@@ -139,7 +148,7 @@ test('tournament hand over HTTP: deal on the clock, private cards, turn checks, 
   assert.equal(final.stage, 'showdown');
   assert.equal(total(final), 4500);
   assert.ok(final.players.every((p) => p.hand.every((c) => c.rank)), 'hands shown at showdown');
-  await t.skip(6000);
+  await t.skip(30000); // the result stays up to 30s when nobody taps OK
   s = await t.state();
   assert.equal(s.state.handNumber, 2);
   assert.equal(s.hand_number, 2);
@@ -153,9 +162,9 @@ test('scripted tournament to the end: side pots, eliminations, game saved as fin
   await t.skip(2000);
   let s = await t.playHand((p) => (p.name === 'Bo' ? 'fold' : 'allin'));
   assert.equal(s.players.find((p) => p.name === 'Cy').eliminated, true);
-  await t.skip(6000);
+  await t.skip(30000); // the result stays up to 30s when nobody taps OK
   s = await t.playHand(() => 'allin');
-  await t.skip(6000);
+  await t.skip(30000); // the result stays up to 30s when nobody taps OK
   const g = await t.state();
   assert.equal(g.status, 'finished');
   assert.deepEqual(g.state.finalPlacements.map((p) => p.name), ['Ace', 'Bo', 'Cy']);

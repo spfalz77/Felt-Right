@@ -841,6 +841,79 @@ function tableSignature(state) {
   return JSON.stringify({ ...state, players: state.players.map(({ hand, ...rest }) => rest) });
 }
 
+// Game over: the end screen, for every phone (live update or the backup poller)
+function guestShowGameOver() {
+  // Clear any chop proposal/showdown overlay so it doesn't sit on top
+  const sd = document.getElementById('showdown-overlay');
+  if (sd) sd.style.display = 'none';
+  const winner = G.players.find(p => !p.eliminated && p.chips > 0) || G.players[0];
+  // Commit tournament stats for guests (host already did theirs in endTournament)
+  if (!amHost && me.id !== 'demo') {
+    const myPlayer = G.players.find(p => p.id === me.id);
+    if (myPlayer) {
+      let myPlacement = null;
+      if (winner?.id === me.id) {
+        myPlacement = 1;
+      } else {
+        const idx = G.finalPlacements?.findIndex(p => p.name === myPlayer.name) ?? -1;
+        if (idx >= 0) myPlacement = idx + 1;
+      }
+      // Only commit once — guard via sessionStorage
+      const key = `fr_tourney_done_${currentGameId}`;
+      if (!sessionStorage.getItem(key)) {
+        sessionStorage.setItem(key, '1');
+        commitTournamentStats(myPlacement, myPlayer.chips || 0);
+      }
+    }
+  }
+  // Show appropriate end overlay based on format
+  if (G.cashOuts && getFormatConfig().moneyMode) {
+    showHomeGameEnd();
+  } else {
+    showTournamentOverlay(winner);
+  }
+}
+
+// The hand's result, once per hand, whichever way the new table arrived (live
+// update or the backup poller). Stays up until the player taps Got It; on a
+// server game the next hand waits for everyone's OK (or 30s).
+// (Guts has its own reveal overlay driven by G.gutsResults; the host of a
+// phone-run game shows its own from doShowdown.)
+let _resultShownFor = null;
+function maybeShowHandResult(prevMyChips) {
+  if (amHost || !G || G.stage !== 'showdown' || G.variant === 'guts3' || G.tournamentOver) return;
+  const key = `${currentGameId}:${G.handNumber}`;
+  if (_resultShownFor === key) return;
+  _resultShownFor = key;
+  const myP = G.players.find(p => p.id === me.id);
+  // What I won this hand: the server's result when there is one
+  const won = G.lastResult && G.lastResult.hand === G.handNumber ? (G.lastResult.winnings?.[me.id] || 0) : null;
+  const before = won != null && myP ? (myP.chips || 0) - won : prevMyChips;
+  const stillIn = G.players.filter(p => !p.folded && !p.eliminated);
+  if (stillIn.length === 1 && stillIn[0].id === me.id) {
+    if (myP && myP.hand?.length && !myP.hand.some(c => c.hidden)) {
+      const winAmt = (myP.chips || 0) - (before || 0);
+      if (winAmt > 0) setTimeout(() => showMuckOrShow(myP, winAmt), 200);
+      else ackHandResult();
+    }
+  } else if (stillIn.length > 1) {
+    setTimeout(() => guestShowShowdown(before), 200);
+  } else if (stillIn.length === 1) {
+    setTimeout(() => guestShowFoldWinOverlay(stillIn[0]), 200);
+  }
+}
+
+// "Got it" on a server game: the table deals the next hand once everyone has
+// (only once per hand)
+let _resultAckedFor = null;
+function ackHandResult() {
+  if (!G || !isServerGame() || G.stage !== 'showdown' || !currentGameId) return;
+  const key = `${currentGameId}:${G.handNumber}`;
+  if (_resultAckedFor === key) return;
+  _resultAckedFor = key;
+  callTable(currentGameId, 'result_ok');
+}
+
 // Re-reads the saved table and shows it if it differs from what's on screen
 // (cards aside: this phone's own cards come from private_hands). Comparing the
 // whole table means a stale or locally changed copy can't stick.
@@ -851,10 +924,15 @@ async function refreshGuestState() {
     if (!data?.state || !Array.isArray(data.state.players)) return;
     if (isOlderState(data.state, G)) return; // fetched before a newer update arrived
     if (tableSignature(data.state) === tableSignature(G)) return;
+    const prevMyChips = G?.players?.find(p => p.id === me.id)?.chips ?? null;
     G = data.state;
+    if (isServerState(G)) gameHostId = data.host_id;
     if (G.tournamentOver && G.abandoned) { showCalledOff(); return; }
+    // (the live update can be missed: the poller must do everything it would)
+    if (G.tournamentOver) { guestShowGameOver(); return; }
     applyMyPrivateHand();
     renderGame();
+    maybeShowHandResult(prevMyChips);
     if (G.stage === 'guts_decision' && G.variant === 'guts3') showGutsDecision();
     if (G.stage === 'showdown' && G.variant === 'guts3' && G.gutsResults) {
       const sd = document.getElementById('showdown-overlay');
@@ -938,38 +1016,7 @@ function guestSubscribeToGame(gameId) {
       }
 
       // Tournament over — show end screen for everyone
-      if (G.tournamentOver) {
-        // Clear any chop proposal/showdown overlay so it doesn't sit on top
-        const sd = document.getElementById('showdown-overlay');
-        if (sd) sd.style.display = 'none';
-        const winner = G.players.find(p => !p.eliminated && p.chips > 0) || G.players[0];
-        // Commit tournament stats for guests (host already did theirs in endTournament)
-        if (!amHost && me.id !== 'demo') {
-          const myPlayer = G.players.find(p => p.id === me.id);
-          if (myPlayer) {
-            let myPlacement = null;
-            if (winner?.id === me.id) {
-              myPlacement = 1;
-            } else {
-              const idx = G.finalPlacements?.findIndex(p => p.name === myPlayer.name) ?? -1;
-              if (idx >= 0) myPlacement = idx + 1;
-            }
-            // Only commit once — guard via sessionStorage
-            const key = `fr_tourney_done_${currentGameId}`;
-            if (!sessionStorage.getItem(key)) {
-              sessionStorage.setItem(key, '1');
-              commitTournamentStats(myPlacement, myPlayer.chips || 0);
-            }
-          }
-        }
-        // Show appropriate end overlay based on format
-        if (G.cashOuts && getFormatConfig().moneyMode) {
-          showHomeGameEnd();
-        } else {
-          showTournamentOverlay(winner);
-        }
-        return;
-      }
+      if (G.tournamentOver) { guestShowGameOver(); return; }
 
       const pauseJustEnded = _prevPaused === true && !G.paused;
       _prevPaused = G.paused === true;
@@ -1004,24 +1051,8 @@ function guestSubscribeToGame(gameId) {
         commitHandStats();
       }
 
-      // Detect "I won by everyone folding" for guests (host runs this in doShowdown directly).
-      // Skip this for Guts — Guts has its own reveal overlay driven by G.gutsResults.
-      if (!amHost && G.stage === 'showdown' && prevStage !== 'showdown' && G.variant !== 'guts3') {
-        const stillIn = G.players.filter(p => !p.folded && !p.eliminated);
-        if (stillIn.length === 1 && stillIn[0].id === me.id) {
-          const myP = G.players.find(p => p.id === me.id);
-          if (myP && myP.hand?.length && !myP.hand.some(c => c.hidden)) {
-            const winAmt = (myP.chips || 0) - (prevMyChips || 0);
-            if (winAmt > 0) {
-              setTimeout(() => showMuckOrShow(myP, winAmt), 200);
-            }
-          }
-        } else if (stillIn.length > 1) {
-          setTimeout(() => guestShowShowdown(prevMyChips), 200);
-        } else if (stillIn.length === 1 && stillIn[0].id !== me.id) {
-          setTimeout(() => guestShowFoldWinOverlay(stillIn[0]), 200);
-        }
-      }
+      // The hand's result: the showdown breakdown, or who won when everyone folded
+      maybeShowHandResult(prevMyChips);
 
       // Busted this hand? After a moment to see the result, offer the re-buy.
       // (The host pauses for this decision, so no further update would prompt it.)

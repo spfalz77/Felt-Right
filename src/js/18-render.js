@@ -1,30 +1,78 @@
-// ── RENDER ───────────────────────────────────────────────────────────────────
-function renderGame() {
-  // ── SOUND triggers based on state changes ──
-  if (G && _lastSoundState) {
-    // Pot GREW = chip movement (someone bet/called/raised)
-    if (G.pot > _lastSoundState.pot) playChipSound();
-    // Pot SHRUNK to 0 = winner collected (also chip movement)
-    else if (G.pot === 0 && _lastSoundState.pot > 0) playChipSound();
-    // Community card count grew (flop/turn/river dealt)
-    if (G.community.length > _lastSoundState.communityLen) playCardDealSound();
-    // New hand started (handNumber incremented) — shuffle sound + small delay then deal sound
-    if (G.handNumber > _lastSoundState.handNumber) {
-      playCardShuffleSound();
-      // Hole-card deal sound a moment after shuffle
-      setTimeout(() => playCardDealSound(), 350);
-    }
-    // Stage transition into showdown — deal sound for revealed hands
-    if (G.stage === 'showdown' && _lastSoundState.stage !== 'showdown') {
-      playCardDealSound();
-    }
-  }
+// ── SOUNDS: each one tied to what just appeared on screen ─────────────────────
+// Compares the table now with the last one drawn:
+//   new hand → shuffle, then a card for each of my hole cards
+//   each bet/call/raise (mine or anyone's) → chips; each check → knock knock
+//   (not for a player checked automatically because they're away)
+//   each new board card → one card flip; hands turned over → a flip
+//   the pot pushed to the winner → chips
+// Server games number their moves (G.recentMoves), so a check that closes a
+// street still knocks even though the next street clears everyone's label.
+const SOUND_MOVE_GAP_MS = 180;
+function playTableSounds() {
+  const prev = _lastSoundState;
   _lastSoundState = G ? {
     pot: G.pot,
-    communityLen: G.community.length,
+    community: G.community.length,
     handNumber: G.handNumber,
     stage: G.stage,
+    moveSeq: G.moveSeq || 0,
+    labels: Object.fromEntries((G.players || []).map((p) => [p.id, p.lastAction ? `${p.lastAction.type}:${p.lastAction.label}` : ''])),
   } : null;
+  if (!G || !prev) return; // first look at this table: nothing "just happened"
+
+  const newHand = G.handNumber !== prev.handNumber;
+  let delay = 0;
+  if (newHand) {
+    playCardShuffleSound();
+    const mine = (G.players.find((p) => p.id === me?.id)?.hand || []).length;
+    setTimeout(() => playCardFlips(Math.min(mine || 2, 5), 160), 750);
+    delay = 750;
+  }
+
+  // Bets and checks
+  const soundFor = (type, label) => {
+    if (type === 'check') return label === 'Away' ? null : playKnockSound;
+    if (type === 'bet' || type === 'call' || type === 'raise' || type === 'allin') return playChipSound;
+    return null;
+  };
+  if (Array.isArray(G.recentMoves) && G.moveSeq != null) {
+    const fresh = G.recentMoves.filter((m) => m.seq > prev.moveSeq).slice(-3);
+    fresh.forEach((m, i) => {
+      const fn = soundFor(m.type, m.label);
+      if (fn) setTimeout(fn, delay + i * SOUND_MOVE_GAP_MS);
+    });
+    if (fresh.length) delay += fresh.length * SOUND_MOVE_GAP_MS;
+  } else if (!newHand) {
+    // Phone-run games: go by each player's label
+    let i = 0;
+    for (const p of G.players) {
+      const was = prev.labels[p.id] || '';
+      const now = p.lastAction ? `${p.lastAction.type}:${p.lastAction.label}` : '';
+      if (!now || now === was) continue;
+      const fn = soundFor(p.lastAction.type, p.lastAction.label);
+      if (fn) setTimeout(fn, delay + (i++) * SOUND_MOVE_GAP_MS);
+    }
+    if (G.pot > prev.pot && i === 0) playChipSound();
+  }
+
+  // New board cards: one flip per card
+  const added = newHand ? G.community.length : G.community.length - prev.community;
+  if (added > 0) setTimeout(() => playCardFlips(added), delay + 120);
+
+  // All-in: hands turned face up
+  if (G.stage === 'runout' && prev.stage !== 'runout') setTimeout(() => playCardFlips(2, 120), delay);
+
+  // Showdown: hands turned over (unless everyone else folded), then the pot goes to the winner
+  if (G.stage === 'showdown' && prev.stage !== 'showdown' && !newHand) {
+    let at = delay + 250;
+    if (!G.wonByFold && prev.stage !== 'runout') { setTimeout(playCardDealSound, at); at += 350; }
+    setTimeout(playChipSound, at);
+  }
+}
+
+// ── RENDER ───────────────────────────────────────────────────────────────────
+function renderGame() {
+  playTableSounds();
 
   // Handle pause state
   if (G?.paused) showPauseOverlay();
@@ -109,7 +157,13 @@ function renderGame() {
   document.getElementById('hand-num').textContent = `Hand #${G.handNumber}`;
   // Pot display — show side pots if any player is all-in
   const allInPlayers = G.players.filter(p => p.allIn && !p.eliminated);
-  if (allInPlayers.length > 0 && G.stage !== 'showdown') {
+  const result = G.stage === 'showdown' && G.lastResult && G.lastResult.hand === G.handNumber ? G.lastResult : null;
+  if (result) {
+    // The pot went to the winner(s): say so where the pot was
+    const won = Object.entries(result.winnings || {}).filter(([, amt]) => amt > 0);
+    const names = won.map(([id, amt]) => `${G.players.find((p) => p.id === id)?.name || '?'} +${formatChipsCompact(amt)}`);
+    document.getElementById('pot-display').textContent = names.length ? `🏆 ${names.join(' · ')}` : 'POT: 0';
+  } else if (allInPlayers.length > 0 && G.stage !== 'showdown') {
     const previewPots = buildSidePots(G.players);
     const potText = previewPots.length > 1
       ? previewPots.map((p, i) => `${i===0?'Main':'Side'}: ${formatChipsCompact(p.amount)}`).join(' · ')
@@ -122,7 +176,7 @@ function renderGame() {
   const vStyle = (VARIANTS[G.variant] || VARIANTS.holdem).style;
   const stages = vStyle === 'stud' ? { preflop:'2ND STREET', flop:'3RD STREET', turn:'4TH STREET', river:'5TH STREET', showdown:'SHOWDOWN' }
     : vStyle === 'draw' ? { preflop:'BEFORE THE DRAW', draw:'DRAW', river:'AFTER THE DRAW', showdown:'SHOWDOWN' }
-    : { preflop:'PRE-FLOP', flop:'FLOP', turn:'TURN', river:'RIVER', showdown:'SHOWDOWN', discard:'DISCARD' };
+    : { preflop:'PRE-FLOP', flop:'FLOP', turn:'TURN', river:'RIVER', showdown:'SHOWDOWN', discard:'DISCARD', runout:'ALL IN · RUNNING IT OUT' };
   const variantTag = ['omaha', 'pineapple', 'crazy_pineapple', 'draw5', 'stud5'].includes(G.variant) ? ' · ' + VARIANTS[G.variant].short : '';
   document.getElementById('stage-label').textContent = (stages[G.stage]||G.stage.toUpperCase()) + variantTag;
 
@@ -176,7 +230,7 @@ function renderGame() {
 
     const revealedCards = G.revealedHands?.[p.id];
     const cardsHtml = (revealedCards || p.hand).length ? (revealedCards || p.hand).map(c => {
-      const revealAtShowdown = G.stage === 'showdown' && !p.folded;
+      const revealAtShowdown = (G.stage === 'showdown' || G.stage === 'runout') && !p.folded;
       const revealFromReveal = !!revealedCards; // folded player chose to show
       const faceUp = !!(c && c.up && !p.folded); // 5-card stud upcards
       const reveal = revealAtShowdown || revealFromReveal || faceUp;

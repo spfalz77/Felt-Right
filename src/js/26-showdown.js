@@ -283,9 +283,21 @@ function guestShowShowdown(prevMyChips) {
   const showPlayers = active.filter(p => handMap[p.id])
     .sort((a, b) => cmpScore(handMap[b.id], handMap[a.id]));
 
-  // Determine winners (highest tied score)
+  // Who won what: the server's payout when there is one (side pots and all),
+  // else the best hand on this phone's reading
+  const result = G.lastResult && G.lastResult.hand === G.handNumber ? G.lastResult : null;
   const bestScore = showPlayers.length ? handMap[showPlayers[0].id] : null;
-  const isWinnerFn = (p) => bestScore && cmpScore(handMap[p.id], bestScore) === 0;
+  const isWinnerFn = result
+    ? (p) => (result.winnings?.[p.id] || 0) > 0
+    : (p) => bestScore && cmpScore(handMap[p.id], bestScore) === 0;
+  const nameOf = (id) => G.players.find(x => x.id === id)?.name || '?';
+  // One line per pot: "Main pot 2,640 → Fallz · Two Pair"
+  const potLines = (result?.pots || []).filter(pt => pt.amount > 0).map((pt, i, all) => `
+    <div style="display:flex;justify-content:space-between;gap:10px;font-size:0.8rem;padding:3px 0;
+      border-bottom:1px solid rgba(255,255,255,0.06)">
+      <span style="color:var(--text-dim)">${all.length > 1 ? (i === 0 ? 'Main pot' : `Side pot ${i}`) : 'Pot'} ${formatChipsCompact(pt.amount)}</span>
+      <span style="color:var(--gold-pale);text-align:right">→ ${pt.winners.map(nameOf).join(' & ')}${pt.winners.length > 1 ? ' (split)' : ''}${pt.hand ? ` · ${pt.hand}` : ''}</span>
+    </div>`).join('');
 
   overlay.style.display = 'flex';
   overlay.dataset.kind = 'showdown';
@@ -320,7 +332,8 @@ function guestShowShowdown(prevMyChips) {
           </div>`;
         }).join('');
         const isSplit = showPlayers.filter(isWinnerFn).length > 1;
-        const myDelta = (p.id === me.id && prevMyChips != null) ? (p.chips || 0) - prevMyChips : null;
+        const myDelta = result ? (result.winnings?.[p.id] || 0)
+          : (p.id === me.id && prevMyChips != null) ? (p.chips || 0) - prevMyChips : null;
         const wonLabel = (isWin && myDelta != null && myDelta > 0)
           ? `<span style="font-family:'Bebas Neue',sans-serif;color:var(--gold);font-size:1.25rem">
               ${isSplit ? 'SPLIT ' : ''}+${formatChipsCompact(myDelta)}
@@ -350,10 +363,16 @@ function guestShowShowdown(prevMyChips) {
           </div>
         </div>`;
       }).join('')}
+      ${potLines ? `<div style="width:100%;max-width:340px;margin:2px 0 4px">${potLines}</div>` : ''}
       <button class="btn btn-primary btn-sm" onclick="dismissShowdown()"
         style="margin-top:8px;min-width:160px">Got It</button>
-      <div style="font-size:0.72rem;color:var(--text-dim);margin-top:4px">Next hand in 6s…</div>
+      <div style="font-size:0.72rem;color:var(--text-dim);margin-top:4px">${nextHandNote()}</div>
     </div>`;
+}
+
+// Under the result: when the next hand comes
+function nextHandNote() {
+  return isServerGame() ? 'Next hand once everyone taps Got It' : 'Next hand in 6s…';
 }
 
 // When everyone folded leaving a single winner who isn't me, show the result overlay.
@@ -417,7 +436,7 @@ function guestShowFoldWinOverlay(winner) {
       ${myFolded ? `<button class="btn btn-ghost btn-sm" onclick="showMyFoldedCards()" style="margin-top:6px">Show My Cards</button>` : ''}
       <button class="btn btn-primary btn-sm" onclick="dismissShowdown()"
         style="margin-top:8px;min-width:140px">Got It</button>
-      <div style="font-size:0.7rem;color:var(--text-dim);margin-top:6px">Next hand in 6s…</div>
+      <div style="font-size:0.7rem;color:var(--text-dim);margin-top:6px">${nextHandNote()}</div>
     </div>`;
 }
 
@@ -489,7 +508,7 @@ function showMuckOrShow(winner, winAmt) {
         <button class="btn btn-primary btn-sm" onclick="showSelectedCards()" style="min-width:140px">Show Selected</button>
         <button class="btn btn-ghost btn-sm" onclick="muckFoldWin()" style="min-width:120px">Muck (Hide)</button>
       </div>
-      <div style="font-size:0.72rem;color:var(--text-dim);margin-top:14px">Auto-deal in 6s</div>
+      <div style="font-size:0.72rem;color:var(--text-dim);margin-top:14px">${nextHandNote()}</div>
     </div>`;
 
   // Track which cards are selected to show
@@ -575,7 +594,7 @@ function showSelectedCards() {
         Showing ${shown.length === 1 ? 'one card' : `${shown.length} cards`}
       </div>
       <button class="btn btn-primary btn-sm" onclick="dismissShowdown()" style="min-width:140px">Got It</button>
-      <div style="font-size:0.72rem;color:var(--text-dim);margin-top:6px">Auto-deal in 6s…</div>`;
+      <div style="font-size:0.72rem;color:var(--text-dim);margin-top:6px">${nextHandNote()}</div>`;
   }
 }
 

@@ -62,24 +62,81 @@ function getCardAudio() {
   return a;
 }
 
-// Shuffle = play card sound 3 times in quick succession to simulate a riffle
-function playCardShuffleSound() {
-  if (!_soundsEnabled) return;
-  try {
-    const a1 = getCardAudio();
-    a1.play().catch(() => {});
-    setTimeout(() => {
-      const a2 = getCardAudio();
-      a2.play().catch(() => {});
-    }, 120);
-    setTimeout(() => {
-      const a3 = getCardAudio();
-      a3.play().catch(() => {});
-    }, 240);
-  } catch(e) {}
+// ── Synthesized sounds (Web Audio) ──────────────────────────────────────────
+// Phones only let a page make sound after a tap, so the audio context is
+// started on the first touch anywhere.
+['touchstart', 'pointerdown', 'keydown'].forEach((ev) =>
+  document.addEventListener(ev, () => { getAudioCtx(); }, { once: true, passive: true }));
+
+let _noiseBuf = null;
+function noiseBuffer(ctx) {
+  if (_noiseBuf && _noiseBuf.sampleRate === ctx.sampleRate) return _noiseBuf;
+  const len = Math.floor(ctx.sampleRate * 0.25);
+  _noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
+  const d = _noiseBuf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  return _noiseBuf;
 }
 
-// Single card landing
+// One short burst of filtered noise (a card edge, a knuckle on wood)
+function noiseTick(ctx, at, { freq = 3000, q = 1.2, dur = 0.03, gain = 0.5, type = 'bandpass' } = {}) {
+  const src = ctx.createBufferSource();
+  src.buffer = noiseBuffer(ctx);
+  const f = ctx.createBiquadFilter();
+  f.type = type; f.frequency.value = freq; f.Q.value = q;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, at);
+  g.gain.exponentialRampToValueAtTime(gain, at + 0.003);
+  g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+  src.connect(f); f.connect(g); g.connect(ctx.destination);
+  src.start(at, Math.random() * 0.2, dur + 0.02);
+}
+
+// Knock knock: two knuckle raps on the table (a check)
+function playKnockSound() {
+  if (!_soundsEnabled) return;
+  const ctx = getAudioCtx();
+  if (!ctx) return;
+  try {
+    const t0 = ctx.currentTime + 0.01;
+    [0, 0.16].forEach((dt) => {
+      const at = t0 + dt;
+      // the thud: a low tone that drops fast
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(190, at);
+      o.frequency.exponentialRampToValueAtTime(70, at + 0.09);
+      g.gain.setValueAtTime(0.0001, at);
+      g.gain.exponentialRampToValueAtTime(0.9, at + 0.004);
+      g.gain.exponentialRampToValueAtTime(0.0001, at + 0.12);
+      o.connect(g); g.connect(ctx.destination);
+      o.start(at); o.stop(at + 0.14);
+      // the knuckle: a dull click on top
+      noiseTick(ctx, at, { freq: 900, q: 0.8, dur: 0.035, gain: 0.35, type: 'lowpass' });
+    });
+  } catch (e) {}
+}
+
+// Shuffle: a riffle (a quick run of card edges), then the deck squared up
+function playCardShuffleSound() {
+  if (!_soundsEnabled) return;
+  const ctx = getAudioCtx();
+  if (!ctx) { playCardDealSound(); return; }
+  try {
+    const t0 = ctx.currentTime + 0.01;
+    const n = 26;
+    for (let i = 0; i < n; i++) {
+      // edges speed up, then slow down, like a real riffle
+      const x = i / (n - 1);
+      const at = t0 + 0.55 * (x - 0.25 * Math.sin(Math.PI * x) / Math.PI);
+      noiseTick(ctx, at, { freq: 2500 + Math.random() * 2500, q: 1.5, dur: 0.018 + Math.random() * 0.012, gain: 0.18 + 0.12 * Math.sin(Math.PI * x) });
+    }
+    noiseTick(ctx, t0 + 0.68, { freq: 1200, q: 0.7, dur: 0.07, gain: 0.35, type: 'lowpass' }); // squared up
+  } catch (e) {}
+}
+
+// Single card landing / flipping over
 function playCardDealSound() {
   if (!_soundsEnabled) return;
   try {
@@ -88,3 +145,8 @@ function playCardDealSound() {
   } catch(e) {}
 }
 
+
+// Several cards, one sound each, a beat apart (the flop, two hole cards)
+function playCardFlips(n, gapMs = 220) {
+  for (let i = 0; i < n; i++) setTimeout(playCardDealSound, i * gapMs);
+}

@@ -133,6 +133,12 @@ export const VARIANTS = {
 export const DISCARD_SECONDS = 20;
 // Seconds everyone gets to choose cards to draw (5-card draw), else they stand pat
 export const DRAW_SECONDS = 25;
+// Everyone's all-in: the rest of the board is dealt one card at a time, this
+// many seconds apart, with the hands face up (house setting: tune to taste)
+export const RUNOUT_CARD_SECONDS = 4;
+// A hand's result stays on screen until everyone still at the table taps OK,
+// or this long at most
+export const RESULT_MAX_SECONDS = 30;
 
 // Blinds for a level index, from a blind structure. Beyond the defined
 // structure, keep doubling from the last level.
