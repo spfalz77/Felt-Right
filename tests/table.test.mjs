@@ -1011,3 +1011,12 @@ test('quit vs Away: a tournament quitter is marked as having left (no auto-rejoi
   t.must('Cy', 'sit_back');
   assert.equal(t.G.players.find((p) => p.id === 'Cy').leftTable, false);
 });
+
+test('a tournament is called off only when everyone left has quit, not when the others are merely Away', () => {
+  const t = table({ names: ['Ace', 'Bo'] }); t.deal();
+  t.must('Bo', 'away');
+  t.must('Ace', 'quit');
+  assert.ok(!t.G.abandoned, 'Bo is only Away');
+  t.must('Bo', 'quit');
+  assert.equal(t.G.abandoned, true);
+});
