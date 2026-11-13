@@ -17,7 +17,14 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Felt Right">
 <meta name="theme-color" content="#0d1f14">
-<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+/* Fonts are bundled (vendor/fonts, copied from @fontsource by the build) */
+@font-face{font-family:'Bebas Neue';font-style:normal;font-weight:400;font-display:swap;src:url(vendor/fonts/bebas-neue-400.woff2) format('woff2')}
+@font-face{font-family:'DM Sans';font-style:normal;font-weight:300;font-display:swap;src:url(vendor/fonts/dm-sans-300.woff2) format('woff2')}
+@font-face{font-family:'DM Sans';font-style:normal;font-weight:400;font-display:swap;src:url(vendor/fonts/dm-sans-400.woff2) format('woff2')}
+@font-face{font-family:'DM Sans';font-style:normal;font-weight:500;font-display:swap;src:url(vendor/fonts/dm-sans-500.woff2) format('woff2')}
+@font-face{font-family:'DM Sans';font-style:normal;font-weight:600;font-display:swap;src:url(vendor/fonts/dm-sans-600.woff2) format('woff2')}
+</style>
 
 <style>
 /* @inline styles/app.css */
@@ -660,7 +667,7 @@
 <div id="toast"></div>
 
 <!-- ─── SUPABASE CDN ────────────────────────────────────────────────────────── -->
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="vendor/supabase.js"></script>
 
 <script>
 /* @inline-all js/[0-9]*.js */

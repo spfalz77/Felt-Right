@@ -1,0 +1,24 @@
+{
+  "appId": "com.feltright.app",
+  "appName": "Felt Right",
+  "webDir": "www",
+  "backgroundColor": "#0d1f14",
+  "android": {
+    "backgroundColor": "#0d1f14"
+  },
+  "ios": {
+    "backgroundColor": "#0d1f14",
+    "contentInset": "automatic"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 600,
+      "backgroundColor": "#0d1f14",
+      "showSpinner": false
+    },
+    "SystemBars": {
+      "insetsHandling": "css",
+      "style": "DARK"
+    }
+  }
+}

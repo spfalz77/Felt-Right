@@ -65,6 +65,10 @@ export async function newPlayer(browser, name, deviceOpts, { fakeClock = false }
     if (url.pathname === '/Felt-Right/' || url.pathname.endsWith('/index.html')) {
       return route.fulfill({ status: 200, contentType: 'text/html', body: html });
     }
+    // Bundled files (vendor/supabase.js, fonts) straight from the repo
+    if (url.pathname.startsWith('/Felt-Right/vendor/')) {
+      return route.fulfill({ path: fileURLToPath(new URL('../../' + url.pathname.slice('/Felt-Right/'.length), import.meta.url)) });
+    }
     return route.fulfill({ status: 404, body: '' });
   });
   context.on('dialog', (d) => d.accept()); // confirm() prompts

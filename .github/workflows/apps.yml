@@ -1,0 +1,78 @@
+name: apps
+
+# Builds the Android app (an installable test APK) and checks the iPhone
+# project still compiles. On main, the APK is published to the
+# "android-latest" release so it can be downloaded straight to a phone.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apps-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+      - run: npm ci
+      - name: Build web bundle and copy into the Android project
+        run: npm run build:app && npx cap sync android
+      - name: Build APK
+        working-directory: android
+        env:
+          VERSION_CODE: ${{ github.run_number }}
+        run: ./gradlew --no-daemon assembleDebug
+      - name: Name the APK
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk felt-right.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: felt-right-android
+          path: felt-right.apk
+      - name: Publish to the android-latest release (main only)
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NOTES="Test build ${{ github.run_number }} from $(git rev-parse --short HEAD). Open this page on your Android phone, tap felt-right.apk, then allow installs from your browser if asked."
+          if gh release view android-latest >/dev/null 2>&1; then
+            gh release upload android-latest felt-right.apk --clobber
+            gh release edit android-latest --notes "$NOTES"
+          else
+            gh release create android-latest felt-right.apk --prerelease --title "Felt Right for Android (test build)" --notes "$NOTES" --target "$GITHUB_SHA"
+          fi
+
+  ios:
+    # Compiles for the simulator, unsigned: keeps the iPhone project working
+    # until there's an Apple developer account to sign and ship it.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build:app && npx cap sync ios
+      - name: Build for the simulator
+        working-directory: ios/App
+        run: |
+          xcodebuild -project App.xcodeproj -scheme App -configuration Debug \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO build | tail -40
+          exit ${PIPESTATUS[0]}

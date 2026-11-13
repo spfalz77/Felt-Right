@@ -61,7 +61,7 @@ async function doForgotPassword() {
   if (!email) { toast('Enter your email first'); return; }
   try {
     const { error } = await sb.auth.resetPasswordForEmail(email, {
-      redirectTo: location.origin + location.pathname,
+      redirectTo: appBaseUrl(),
     });
     if (error) throw error;
     toast('Password reset email sent — check your inbox');
