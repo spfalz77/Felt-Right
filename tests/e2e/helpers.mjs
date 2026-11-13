@@ -214,10 +214,10 @@ export async function botStep(p, strategy = () => 'checkcall') {
   const { page } = p;
   const v = await tableView(p);
   // Server games: the next hand waits until everyone taps Got It on the result
-  // (only once the result is on screen: the hidden button of the last result doesn't count)
-  if (v?.stage === 'showdown' && v.server && p.gotItHand !== v.hand && v.overlays.includes('showdown-overlay')) {
+  // (whenever the result is on screen: a tap that didn't land is simply tried again)
+  if (v?.stage === 'showdown' && v.server && v.overlays.includes('showdown-overlay') && Date.now() - (p.gotItAt || 0) > 1500) {
     const got = page.locator('#showdown-overlay button[onclick="dismissShowdown()"]');
-    if (await got.count() && await tap(got.first())) { p.gotItHand = v.hand; return 'got it'; }
+    if (await got.count()) { p.gotItAt = Date.now(); await tap(got.first()); return 'got it'; }
   }
   const pick = page.locator(`button[onclick="dealerPickedVariant('holdem')"]`);
   if (await pick.isVisible().catch(() => false)) {
@@ -258,8 +258,18 @@ export async function botStep(p, strategy = () => 'checkcall') {
     const dkey = `${v.hand}:draw`;
     if (p.lastTurnKey === dkey && Date.now() - p.lastTapAt < 5_000) return null;
     p.lastTurnKey = dkey; p.lastTapAt = Date.now();
-    for (const i of m[1].split(',').filter(Boolean)) {
-      if (!(await tap(page.locator(`#draw-cards button[onclick="toggleDrawCard(${i})"]`)))) return null;
+    // Set each card to the wanted state (a retry after a missed tap must not undo earlier picks)
+    const want = new Set(m[1].split(',').filter(Boolean).map(Number));
+    for (let i = 0; i < 5; i++) {
+      const card = page.locator(`#draw-cards button[onclick="toggleDrawCard(${i})"]`);
+      if (!(await card.count())) return null;
+      const on = (await card.first().getAttribute('aria-pressed')) === 'true';
+      if (on !== want.has(i) && !(await tap(card.first()))) return null;
+    }
+    // (only submit once the screen shows exactly the wanted picks)
+    for (let i = 0; i < 5; i++) {
+      const on = (await page.locator(`#draw-cards button[onclick="toggleDrawCard(${i})"]`).first().getAttribute('aria-pressed').catch(() => null)) === 'true';
+      if (on !== want.has(i)) { p.lastTapAt = 0; return null; }
     }
     return (await tap(page.locator('#draw-submit'))) && `draw ${m[1] || 'none'}`;
   }
