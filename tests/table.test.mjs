@@ -932,3 +932,54 @@ test('draw and stud: 400 random hands never create or lose a chip, and never sta
     }
   }
 });
+
+test('away (tournament): a timed-out player is Away; their later turns are checked/folded at once', () => {
+  const t = table();
+  t.deal();
+  const first = t.actor();
+  t.wait(T.TURN_MS);
+  const p = t.G.players.find((x) => x.id === first);
+  assert.equal(p.awayFromTable, true, 'timed out → Away');
+  t.playHand(checkCall(t));
+  t.deal();
+  // Their next turn: no waiting at all
+  let guard = 0;
+  while (T.isBetting(t.G) && t.actor() !== first && guard++ < 20) t.must(t.actor(), checkCall(t)());
+  if (T.isBetting(t.G)) assert.notEqual(t.actor(), first, 'never left on the Away player');
+  assert.ok(p.hand.length === 2, 'tournament: still dealt in (blinds out)');
+  t.must(first, 'sit_back');
+  assert.equal(p.awayFromTable, false);
+});
+
+test('away (tournament): setting yourself Away on your turn checks/folds right away', () => {
+  const t = table(); t.deal();
+  const first = t.actor();
+  t.must(first, 'away');
+  assert.notEqual(t.actor(), first);
+  assert.equal(t.G.players.find((x) => x.id === first).lastAction.label, 'Away');
+});
+
+test('away (home game): not dealt in until back; a table of one waits, the return deals', () => {
+  const t = table({ format: 'home', names: ['Ace', 'Bo', 'Cy'] });
+  homeAtPicker(t);
+  t.must(t.G.dealerId, 'pick_variant', 'holdem');
+  t.must('Cy', 'away');
+  t.playHand(checkCall(t));
+  t.deal();
+  const cy = t.G.players.find((x) => x.id === 'Cy');
+  assert.equal(cy.hand.length, 0, 'Cy not dealt in');
+  assert.equal(cy.folded, true);
+  assert.equal(cy.totalBet, 0, 'no blinds from Cy');
+  assert.equal(t.total(), 6000);
+  t.playHand(checkCall(t));
+  t.must('Bo', 'away');
+  t.deal();
+  assert.equal(t.G.waitingForPlayers, true, 'only Ace at the table');
+  assert.equal(t.wait(T.RESULT_MAX_MS), false, 'nothing dealt');
+  t.must('Cy', 'sit_back');
+  t.wait(T.RESUME_DEAL_MS);
+  if (t.G.pendingDealerChoice) t.must(t.G.dealerId, 'pick_variant', 'holdem');
+  assert.equal(t.G.stage, 'preflop');
+  assert.equal(t.G.players.find((x) => x.id === 'Cy').hand.length, 2);
+  assert.equal(t.G.players.find((x) => x.id === 'Bo').hand.length, 0);
+});

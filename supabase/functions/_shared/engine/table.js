@@ -170,6 +170,10 @@ function postBlind(G, idx, amount) {
   if (p.chips === 0) p.allIn = true;
 }
 
+// Home game: a player who's away isn't dealt in until they're back
+const sitsOutDeal = (G, p) => fmt(G).moneyMode && !!p.awayFromTable;
+const dealable = (G) => G.players.filter((p) => !p.eliminated && p.chips > 0 && !sitsOutDeal(G, p));
+
 const rebuyOpen = (G) => fmt(G).moneyMode || (G.rebuysEnabled && !G.rebuyWindowClosed);
 const deciding = (G) => (rebuyOpen(G) ? G.players.filter((p) => p.broke && !p.eliminated) : []);
 
@@ -179,7 +183,7 @@ function addPlacement(G, p) {
 
 // ── Dealing ────────────────────────────────────────────────────────────────
 function rotateDealer(G, ctx) {
-  const eligible = G.players.filter((p) => !p.eliminated && p.chips > 0);
+  const eligible = dealable(G);
   G.players.forEach((p) => { p.isDealer = false; });
   let i;
   if (!G.dealerId) i = Math.floor(ctx.rng() * eligible.length);
@@ -197,6 +201,10 @@ function dealNewHand(G, ctx) {
     // Home game with one stack left: nothing to deal; the host ends the game.
     return;
   }
+  // Home game: fewer than two players at the table (the rest are away) —
+  // wait; the next one back deals (see sit_back)
+  G.waitingForPlayers = dealable(G).length < 2;
+  if (G.waitingForPlayers) return;
   if (G.gutsResults && G.gutsResults.progressionEnded === false) { continueGuts(G, ctx); return; }
   G.gutsResults = null;
   G.gutsDecisions = {};
@@ -244,9 +252,9 @@ function proceedToDeal(G, ctx) {
   G.players.forEach((p) => {
     p.hand = []; p.bet = 0; p.totalBet = 0; p.folded = false; p.allIn = false;
     if (!p.awayFromTable) p.lastAction = null;
-    if (p.eliminated || p.chips <= 0) p.folded = true;
+    if (p.eliminated || p.chips <= 0 || sitsOutDeal(G, p)) p.folded = true; // (home game: away = not dealt in)
   });
-  const eligible = G.players.filter((p) => !p.eliminated && p.chips > 0);
+  const eligible = G.players.filter((p) => !p.folded);
   const dealerP = G.players.find((p) => p.id === G.dealerId);
   G.handHistory.push({ hand: G.handNumber, variant: G.variant, dealerName: dealerP ? dealerP.name : '?', dealerEmoji: dealerP ? dealerP.emoji : '🃏' });
   if (G.handHistory.length > 200) G.handHistory.shift();
@@ -490,6 +498,10 @@ function setActor(G, idx, ctx) {
     autoAct(G, p);
     advanceAction(G, ctx);
   }
+}
+
+function goAway(G, p) {
+  p.awayFromTable = true;
 }
 
 function autoAct(G, p) {
@@ -933,9 +945,21 @@ export function applyAction(G, playerId, action, amount, ctx) {
 
   if (action === 'quit') return quit(G, p, ctx);
 
+  if (action === 'away') { // "Away" from the table screen: stay seated, auto check/fold
+    if (p.eliminated) return OK;
+    goAway(G, p);
+    if (isBetting(G) && G.players[G.actionIndex] === p && !p.folded && !p.allIn) { autoAct(G, p); advanceAction(G, ctx); }
+    if (G.stage === 'discard' && discardPending(G).includes(p)) { discardCard(G, p, null); maybeEndDiscard(G, ctx); }
+    if (G.stage === 'draw' && drawPending(G).includes(p)) { drawCards(G, p, [], ctx); maybeEndDraw(G, ctx); }
+    return OK;
+  }
+
   if (action === 'sit_back') {
     if (!p.awayFromTable) return OK;
-    p.awayFromTable = false; p.disconnected = false; p.lastAction = null;
+    p.awayFromTable = false; p.disconnected = false;
+    if (!isBetting(G)) p.lastAction = null;
+    // Home game that was waiting for a second player: deal
+    if (G.waitingForPlayers && !G.paused && dealable(G).length >= 2) { G.waitingForPlayers = false; G.nextDealAt = ctx.now + RESUME_DEAL_MS; }
     return OK;
   }
 
@@ -1161,7 +1185,9 @@ export function tick(G, ctx) {
     if (actor && !actor.folded && !actor.eliminated && !actor.allIn) {
       const timedOut = G.turnDeadline && ctx.now >= G.turnDeadline;
       const awayTooLong = gone(actor.id) && ctx.now - (G.turnStartMs || ctx.now) >= AWAY_GRACE_MS;
-      if (timedOut || awayTooLong) { autoAct(G, actor); advanceAction(G, ctx); return true; }
+      // From now on they're Away: every later turn is checked/folded at once
+      // (tournament), or they sit out the deal (home game), until they're back
+      if (timedOut || awayTooLong) { goAway(G, actor); autoAct(G, actor); advanceAction(G, ctx); return true; }
     }
     return changed;
   }
