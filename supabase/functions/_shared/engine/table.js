@@ -1148,7 +1148,8 @@ function quit(G, p, ctx) {
   p.awayFromTable = true; p.disconnected = true; p.leftTable = true; // (left on purpose: no auto-rejoin)
   p.lastAction = { type: 'away', label: 'Away' };
   // Everyone still in has quit: nobody is left to play it out, so it's called off
-  if (G.players.filter((x) => !x.eliminated).every((x) => x.awayFromTable)) { abandonGame(G); return OK; }
+  // (only players who quit count: someone merely Away may come back)
+  if (G.players.filter((x) => !x.eliminated).every((x) => x.leftTable)) { abandonGame(G); return OK; }
   if (isBetting(G) && G.players[G.actionIndex] === p && !p.folded) { autoAct(G, p); advanceAction(G, ctx); }
   if (G.stage === 'discard' && discardPending(G).includes(p)) { discardCard(G, p, null); maybeEndDiscard(G, ctx); }
   if (G.stage === 'draw' && drawPending(G).includes(p)) { drawCards(G, p, [], ctx); maybeEndDraw(G, ctx); }
