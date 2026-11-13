@@ -13,7 +13,7 @@
 //   node scripts/build.mjs           write ./index.html
 //   node scripts/build.mjs --check   fail if ./index.html is out of date
 
-import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, readdirSync, mkdirSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -61,6 +61,28 @@ export function build() {
     .join('\n');
 }
 
+// Third-party files the page loads, copied out of node_modules into vendor/
+// (committed, so GitHub Pages serves them and the app bundle has no CDN loads).
+export const VENDOR = [
+  ['node_modules/@supabase/supabase-js/dist/umd/supabase.js', 'vendor/supabase.js'],
+  ['node_modules/@fontsource/bebas-neue/files/bebas-neue-latin-400-normal.woff2', 'vendor/fonts/bebas-neue-400.woff2'],
+  ...[300, 400, 500, 600].map((w) => [`node_modules/@fontsource/dm-sans/files/dm-sans-latin-${w}-normal.woff2`, `vendor/fonts/dm-sans-${w}.woff2`]),
+];
+
+function vendorStale() {
+  return VENDOR.filter(([from, to]) => {
+    const dest = join(root, to);
+    return !existsSync(dest) || !readFileSync(join(root, from)).equals(readFileSync(dest));
+  }).map(([, to]) => to);
+}
+
+function writeVendor() {
+  for (const [from, to] of VENDOR) {
+    mkdirSync(dirname(join(root, to)), { recursive: true });
+    writeFileSync(join(root, to), readFileSync(join(root, from)));
+  }
+}
+
 // Only build when run as a script (tests import the helpers above)
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const html = build();
@@ -70,8 +92,14 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
       console.error('index.html is out of date. Run: node scripts/build.mjs');
       process.exit(1);
     }
+    const stale = vendorStale();
+    if (stale.length) {
+      console.error('vendor/ is out of date (' + stale.join(', ') + '). Run: node scripts/build.mjs');
+      process.exit(1);
+    }
     console.log('index.html is up to date');
   } else {
+    writeVendor();
     writeFileSync(outFile, html);
     console.log(`Built index.html (${(html.length / 1024).toFixed(0)} KB)`);
   }

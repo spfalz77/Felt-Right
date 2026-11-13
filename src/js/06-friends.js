@@ -221,7 +221,7 @@ async function addFriend(userId, name) {
 }
 
 function copyInviteLink() {
-  const link = `${location.origin}${location.pathname}?invite=true`;
+  const link = `${appBaseUrl()}?invite=true`;
   navigator.clipboard?.writeText(link).then(() => toast('Invite link copied!'));
 }
 

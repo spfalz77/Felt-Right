@@ -62,7 +62,7 @@ async function openLobby(gameId) {
   const game = myGames.find(g => g.id === gameId);
   document.getElementById('lobby-game-name').textContent = game?.name || 'Game';
   document.getElementById('lobby-game-id').textContent = `Game ID: ${gameId.slice(0,8).toUpperCase()}`;
-  document.getElementById('lobby-invite-url').textContent = `${location.origin}${location.pathname}?join=${gameId.slice(0,8)}`;
+  document.getElementById('lobby-invite-url').textContent = `${appBaseUrl()}?join=${gameId.slice(0,8)}`;
 
   const isHost = !game || game.host_id === me.id;
   const canInvite = isHost || (game?.my_status === 'joined');
@@ -403,7 +403,7 @@ function showInviteBanner(game, hostName) {
 
 async function inviteFriend(friendId, name) {
   if (me.id === 'demo' || !sb || !currentLobbyId) {
-    const link = `${location.origin}${location.pathname}?join=${currentLobbyId?.slice(0,8)||'—'}`;
+    const link = `${appBaseUrl()}?join=${currentLobbyId?.slice(0,8)||'—'}`;
     navigator.clipboard?.writeText(link).then(() => toast(`Invite link copied for ${name}`));
     return;
   }

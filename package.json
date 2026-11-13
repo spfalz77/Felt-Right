@@ -8,12 +8,28 @@
     "check": "node scripts/build.mjs --check",
     "test": "node --test tests/*.test.mjs",
     "test:e2e": "playwright test",
-    "test:server": "node --test tests/server/*.test.mjs"
+    "test:server": "node --test tests/server/*.test.mjs",
+    "build:app": "node scripts/build-app.mjs",
+    "app:sync": "node scripts/build-app.mjs && npx cap sync"
   },
   "engines": {
     "node": ">=20"
   },
   "devDependencies": {
+    "@capacitor/assets": "^4.0.0",
+    "@capacitor/cli": "^8.6.2",
     "@playwright/test": "^1.65.0"
+  },
+  "dependencies": {
+    "@capacitor-community/keep-awake": "^8.0.1",
+    "@capacitor/android": "^8.6.2",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/core": "^8.6.2",
+    "@capacitor/haptics": "^8.0.2",
+    "@capacitor/ios": "^8.6.2",
+    "@capacitor/splash-screen": "^8.0.2",
+    "@fontsource/bebas-neue": "^5.3.0",
+    "@fontsource/dm-sans": "^5.3.0",
+    "@supabase/supabase-js": "^2.119.0"
   }
 }

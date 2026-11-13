@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Felt Right</string>
+    <string name="title_activity_main">Felt Right</string>
+    <string name="package_name">com.feltright.app</string>
+    <string name="custom_url_scheme">com.feltright.app</string>
+</resources>
