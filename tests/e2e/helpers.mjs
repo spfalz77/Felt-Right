@@ -221,11 +221,14 @@ export async function botStep(p, strategy = () => 'checkcall') {
   }
   const pick = page.locator(`button[onclick="dealerPickedVariant('holdem')"]`);
   if (await pick.isVisible().catch(() => false)) {
+    // Which hand the picker is for, read now: the table may have moved on since v was read
+    const hand = await page.evaluate(() => (G && G.pendingDealerChoice ? G.handNumber : null)).catch(() => null);
+    if (hand == null) return null;
     // A test can allow the pick only for one hand number, to set up the deal first
     // (a hand number, or a function of the hand number)
-    if (typeof p.pickHand === 'function' ? !p.pickHand(v?.hand) : (p.pickHand != null && v?.hand !== p.pickHand)) return null;
+    if (typeof p.pickHand === 'function' ? !p.pickHand(hand) : (p.pickHand != null && hand !== p.pickHand)) return null;
     // A test can choose the variant per hand (p.pickVariants = { 3: 'omaha' })
-    const variant = p.pickVariants?.[v?.hand] || 'holdem';
+    const variant = p.pickVariants?.[hand] || 'holdem';
     const btn = page.locator(`button[onclick="dealerPickedVariant('${variant}')"]`);
     await tap(btn.first()); return `picked ${variant}`;
   }
