@@ -983,3 +983,31 @@ test('away (home game): not dealt in until back; a table of one waits, the retur
   assert.equal(t.G.players.find((x) => x.id === 'Cy').hand.length, 2);
   assert.equal(t.G.players.find((x) => x.id === 'Bo').hand.length, 0);
 });
+
+test('away (tournament): when everyone left is Away the table waits; I\'m back deals', () => {
+  const t = table({ names: ['Ace', 'Bo'] });
+  t.deal();
+  t.must('Ace', 'away');
+  t.must('Bo', 'away');
+  t.runout();
+  assert.equal(t.G.stage, 'showdown', 'both Away: the hand plays itself out at once');
+  t.wait(T.RESULT_MAX_MS);
+  assert.equal(t.G.waitingForPlayers, true, 'both Away: nothing dealt ' + JSON.stringify({ st: t.G.stage, h: t.G.handNumber, p: t.G.players.map((p) => [p.id, p.chips, p.awayFromTable]) }));
+  const hand = t.G.handNumber;
+  assert.equal(t.wait(T.RESULT_MAX_MS), false);
+  t.must('Bo', 'sit_back');
+  t.wait(T.RESUME_DEAL_MS);
+  assert.equal(t.G.handNumber, hand + 1, 'Bo back: dealt (Ace, still Away, is checked/folded at once)');
+  assert.equal(t.G.waitingForPlayers, false);
+});
+
+test('quit vs Away: a tournament quitter is marked as having left (no auto-rejoin); a dropped player is not', () => {
+  const t = table(); t.deal();
+  t.must('Cy', 'quit');
+  assert.equal(t.G.players.find((p) => p.id === 'Cy').leftTable, true);
+  t.wait(T.TURN_MS);
+  const timedOut = t.G.players.find((p) => p.awayFromTable && p.id !== 'Cy');
+  if (timedOut) assert.ok(!timedOut.leftTable);
+  t.must('Cy', 'sit_back');
+  assert.equal(t.G.players.find((p) => p.id === 'Cy').leftTable, false);
+});

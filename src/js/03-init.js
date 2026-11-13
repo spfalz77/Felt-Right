@@ -37,7 +37,8 @@ async function init() {
 
     const stillPlaying = (g) => {
       const mine = g.game?.state?.players?.find?.(p => p.id === me.id);
-      return !mine || (!mine.awayFromTable && !mine.eliminated && mine.cashedOutCents == null);
+      // (Away but not quit, e.g. their phone dropped: back to the table, which ends Away)
+      return !mine || (!(mine.awayFromTable && mine.leftTable) && !mine.eliminated && mine.cashedOutCents == null);
     };
     const activeGame = (activeGames || []).find(g => g.game?.status === 'active' && stillPlaying(g));
 

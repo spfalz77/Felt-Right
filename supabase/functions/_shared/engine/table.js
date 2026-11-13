@@ -201,9 +201,10 @@ function dealNewHand(G, ctx) {
     // Home game with one stack left: nothing to deal; the host ends the game.
     return;
   }
-  // Home game: fewer than two players at the table (the rest are away) —
-  // wait; the next one back deals (see sit_back)
-  G.waitingForPlayers = dealable(G).length < 2;
+  // Wait for players to come back (the first one back deals, see sit_back):
+  // home game with fewer than two at the table, or a tournament where
+  // everyone left is Away (it would otherwise play itself out)
+  G.waitingForPlayers = dealable(G).length < 2 || active.every((p) => p.awayFromTable);
   if (G.waitingForPlayers) return;
   if (G.gutsResults && G.gutsResults.progressionEnded === false) { continueGuts(G, ctx); return; }
   G.gutsResults = null;
@@ -502,6 +503,15 @@ function setActor(G, idx, ctx) {
 
 function goAway(G, p) {
   p.awayFromTable = true;
+}
+
+// Back at the table (I'm back, Ready at the break, or rejoining)
+function comeBack(G, p, ctx) {
+  if (!p.awayFromTable) return;
+  p.awayFromTable = false; p.disconnected = false; p.leftTable = false;
+  if (!isBetting(G)) p.lastAction = null;
+  // A table that was waiting for players: deal
+  if (G.waitingForPlayers && !G.paused && !G.breakActive && dealable(G).length >= 2) { G.waitingForPlayers = false; G.nextDealAt = ctx.now + RESUME_DEAL_MS; }
 }
 
 function autoAct(G, p) {
@@ -954,14 +964,7 @@ export function applyAction(G, playerId, action, amount, ctx) {
     return OK;
   }
 
-  if (action === 'sit_back') {
-    if (!p.awayFromTable) return OK;
-    p.awayFromTable = false; p.disconnected = false;
-    if (!isBetting(G)) p.lastAction = null;
-    // Home game that was waiting for a second player: deal
-    if (G.waitingForPlayers && !G.paused && dealable(G).length >= 2) { G.waitingForPlayers = false; G.nextDealAt = ctx.now + RESUME_DEAL_MS; }
-    return OK;
-  }
+  if (action === 'sit_back') { comeBack(G, p, ctx); return OK; }
 
   if (action === 'discard') return discardAction(G, p, amount, ctx);
   if (action === 'draw') return drawAction(G, p, amount, ctx);
@@ -1007,6 +1010,7 @@ export function applyAction(G, playerId, action, amount, ctx) {
       (G.eventLog = G.eventLog || []).push({ kind: 'addon', playerId, playerName: p.name, amount: cost, chipsAdded: chips, hand: G.handNumber });
       return OK;
     }
+    comeBack(G, p, ctx); // tapping Ready says they're here
     if (!G.breakReady.includes(p.id)) G.breakReady.push(p.id);
     if (G.players.filter((x) => !x.eliminated).every((x) => G.breakReady.includes(x.id))) endBreak(G, ctx);
     return OK;
@@ -1141,7 +1145,7 @@ function quit(G, p, ctx) {
     return OK;
   }
   if ((p.chips || 0) <= 0) { sitOut(G, p); p.lastAction = { type: 'quit', label: 'Quit' }; return OK; }
-  p.awayFromTable = true; p.disconnected = true;
+  p.awayFromTable = true; p.disconnected = true; p.leftTable = true; // (left on purpose: no auto-rejoin)
   p.lastAction = { type: 'away', label: 'Away' };
   // Everyone still in has quit: nobody is left to play it out, so it's called off
   if (G.players.filter((x) => !x.eliminated).every((x) => x.awayFromTable)) { abandonGame(G); return OK; }
