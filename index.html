@@ -4765,6 +4765,10 @@ function guestShowGameOver() {
 let _resultShownFor = null;
 function maybeShowHandResult(prevMyChips) {
   if (amHost || !G || G.stage !== 'showdown' || G.variant === 'guts3' || G.tournamentOver) return;
+  // Phone-run games keep stage 'showdown' while the next dealer picks the
+  // variant: that's the picker's screen, not a result
+  if (G.pendingDealerChoice || G.breakActive || G.paused) return;
+  if (isServerGame() && !(G.lastResult && G.lastResult.hand === G.handNumber)) return;
   const key = `${currentGameId}:${G.handNumber}`;
   if (_resultShownFor === key) return;
   _resultShownFor = key;
