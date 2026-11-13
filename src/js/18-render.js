@@ -70,6 +70,41 @@ function playTableSounds() {
   }
 }
 
+// ── TABLE SHAPE AND SEATS ────────────────────────────────────────────────────
+// 2–4 players: the round table, opponents in a row over the far rail.
+// 5–6: an oblong (stadium) table; 7–9: a tall oval. In both, every opponent
+// sits on the rail where they really are, clockwise from my left; I'm at the
+// bottom.
+function tableShapeFor(nPlayers) {
+  if (nPlayers >= 7) return 'oval';
+  if (nPlayers >= 5) return 'oblong';
+  return 'round';
+}
+
+function applyTableShape(shape, ring) {
+  const table = document.querySelector('#screen-game .community-area');
+  const area = document.querySelector('#screen-game .table-area');
+  if (!table || !area) return;
+  table.classList.toggle('shape-oblong', shape === 'oblong');
+  table.classList.toggle('shape-oval', shape === 'oval');
+  area.classList.toggle('seats-on-rail', shape !== 'round');
+  // On the rail the seats live inside the table; in a row, above it
+  if (shape === 'round') { if (ring.parentElement !== area) area.insertBefore(ring, table); }
+  else if (ring.parentElement !== table) table.appendChild(ring);
+}
+
+// Seat k of n on the rail. Angles run clockwise from the bottom (where I sit),
+// leaving a gap around my seat; positions are % of the table box.
+function placeSeatOnRail(div, k, n) {
+  const gap = n >= 6 ? 58 : 50; // degrees kept clear either side of my seat (my cards sit there)
+  const theta = (gap + (360 - 2 * gap) * (n === 1 ? 0.5 : k / (n - 1))) * Math.PI / 180;
+  const x = 50 - 50 * Math.sin(theta) * 1.02;  // clockwise from my left
+  const y = 50 + 50 * Math.cos(theta) * 1.02;
+  div.classList.add('on-rail');
+  div.style.left = `${x}%`;
+  div.style.top = `${y}%`;
+}
+
 // ── RENDER ───────────────────────────────────────────────────────────────────
 function renderGame() {
   playTableSounds();
@@ -222,7 +257,14 @@ function renderGame() {
   // Opponents ring
   const ring = document.getElementById('opponents-ring');
   ring.innerHTML = '';
-  G.players.filter(p => p.id !== me.id).forEach(p => {
+  // Seating order: clockwise from my left, so each seat is where that player
+  // really sits relative to me
+  const meSeat = G.players.findIndex(p => p.id === me.id);
+  const opponents = meSeat < 0 ? G.players.slice()
+    : [...G.players.slice(meSeat + 1), ...G.players.slice(0, meSeat)];
+  const shape = tableShapeFor(opponents.length + (meSeat < 0 ? 0 : 1));
+  applyTableShape(shape, ring);
+  opponents.forEach((p, seatNo) => {
     const pIdx = G.players.indexOf(p);
     const isActive = G.actionIndex >= 0 && G.players[G.actionIndex]?.id === p.id;
     const div = document.createElement('div');
@@ -266,13 +308,14 @@ function renderGame() {
       ${p.bet > 0 ? `<div class="bet-chip-front" title="In front: ${p.bet}">
         <span class="chip-icon">●</span> ${formatChipsCompact(p.bet)}
       </div>` : ''}
-      ${p.disconnected ? `<div class="action-bubble" style="color:var(--text-dim);font-size:0.6rem">📡 Away</div>`
+      ${p.disconnected || p.awayFromTable ? `<div class="action-bubble" style="color:var(--text-dim);font-size:0.6rem">📡 Away</div>`
         : p.allIn ? `<div class="action-bubble bet" style="background:rgba(231,76,60,0.25);color:#e74c3c;border:1px solid rgba(231,76,60,0.3)">All-In</div>`
         : p.lastAction ? `<div class="action-bubble ${p.lastAction.type}">${p.lastAction.label}</div>` : ''}
     `;
     // Wire the nudge handler
     const av = div.querySelector('.nudge-avatar');
     if (av) av.onclick = (e) => { e.stopPropagation(); nudgePlayer(p.id, p.name); };
+    if (shape !== 'round') placeSeatOnRail(div, seatNo, opponents.length);
     ring.appendChild(div);
   });
 
@@ -390,6 +433,23 @@ function renderActionBar() {
   if (!myPlayer || myPlayer.eliminated) {
     bar.innerHTML = `<div class="waiting-msg" style="width:100%;padding:8px 0">Eliminated</div>`;
     slider.style.display = 'none';
+    return;
+  }
+
+  // Away (server games): no betting buttons, just the way back
+  if (isServerGame() && myPlayer.awayFromTable) {
+    const home = getFormatConfig().moneyMode;
+    bar.innerHTML = `
+      <div style="grid-column:1/-1;text-align:center;padding:6px 4px 2px">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:1.1rem;letter-spacing:0.08em;color:var(--gold-pale)">You're away</div>
+        <div style="font-size:0.78rem;color:var(--text-dim);margin:2px 0 8px">${home
+          ? "You won't be dealt in until you're back."
+          : 'Your turns are checked or folded right away.'}</div>
+      </div>
+      <button class="btn btn-primary btn-full" onclick="imBack()">I'm back</button>`;
+    slider.style.display = 'none';
+    const autoBar = document.getElementById('auto-action-bar');
+    if (autoBar) autoBar.innerHTML = '';
     return;
   }
 

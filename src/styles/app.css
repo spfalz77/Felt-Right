@@ -680,3 +680,53 @@ h3 { font-size: 1rem; font-weight: 600; }
   .my-cards .card.lg .card-center { font-size: 1.9rem; }
   .my-hand-area { margin-top: -24px; gap: 4px; }
 }
+
+/* ═══ BIGGER TABLES: OBLONG (5–6 PLAYERS), OVAL (7–9) ═══════════════════════
+   Seats sit on the rail around the table (placed by placeSeatOnRail); the
+   table narrows so the side seats straddle the rail, and grows taller so the
+   seats above and below the board have room. */
+.table-area.seats-on-rail > .community-area { margin: 30px 34px 0; position: relative; }
+.community-area.shape-oblong { border-radius: 96px; height: min(50vh, 400px); }
+.community-area.shape-oval   { border-radius: 50% / 50%; height: min(58vh, 470px); }
+.table-area.seats-on-rail > .my-hand-area { margin-top: -26px; }
+.table-area.seats-on-rail .opponents-ring {
+  position: absolute; inset: 0; margin: 0; padding: 0; display: block; pointer-events: none;
+}
+.player-seat.on-rail {
+  position: absolute; transform: translate(-50%, -50%);
+  width: 64px; min-width: 0; max-width: none; gap: 1px; pointer-events: auto;
+  /* compact: cards tucked behind the avatar, name and stack on two short lines */
+  display: grid; grid-template-areas: "cards" "av" "name" "chips" "act";
+  justify-items: center;
+}
+.player-seat.on-rail .hole-cards { grid-area: cards; margin-bottom: -10px; position: relative; z-index: 0; }
+.player-seat.on-rail .hole-cards .card.sm { width: 20px; height: 29px; border-radius: 3px; }
+.player-seat.on-rail .hole-cards .card.showdown-card { width: 24px; height: 34px; }
+.player-seat.on-rail .hole-cards .card.showdown-card .card-rank { font-size: 0.7rem; }
+.player-seat.on-rail .hole-cards .card.showdown-card .card-suit,
+.player-seat.on-rail .hole-cards .card.showdown-card .card-bot { display: none; }
+.player-seat.on-rail .hole-cards .card.showdown-card .card-center { font-size: 0.85rem; }
+.player-seat.on-rail > div:nth-child(2) { grid-area: av; position: relative; z-index: 1; }
+.player-seat.on-rail .name { grid-area: name; font-size: 0.6rem; line-height: 1.1;
+  background: rgba(0,0,0,0.55); padding: 1px 5px; border-radius: 6px; width: auto; max-width: 64px; }
+.player-seat.on-rail .chips-count { grid-area: chips; font-size: 0.78rem; line-height: 1; text-shadow: 0 1px 3px #000; }
+.player-seat.on-rail .action-bubble { grid-area: act; font-size: 0.55rem; padding: 1px 5px; }
+.player-seat.on-rail .bet-chip-front { position: absolute; top: 100%; font-size: 0.6rem; padding: 1px 6px; white-space: nowrap; }
+/* the board shrinks a little so it clears the seats */
+.community-area.shape-oblong .community-cards .card,
+.community-area.shape-oval .community-cards .card { max-width: 44px; max-height: 63px; }
+.community-area.shape-oblong .community-cards .card .card-center,
+.community-area.shape-oval .community-cards .card .card-center { font-size: 1.15rem; }
+.community-area.shape-oblong .community-cards .card .card-rank,
+.community-area.shape-oval .community-cards .card .card-rank { font-size: 0.95rem; }
+.community-area.shape-oblong .burn-stack, .community-area.shape-oval .burn-stack { display: none !important; }
+/* (room above the table for the far seats; my hand a little smaller so the near seats stay clear) */
+.table-area.seats-on-rail > .community-area { margin: 54px 34px 0; }
+.table-area.seats-on-rail > .community-area.shape-oblong { margin-top: 46px; }
+.table-area.seats-on-rail .my-cards .card.lg { width: 66px; height: 95px; }
+.table-area.seats-on-rail .my-cards .card.lg .card-center { font-size: 2.05rem; }
+.table-area.seats-on-rail .my-cards .card.lg .card-rank { font-size: 1.45rem; }
+/* (short phones: the oblong/oval keep their shape and the table scrolls, rather than squashing the seats together) */
+.table-area.seats-on-rail > .community-area { flex-shrink: 0; }
+.community-area.shape-oblong { min-height: 300px; }
+.community-area.shape-oval { min-height: 360px; }

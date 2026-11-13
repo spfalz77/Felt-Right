@@ -702,6 +702,56 @@ h3 { font-size: 1rem; font-weight: 600; }
   .my-cards .card.lg .card-center { font-size: 1.9rem; }
   .my-hand-area { margin-top: -24px; gap: 4px; }
 }
+
+/* ═══ BIGGER TABLES: OBLONG (5–6 PLAYERS), OVAL (7–9) ═══════════════════════
+   Seats sit on the rail around the table (placed by placeSeatOnRail); the
+   table narrows so the side seats straddle the rail, and grows taller so the
+   seats above and below the board have room. */
+.table-area.seats-on-rail > .community-area { margin: 30px 34px 0; position: relative; }
+.community-area.shape-oblong { border-radius: 96px; height: min(50vh, 400px); }
+.community-area.shape-oval   { border-radius: 50% / 50%; height: min(58vh, 470px); }
+.table-area.seats-on-rail > .my-hand-area { margin-top: -26px; }
+.table-area.seats-on-rail .opponents-ring {
+  position: absolute; inset: 0; margin: 0; padding: 0; display: block; pointer-events: none;
+}
+.player-seat.on-rail {
+  position: absolute; transform: translate(-50%, -50%);
+  width: 64px; min-width: 0; max-width: none; gap: 1px; pointer-events: auto;
+  /* compact: cards tucked behind the avatar, name and stack on two short lines */
+  display: grid; grid-template-areas: "cards" "av" "name" "chips" "act";
+  justify-items: center;
+}
+.player-seat.on-rail .hole-cards { grid-area: cards; margin-bottom: -10px; position: relative; z-index: 0; }
+.player-seat.on-rail .hole-cards .card.sm { width: 20px; height: 29px; border-radius: 3px; }
+.player-seat.on-rail .hole-cards .card.showdown-card { width: 24px; height: 34px; }
+.player-seat.on-rail .hole-cards .card.showdown-card .card-rank { font-size: 0.7rem; }
+.player-seat.on-rail .hole-cards .card.showdown-card .card-suit,
+.player-seat.on-rail .hole-cards .card.showdown-card .card-bot { display: none; }
+.player-seat.on-rail .hole-cards .card.showdown-card .card-center { font-size: 0.85rem; }
+.player-seat.on-rail > div:nth-child(2) { grid-area: av; position: relative; z-index: 1; }
+.player-seat.on-rail .name { grid-area: name; font-size: 0.6rem; line-height: 1.1;
+  background: rgba(0,0,0,0.55); padding: 1px 5px; border-radius: 6px; width: auto; max-width: 64px; }
+.player-seat.on-rail .chips-count { grid-area: chips; font-size: 0.78rem; line-height: 1; text-shadow: 0 1px 3px #000; }
+.player-seat.on-rail .action-bubble { grid-area: act; font-size: 0.55rem; padding: 1px 5px; }
+.player-seat.on-rail .bet-chip-front { position: absolute; top: 100%; font-size: 0.6rem; padding: 1px 6px; white-space: nowrap; }
+/* the board shrinks a little so it clears the seats */
+.community-area.shape-oblong .community-cards .card,
+.community-area.shape-oval .community-cards .card { max-width: 44px; max-height: 63px; }
+.community-area.shape-oblong .community-cards .card .card-center,
+.community-area.shape-oval .community-cards .card .card-center { font-size: 1.15rem; }
+.community-area.shape-oblong .community-cards .card .card-rank,
+.community-area.shape-oval .community-cards .card .card-rank { font-size: 0.95rem; }
+.community-area.shape-oblong .burn-stack, .community-area.shape-oval .burn-stack { display: none !important; }
+/* (room above the table for the far seats; my hand a little smaller so the near seats stay clear) */
+.table-area.seats-on-rail > .community-area { margin: 54px 34px 0; }
+.table-area.seats-on-rail > .community-area.shape-oblong { margin-top: 46px; }
+.table-area.seats-on-rail .my-cards .card.lg { width: 66px; height: 95px; }
+.table-area.seats-on-rail .my-cards .card.lg .card-center { font-size: 2.05rem; }
+.table-area.seats-on-rail .my-cards .card.lg .card-rank { font-size: 1.45rem; }
+/* (short phones: the oblong/oval keep their shape and the table scrolls, rather than squashing the seats together) */
+.table-area.seats-on-rail > .community-area { flex-shrink: 0; }
+.community-area.shape-oblong { min-height: 300px; }
+.community-area.shape-oval { min-height: 360px; }
 </style>
 <script>
 // Capture console output from the very start, before any other script runs
@@ -1995,7 +2045,8 @@ async function init() {
 
     const stillPlaying = (g) => {
       const mine = g.game?.state?.players?.find?.(p => p.id === me.id);
-      return !mine || (!mine.awayFromTable && !mine.eliminated && mine.cashedOutCents == null);
+      // (Away but not quit, e.g. their phone dropped: back to the table, which ends Away)
+      return !mine || (!(mine.awayFromTable && mine.leftTable) && !mine.eliminated && mine.cashedOutCents == null);
     };
     const activeGame = (activeGames || []).find(g => g.game?.status === 'active' && stillPlaying(g));
 
@@ -5492,6 +5543,41 @@ function playTableSounds() {
   }
 }
 
+// ── TABLE SHAPE AND SEATS ────────────────────────────────────────────────────
+// 2–4 players: the round table, opponents in a row over the far rail.
+// 5–6: an oblong (stadium) table; 7–9: a tall oval. In both, every opponent
+// sits on the rail where they really are, clockwise from my left; I'm at the
+// bottom.
+function tableShapeFor(nPlayers) {
+  if (nPlayers >= 7) return 'oval';
+  if (nPlayers >= 5) return 'oblong';
+  return 'round';
+}
+
+function applyTableShape(shape, ring) {
+  const table = document.querySelector('#screen-game .community-area');
+  const area = document.querySelector('#screen-game .table-area');
+  if (!table || !area) return;
+  table.classList.toggle('shape-oblong', shape === 'oblong');
+  table.classList.toggle('shape-oval', shape === 'oval');
+  area.classList.toggle('seats-on-rail', shape !== 'round');
+  // On the rail the seats live inside the table; in a row, above it
+  if (shape === 'round') { if (ring.parentElement !== area) area.insertBefore(ring, table); }
+  else if (ring.parentElement !== table) table.appendChild(ring);
+}
+
+// Seat k of n on the rail. Angles run clockwise from the bottom (where I sit),
+// leaving a gap around my seat; positions are % of the table box.
+function placeSeatOnRail(div, k, n) {
+  const gap = n >= 6 ? 58 : 50; // degrees kept clear either side of my seat (my cards sit there)
+  const theta = (gap + (360 - 2 * gap) * (n === 1 ? 0.5 : k / (n - 1))) * Math.PI / 180;
+  const x = 50 - 50 * Math.sin(theta) * 1.02;  // clockwise from my left
+  const y = 50 + 50 * Math.cos(theta) * 1.02;
+  div.classList.add('on-rail');
+  div.style.left = `${x}%`;
+  div.style.top = `${y}%`;
+}
+
 // ── RENDER ───────────────────────────────────────────────────────────────────
 function renderGame() {
   playTableSounds();
@@ -5644,7 +5730,14 @@ function renderGame() {
   // Opponents ring
   const ring = document.getElementById('opponents-ring');
   ring.innerHTML = '';
-  G.players.filter(p => p.id !== me.id).forEach(p => {
+  // Seating order: clockwise from my left, so each seat is where that player
+  // really sits relative to me
+  const meSeat = G.players.findIndex(p => p.id === me.id);
+  const opponents = meSeat < 0 ? G.players.slice()
+    : [...G.players.slice(meSeat + 1), ...G.players.slice(0, meSeat)];
+  const shape = tableShapeFor(opponents.length + (meSeat < 0 ? 0 : 1));
+  applyTableShape(shape, ring);
+  opponents.forEach((p, seatNo) => {
     const pIdx = G.players.indexOf(p);
     const isActive = G.actionIndex >= 0 && G.players[G.actionIndex]?.id === p.id;
     const div = document.createElement('div');
@@ -5688,13 +5781,14 @@ function renderGame() {
       ${p.bet > 0 ? `<div class="bet-chip-front" title="In front: ${p.bet}">
         <span class="chip-icon">●</span> ${formatChipsCompact(p.bet)}
       </div>` : ''}
-      ${p.disconnected ? `<div class="action-bubble" style="color:var(--text-dim);font-size:0.6rem">📡 Away</div>`
+      ${p.disconnected || p.awayFromTable ? `<div class="action-bubble" style="color:var(--text-dim);font-size:0.6rem">📡 Away</div>`
         : p.allIn ? `<div class="action-bubble bet" style="background:rgba(231,76,60,0.25);color:#e74c3c;border:1px solid rgba(231,76,60,0.3)">All-In</div>`
         : p.lastAction ? `<div class="action-bubble ${p.lastAction.type}">${p.lastAction.label}</div>` : ''}
     `;
     // Wire the nudge handler
     const av = div.querySelector('.nudge-avatar');
     if (av) av.onclick = (e) => { e.stopPropagation(); nudgePlayer(p.id, p.name); };
+    if (shape !== 'round') placeSeatOnRail(div, seatNo, opponents.length);
     ring.appendChild(div);
   });
 
@@ -5812,6 +5906,23 @@ function renderActionBar() {
   if (!myPlayer || myPlayer.eliminated) {
     bar.innerHTML = `<div class="waiting-msg" style="width:100%;padding:8px 0">Eliminated</div>`;
     slider.style.display = 'none';
+    return;
+  }
+
+  // Away (server games): no betting buttons, just the way back
+  if (isServerGame() && myPlayer.awayFromTable) {
+    const home = getFormatConfig().moneyMode;
+    bar.innerHTML = `
+      <div style="grid-column:1/-1;text-align:center;padding:6px 4px 2px">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:1.1rem;letter-spacing:0.08em;color:var(--gold-pale)">You're away</div>
+        <div style="font-size:0.78rem;color:var(--text-dim);margin:2px 0 8px">${home
+          ? "You won't be dealt in until you're back."
+          : 'Your turns are checked or folded right away.'}</div>
+      </div>
+      <button class="btn btn-primary btn-full" onclick="imBack()">I'm back</button>`;
+    slider.style.display = 'none';
+    const autoBar = document.getElementById('auto-action-bar');
+    if (autoBar) autoBar.innerHTML = '';
     return;
   }
 
@@ -6080,6 +6191,17 @@ function renderAutoActionBar() {
       pressTimer = setTimeout(() => {
         if (!pressed) return;
         // Long-press fired — confirm
+        if (isServerGame()) {
+          // Server games: Away until you tap I'm back (tournament: auto check/fold
+          // at once; home game: not dealt in)
+          const home = getFormatConfig().moneyMode;
+          if (confirm(home ? "Step away? You won't be dealt in until you tap I'm back."
+            : "Step away? Your turns will be checked or folded right away until you tap I'm back.")) {
+            if (navigator.vibrate) navigator.vibrate(40);
+            callTable(currentGameId, 'away').then(({ error }) => { if (error) toast(error); });
+          }
+          return;
+        }
         if (confirm('Set yourself to Away mode? You will auto check or fold for the rest of this hand.')) {
           _autoAction = 'check_fold';
           if (navigator.vibrate) navigator.vibrate(40);
@@ -6130,6 +6252,12 @@ function updateTimerDisplay(left, total, numEl, arcEl) {
   arcEl.style.stroke = left > 15 ? 'var(--gold)' : left > 8 ? '#e67e22' : 'var(--red-light)';
 }
 
+
+// Server games: back from Away
+function imBack() {
+  if (!isServerGame() || !currentGameId) return;
+  callTable(currentGameId, 'sit_back').then(({ error }) => { if (error) toast(error); else toast("Welcome back"); });
+}
 // ── PLAYER ACTIONS ───────────────────────────────────────────────────────────
 function returnUncalledBets() {
   // After a betting round, if the highest bettor's bet wasn't matched by anyone

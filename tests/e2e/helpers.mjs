@@ -276,6 +276,12 @@ export async function botStep(p, strategy = () => 'checkcall') {
     }
     return (await tap(page.locator('#draw-submit'))) && `draw ${m[1] || 'none'}`;
   }
+  // Away (timed out, or the phone dropped): a bot that means to play taps I'm back
+  const back = page.locator('#action-bar button[onclick="imBack()"]');
+  if (v && strategy(v) !== 'idle' && await back.count()) {
+    if (Date.now() - (p.backAt || 0) > 2_000) { p.backAt = Date.now(); await tap(back.first()); return "I'm back"; }
+    return null;
+  }
   if (!v || !v.myTurn || !['preflop', 'flop', 'turn', 'river'].includes(v.stage)) return null;
   const plan = strategy(v);
   if (plan === 'idle') return null; // leave the phone alone (timer tests)

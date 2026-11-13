@@ -125,6 +125,17 @@ function renderAutoActionBar() {
       pressTimer = setTimeout(() => {
         if (!pressed) return;
         // Long-press fired — confirm
+        if (isServerGame()) {
+          // Server games: Away until you tap I'm back (tournament: auto check/fold
+          // at once; home game: not dealt in)
+          const home = getFormatConfig().moneyMode;
+          if (confirm(home ? "Step away? You won't be dealt in until you tap I'm back."
+            : "Step away? Your turns will be checked or folded right away until you tap I'm back.")) {
+            if (navigator.vibrate) navigator.vibrate(40);
+            callTable(currentGameId, 'away').then(({ error }) => { if (error) toast(error); });
+          }
+          return;
+        }
         if (confirm('Set yourself to Away mode? You will auto check or fold for the rest of this hand.')) {
           _autoAction = 'check_fold';
           if (navigator.vibrate) navigator.vibrate(40);
@@ -175,3 +186,9 @@ function updateTimerDisplay(left, total, numEl, arcEl) {
   arcEl.style.stroke = left > 15 ? 'var(--gold)' : left > 8 ? '#e67e22' : 'var(--red-light)';
 }
 
+
+// Server games: back from Away
+function imBack() {
+  if (!isServerGame() || !currentGameId) return;
+  callTable(currentGameId, 'sit_back').then(({ error }) => { if (error) toast(error); else toast("Welcome back"); });
+}
