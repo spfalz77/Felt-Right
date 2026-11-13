@@ -31,6 +31,11 @@ jobs:
           java-version: 21
           cache: gradle
       - run: npm ci
+      - name: Firebase config for push (if the GOOGLE_SERVICES_JSON secret is set)
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then printf '%s' "$GOOGLE_SERVICES_JSON" > android/app/google-services.json; echo "Push: on"; else echo "Push: off (no GOOGLE_SERVICES_JSON secret)"; fi
       - name: Build web bundle and copy into the Android project
         run: npm run build:app && npx cap sync android
       - name: Build APK

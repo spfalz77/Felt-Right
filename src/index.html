@@ -226,6 +226,17 @@
       </div>
     </div>
 
+    <!-- Offer notifications once (42-push.js) -->
+    <div id="push-lobby-card" style="display:none;align-items:center;gap:10px;margin:10px 16px 0;padding:10px 12px;
+      background:rgba(212,168,67,0.08);border:1px solid var(--gold-dim);border-radius:10px">
+      <div style="flex:1;font-size:0.8rem;line-height:1.35">
+        <div style="font-weight:600">Get a buzz when it's go time</div>
+        <div style="color:var(--text-dim);font-size:0.72rem">When the game starts and when it's your turn</div>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="onPushLobbyTurnOn()">Turn on</button>
+      <button onclick="dismissPushLobbyCard()" aria-label="Not now" style="background:none;border:none;color:var(--text-dim);font-size:1rem;cursor:pointer;padding:4px">✕</button>
+    </div>
+
     <!-- Leave button — uses native link for bulletproof navigation -->
     <div style="padding:10px 16px 0">
       <a id="lobby-leave-btn" href="#" onclick="leaveLobby();return false;"
@@ -514,7 +525,7 @@
       <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0">
         <div>
           <div style="font-size:0.88rem">Notifications</div>
-          <div style="font-size:0.72rem;color:var(--text-dim);margin-top:2px">Push alerts when it's your turn or someone nudges you</div>
+          <div style="font-size:0.72rem;color:var(--text-dim);margin-top:2px">Game starting, your turn, set Away, and nudges</div>
         </div>
         <button id="notif-toggle-btn" onclick="toggleNotifications()" style="background:none;border:1px solid var(--gold-dim);
           color:var(--gold);padding:6px 16px;border-radius:6px;cursor:pointer;font-size:0.85rem;min-width:60px">On</button>

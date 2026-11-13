@@ -1020,3 +1020,52 @@ test('a tournament is called off only when everyone left has quit, not when the 
   t.must('Bo', 'quit');
   assert.equal(t.G.abandoned, true);
 });
+
+// ── Notifications (notify.js) ──────────────────────────────────────────────
+import * as N from '../supabase/functions/_shared/engine/notify.js';
+
+test('notify: the first actor of a hand gets "your turn"; the one who just acted does not', () => {
+  const t = table();
+  let snap = N.notifySnapshot(t.G);
+  t.wait(T.FIRST_DEAL_MS);
+  let ev = N.notifyEvents(snap, t.G, null);
+  assert.deepEqual(ev.map((e) => [e.userId, e.kind]), [[t.actor(), 'your_turn']]);
+  // Nothing new on a tick that changes nothing
+  snap = N.notifySnapshot(t.G);
+  assert.deepEqual(N.notifyEvents(snap, t.G, null), []);
+  // A move: the next player is told, the mover isn't
+  const mover = t.actor();
+  snap = N.notifySnapshot(t.G);
+  t.must(mover, checkCall(t)());
+  ev = N.notifyEvents(snap, t.G, mover);
+  assert.deepEqual(ev.map((e) => [e.userId, e.kind]), [[t.actor(), 'your_turn']]);
+  assert.notEqual(t.actor(), mover);
+});
+
+test('notify: timing out sets you Away (told once); stepping away yourself is not notified', () => {
+  const t = table();
+  t.deal();
+  const slow = t.actor();
+  const snap = N.notifySnapshot(t.G);
+  t.wait(T.TURN_MS);
+  const ev = N.notifyEvents(snap, t.G, null);
+  assert.ok(ev.some((e) => e.userId === slow && e.kind === 'set_away'));
+  assert.ok(!ev.some((e) => e.userId === slow && e.kind === 'your_turn'));
+  // Away players are never told it's their turn
+  assert.equal(N.waitingOn(t.G)[slow], undefined);
+  // Own choice: no notification
+  const other = t.G.players.find((p) => p.id !== slow && !p.awayFromTable).id;
+  const snap2 = N.notifySnapshot(t.G);
+  t.must(other, 'away');
+  assert.ok(!N.notifyEvents(snap2, t.G, other).some((e) => e.userId === other));
+});
+
+test('notify: dealer\'s choice asks the dealer to pick', () => {
+  const t = table({ format: 'home' });
+  const snap = N.notifySnapshot(t.G);
+  t.wait(T.FIRST_DEAL_MS);
+  assert.ok(t.G.pendingDealerChoice);
+  const ev = N.notifyEvents(snap, t.G, null);
+  assert.deepEqual(ev.map((e) => [e.userId, e.kind, e.key]), [[t.G.dealerId, 'your_turn', `choose:${t.G.handNumber}`]]);
+  assert.equal(N.notifyText('your_turn', t.G).body, 'Pick the game for this hand.');
+});

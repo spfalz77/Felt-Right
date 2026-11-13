@@ -12,11 +12,17 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import * as T from "../_shared/engine/table.js";
 import { tournamentLedger } from "../_shared/engine/payouts.js";
+import * as N from "../_shared/engine/notify.js";
+import { sendWebPush, sendFcm, b64url } from "../_shared/push.js";
 
 const URL_ = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 // Test hooks (scripted deals, clock offset) exist only on the local test stack
 const TEST_HOOKS = Deno.env.get("ALLOW_TEST_HOOKS") === "1";
+// Push notifications. Web Push keys are made on first use (Vault); Android/
+// iPhone pushes need FCM_SERVICE_ACCOUNT (a Firebase service account's JSON).
+const PUBLIC_APP_URL = Deno.env.get("PUBLIC_APP_URL") || "https://spfalz77.github.io/Felt-Right/";
+const PUSH_SUBJECT = Deno.env.get("PUSH_SUBJECT") || "mailto:feltright@users.noreply.github.com";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -72,6 +78,8 @@ Deno.serve(async (req) => {
 
     const body = await req.json().catch(() => ({}));
     const { game_id, action, amount, settings } = body ?? {};
+    // The Web Push public key, for a phone turning notifications on
+    if (action === "push_key") return json({ ok: true, key: (await vapidKeys()).publicKey });
     if (typeof game_id !== "string" || typeof action !== "string") return json({ error: "game_id and action are required" }, 400);
 
     const { data: game } = await admin.from("games")
@@ -93,6 +101,7 @@ Deno.serve(async (req) => {
       };
       const dealBefore = G.dealSeq;
       const wasOver = !!G.tournamentOver;
+      const before = N.notifySnapshot(G);
 
       let changed = true;
       if (action === "tick") {
@@ -129,6 +138,7 @@ Deno.serve(async (req) => {
         if (error) console.error("settle_home_game_ledger", error);
       }
       if (recordLedger) await writeTournamentLedger(game_id, G);
+      inBackground(notify(game_id, G, N.notifyEvents(before, G, action === "tick" ? null : userId)));
       // `now` (server clock) lets phones judge deadlines on the server's time
       return json({ ok: true, changed: true, version: row.version + 1, now: ctx.now });
     }
@@ -209,6 +219,8 @@ async function start(
   });
   if (error) throw error;
   if (!saved) return json({ error: "game already started" }, 409);
+  inBackground(notify(game.id, G, G.players.filter((p: { id: string }) => p.id !== userId)
+    .map((p: { id: string }) => ({ userId: p.id, kind: "game_start", key: "start" }))));
   // After the game exists (an earlier update would reach phones with an empty state)
   await admin.from("games").update({
     blind_config: { levels: G.blindLevels, duration: G.blindDuration, rebuys_enabled: G.rebuysEnabled },
@@ -234,6 +246,7 @@ async function tickAll() {
     };
     const dealBefore = G.dealSeq;
     const wasOver = !!G.tournamentOver;
+    const before = N.notifySnapshot(G);
     if (!T.tick(G, ctx)) continue;
     G.v = r.version + 1;
     const recordLedger = endsTournament(G, wasOver);
@@ -244,6 +257,78 @@ async function tickAll() {
     if (saved) ticked++; // a conflict means a phone just moved the table; fine
     if (saved && ctx.effects.settle) await admin.rpc("settle_home_game_ledger", { p_game_id: r.game_id });
     if (saved && recordLedger) await writeTournamentLedger(r.game_id, G);
+    if (saved) await notify(r.game_id, G, N.notifyEvents(before, G, null));
   }
   return { ok: true, games: (rows || []).length, ticked };
+}
+
+// ── Push notifications ─────────────────────────────────────────────────────
+
+// Finish work after the response is sent (the phone doesn't wait for pushes)
+function inBackground(p: Promise<unknown>) {
+  const done = p.catch((e) => console.error("push", e));
+  // deno-lint-ignore no-explicit-any
+  const rt = (globalThis as any).EdgeRuntime;
+  if (rt?.waitUntil) rt.waitUntil(done);
+}
+
+// Web Push key pair: made once, kept in Vault
+let _vapid: { jwk: JsonWebKey; publicKey: string } | null = null;
+async function vapidKeys() {
+  if (_vapid) return _vapid;
+  const { data: stored } = await admin.rpc("push_vapid_keys");
+  let text = typeof stored === "string" ? stored : "";
+  if (!text) {
+    const kp = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
+    const jwk = await crypto.subtle.exportKey("jwk", kp.privateKey);
+    const { data, error } = await admin.rpc("push_set_vapid_keys", { p_jwk: JSON.stringify(jwk) });
+    if (error) throw error;
+    text = data as string;
+  }
+  const jwk = JSON.parse(text);
+  const raw = new Uint8Array(65);
+  raw[0] = 4;
+  raw.set(Uint8Array.from(atob(jwk.x.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0)), 1);
+  raw.set(Uint8Array.from(atob(jwk.y.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0)), 33);
+  _vapid = { jwk, publicKey: b64url(raw) };
+  return _vapid;
+}
+
+let _fcm: Record<string, string> | null | undefined;
+function fcmAccount() {
+  if (_fcm === undefined) {
+    try { _fcm = JSON.parse(Deno.env.get("FCM_SERVICE_ACCOUNT") || "null"); } catch { _fcm = null; }
+  }
+  return _fcm;
+}
+
+type PushEvent = { userId: string; kind: string; key: string };
+// deno-lint-ignore no-explicit-any
+async function notify(gameId: string, G: any, events: PushEvent[]) {
+  if (!events.length) return;
+  const ids = [...new Set(events.map((e) => e.userId))];
+  const { data: tokens } = await admin.from("push_tokens").select("id, user_id, platform, token, subscription").in("user_id", ids);
+  if (!tokens?.length) return;
+  const gone: string[] = [];
+  await Promise.all(events.flatMap((e) => {
+    const tag = `${e.kind === "set_away" ? "away" : e.kind === "game_start" ? "start" : "turn"}-${gameId}`;
+    const ttl = e.kind === "game_start" ? 600 : 120;
+    const message = { ...N.notifyText(e.kind, G), tag, url: PUBLIC_APP_URL, gameId, kind: e.kind };
+    // deno-lint-ignore no-explicit-any
+    return tokens.filter((t: any) => t.user_id === e.userId).map(async (t: any) => {
+      try {
+        let r;
+        if (t.platform === "web") {
+          r = await sendWebPush(t.subscription, message, { vapidJwk: (await vapidKeys()).jwk, subject: PUSH_SUBJECT, ttl, topic: tag });
+        } else {
+          const sa = fcmAccount();
+          if (!sa) return;
+          r = await sendFcm(sa, t.token, message, { ttl });
+        }
+        if (r.gone) gone.push(t.id);
+        else if (!r.ok) console.error("push failed", t.platform, r.status, r.error);
+      } catch (err) { console.error("push", t.platform, err); }
+    });
+  }));
+  if (gone.length) await admin.from("push_tokens").delete().in("id", gone);
 }
