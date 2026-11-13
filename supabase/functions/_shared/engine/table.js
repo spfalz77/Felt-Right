@@ -12,11 +12,14 @@
 // Nothing here touches the network, the DOM or the clock.
 
 import { makeDeck, evalBest, evalBest3Card, cmpScore, autoDiscardIndex, bringInKey, showingScore, cmpShowing } from './cards.js';
-import { FORMATS, VARIANTS, DISCARD_SECONDS, DRAW_SECONDS, blindsAt } from './config.js';
+import { FORMATS, VARIANTS, DISCARD_SECONDS, DRAW_SECONDS, RUNOUT_CARD_SECONDS, RESULT_MAX_SECONDS, blindsAt } from './config.js';
 import { buildSidePots } from './side-pots.js';
 
 export const FIRST_DEAL_MS = 2000;          // start → first hand
-export const NEXT_HAND_MS = 6000;           // result on screen → next hand
+export const NEXT_HAND_MS = 6000;           // Guts result on screen → next roll/hand
+export const RESULT_MAX_MS = RESULT_MAX_SECONDS * 1000; // a hand's result stays up until everyone taps OK, or this long
+export const RESULT_ACK_DEAL_MS = 1500;     // everyone tapped OK → next hand
+export const RUNOUT_CARD_MS = RUNOUT_CARD_SECONDS * 1000; // all-in runout: one card every 4s
 export const DEALER_CHOICE_MS = 25000;      // dealer picks the variant, else Hold'em
 export const REBUY_DECISION_MS = 60000;     // busted player: re-buy or sit out, else sat out
 export const RESUME_DEAL_MS = 1500;         // pause/break over → next hand
@@ -100,7 +103,7 @@ export function redact(G) {
   const isGuts = (VARIANTS[G.variant] || {}).style === 'guts';
   out.players.forEach((p, i) => {
     const src = G.players[i];
-    const show = G.stage === 'showdown' && (isGuts
+    const show = (G.stage === 'showdown' || G.stage === 'runout') && (isGuts
       ? gutsShown.has(src.id)
       : !src.folded && !src.eliminated && !G.wonByFold);
     // (5-card stud: face-up cards stay visible while the player is in the hand)
@@ -187,6 +190,7 @@ function rotateDealer(G, ctx) {
 
 function dealNewHand(G, ctx) {
   G.nextDealAt = null;
+  G.resultAcks = {};
   const active = G.players.filter((p) => !p.eliminated && p.chips > 0);
   if (active.length < 2) {
     if (!fmt(G).moneyMode) endTournament(G);
@@ -467,7 +471,9 @@ function resolveGuts(G, ctx) {
 
 // End of a hand (any variant): queue the next deal, or pause if one was asked for
 function afterHand(G, ctx) {
-  G.nextDealAt = ctx.now + NEXT_HAND_MS;
+  // Guts rolls on quickly; any other hand's result waits for everyone's OK
+  G.resultAcks = {};
+  G.nextDealAt = ctx.now + (styleOf(G) === 'guts' ? NEXT_HAND_MS : RESULT_MAX_MS);
   if (G.pauseQueued) { G.pauseQueued = false; G.paused = true; G.nextDealAt = null; }
 }
 
@@ -489,6 +495,16 @@ function setActor(G, idx, ctx) {
 function autoAct(G, p) {
   if (G.currentBet > p.bet) { p.folded = true; p.lastAction = { type: 'fold', label: 'Away' }; }
   else p.lastAction = { type: 'check', label: 'Away' };
+  recordMove(G, p);
+}
+
+// The last few bets/checks/folds, numbered, so every phone can play the right
+// sound for each one even when a street closes (and lastAction resets) in the
+// same save as the move that closed it.
+function recordMove(G, p) {
+  G.moveSeq = (G.moveSeq || 0) + 1;
+  const m = { seq: G.moveSeq, id: p.id, type: p.lastAction ? p.lastAction.type : null, label: p.lastAction ? p.lastAction.label : '' };
+  G.recentMoves = [...(G.recentMoves || []), m].slice(-8);
 }
 
 function returnUncalledBets(G) {
@@ -567,12 +583,7 @@ function firstToActAfterDealer(G, ctx) {
 function runOutToShowdown(G, ctx) {
   returnUncalledBets(G);
   const style = styleOf(G);
-  if (style === 'stud') {
-    G.players.forEach((p) => { p.bet = 0; });
-    while (G.players.some((p) => !p.folded && !p.eliminated && p.hand.length < 5)) dealStudStreet(G);
-    showdown(G, ctx);
-    return;
-  }
+  if (style === 'stud') { startRunout(G, ctx); return; } // one upcard street at a time
   if (style === 'draw') {
     if (G.drawDone !== G.handNumber) { G.players.forEach((p) => { p.bet = 0; }); G.currentBet = 0; startDraw(G, 'runout', ctx); return; }
     showdown(G, ctx);
@@ -588,8 +599,33 @@ function runOutToShowdown(G, ctx) {
     startDiscard(G, 'runout', -1, ctx);
     return;
   }
-  while (G.community.length < 5) G.community.push(G.deck.pop());
-  showdown(G, ctx);
+  startRunout(G, ctx);
+}
+
+// Everyone's all-in: hands go face up and the rest of the board comes one card
+// at a time (tick() deals each when it's due), so people watch it land.
+function startRunout(G, ctx) {
+  G.players.forEach((p) => { p.bet = 0; });
+  G.currentBet = 0;
+  G.actionIndex = -1;
+  G.turnStartAt = null;
+  G.turnDeadline = null;
+  if (runoutDone(G)) { showdown(G, ctx); return; }
+  G.stage = 'runout';
+  G.runoutNextAt = ctx.now + RUNOUT_CARD_MS;
+}
+
+// Board games: five community cards. Stud: everyone in the hand has five.
+function runoutDone(G) {
+  if (styleOf(G) === 'stud') return !G.players.some((p) => !p.folded && !p.eliminated && p.hand.length < 5);
+  return G.community.length >= 5;
+}
+
+function dealRunoutCard(G, ctx) {
+  if (styleOf(G) === 'stud') { dealStudStreet(G); G.dealSeq++; } // (phones re-read their own cards)
+  else G.community.push(G.deck.pop());
+  if (runoutDone(G)) { G.runoutNextAt = null; showdown(G, ctx); return; }
+  G.runoutNextAt = ctx.now + RUNOUT_CARD_MS;
 }
 
 // ── 5-card stud ────────────────────────────────────────────────────────────
@@ -754,9 +790,20 @@ function showdown(G, ctx) {
       winnings[best.id] += G.pot - paid;
     }
   }
-  G.players.forEach((p) => { p.chips += winnings[p.id]; });
+  G.players.forEach((p) => { p.chips += winnings[p.id]; p.bet = 0; }); // the chips in front went into the pot
   G.pot = 0;
+  G.runoutNextAt = null;
   G.lastResult = { hand: G.handNumber, winnings, pots };
+  // Every hand's payout, with each stack before (start of hand) and after,
+  // so a disputed pot can be checked afterwards
+  G.resultLog = [...(G.resultLog || []), {
+    hand: G.handNumber, at: ctx.now, variant: G.variant, pots, wonByFold: G.wonByFold,
+    community: (G.community || []).map((c) => `${c.rank}${c.suit}`),
+    stacks: G.players.filter((p) => (p.totalBet || 0) > 0 || winnings[p.id]).map((p) => ({
+      id: p.id, name: p.name, before: p.chips - winnings[p.id] + (p.totalBet || 0), after: p.chips, folded: !!p.folded,
+      cards: !p.folded && !G.wonByFold ? (p.hand || []).map((c) => `${c.rank}${c.suit}`) : null,
+    })),
+  }].slice(-100);
 
   // Out of chips: re-buy offer (home game, or tournament while re-buys are open) or knocked out
   G.players.forEach((p) => {
@@ -830,6 +877,16 @@ function cashOut(G, ctx) {
   ctx.effects.settle = true;
 }
 
+// Everyone who's still at the table (not busted, away or gone) has tapped OK
+// on the hand's result
+function resultAcked(G, ctx) {
+  const acks = G.resultAcks || {};
+  const gone = (id) => !!(ctx.isGone && ctx.isGone(id));
+  return G.players
+    .filter((p) => !p.eliminated && !p.broke && !p.awayFromTable && p.cashedOutCents == null && !gone(p.id))
+    .every((p) => acks[p.id]);
+}
+
 // ── Actions ────────────────────────────────────────────────────────────────
 export function applyAction(G, playerId, action, amount, ctx) {
   ctx.effects = ctx.effects || {};
@@ -890,7 +947,7 @@ export function applyAction(G, playerId, action, amount, ctx) {
   if (action === 'pause') { // anyone may ask; mid-hand it waits for the hand to end
     if (G.paused) return OK;
     G.pauseReady = [];
-    if (isBetting(G) || ['guts_decision', 'discard', 'draw'].includes(G.stage)) G.pauseQueued = true;
+    if (isBetting(G) || ['guts_decision', 'discard', 'draw', 'runout'].includes(G.stage)) G.pauseQueued = true;
     else { G.paused = true; G.pauseQueued = false; G.nextDealAt = null; }
     return OK;
   }
@@ -944,6 +1001,13 @@ export function applyAction(G, playerId, action, amount, ctx) {
     return fail(`unknown action: ${action}`);
   }
 
+  if (action === 'result_ok') { // "Got it" on the hand's result
+    if (G.stage !== 'showdown' || !G.nextDealAt || styleOf(G) === 'guts') return OK;
+    G.resultAcks = { ...(G.resultAcks || {}), [p.id]: true };
+    if (resultAcked(G, ctx)) G.nextDealAt = Math.min(G.nextDealAt, ctx.now + RESULT_ACK_DEAL_MS);
+    return OK;
+  }
+
   if (action === 'reveal' || action === 'muck') {
     if (action === 'muck') { G.winnerMucked = true; return OK; }
     if (!p.hand || !p.hand.length) return fail('no cards to show');
@@ -975,10 +1039,11 @@ function sitOut(G, p) {
 
 function bet(G, p, action, amount) {
   const owed = Math.max(G.currentBet - p.bet, 0);
-  if (action === 'fold') { p.folded = true; p.lastAction = { type: 'fold', label: 'Fold' }; return OK; }
+  if (action === 'fold') { p.folded = true; p.lastAction = { type: 'fold', label: 'Fold' }; recordMove(G, p); return OK; }
   if (action === 'check') {
     if (owed > 0) return fail('cannot check: there is a bet to call');
     p.lastAction = { type: 'check', label: 'Check' };
+    recordMove(G, p);
     return OK;
   }
   if (action === 'call') {
@@ -986,6 +1051,7 @@ function bet(G, p, action, amount) {
     p.chips -= amt; p.bet += amt; p.totalBet += amt; G.pot += amt;
     if (p.chips === 0) p.allIn = true;
     p.lastAction = { type: 'bet', label: `Call ${amt}` };
+    recordMove(G, p);
     return OK;
   }
   const blinds = currentBlinds(G);
@@ -1013,6 +1079,7 @@ function bet(G, p, action, amount) {
   }
   // (An all-in for less than the bet is a call for what they have; the bet to match doesn't drop.)
   p.lastAction = { type: 'bet', label: p.allIn ? 'All In' : `Raise ${total}` };
+  recordMove(G, p);
   return OK;
 }
 
@@ -1032,6 +1099,8 @@ function quit(G, p, ctx) {
     if (isBetting(G)) {
       const inHand = G.players.filter((x) => !x.folded && !x.eliminated);
       if (wasUp || inHand.length === 1) advanceAction(G, ctx);
+    } else if (G.stage === 'runout') {
+      if (G.players.filter((x) => !x.folded && !x.eliminated).length === 1) showdown(G, ctx);
     } else if (G.stage === 'discard' || G.stage === 'draw') {
       const inHand = G.players.filter((x) => !x.folded && !x.eliminated);
       if (inHand.length === 1) showdown(G, ctx);
@@ -1096,6 +1165,12 @@ export function tick(G, ctx) {
     }
     return changed;
   }
+  // All-in runout: the next card is due
+  if (G.stage === 'runout') {
+    if (!G.runoutNextAt || ctx.now < G.runoutNextAt) return changed;
+    dealRunoutCard(G, ctx);
+    return true;
+  }
   // Discards: time's up (or a gone player waited out the grace): the engine picks
   if (G.stage === 'discard') {
     const timedOut = G.discardDeadline && ctx.now >= G.discardDeadline;
@@ -1128,6 +1203,12 @@ export function tick(G, ctx) {
   if (G.pendingDealerChoice && G.dealerChoiceDeadline && ctx.now >= G.dealerChoiceDeadline) {
     pickVariant(G, 'holdem', ctx);
     G.autoPicked = G.handNumber;
+    return true;
+  }
+  // Everyone else tapped OK and the one holding it up has gone: deal soon
+  if (G.stage === 'showdown' && G.nextDealAt && G.nextDealAt > ctx.now + RESULT_ACK_DEAL_MS
+      && Object.keys(G.resultAcks || {}).length && resultAcked(G, ctx)) {
+    G.nextDealAt = ctx.now + RESULT_ACK_DEAL_MS;
     return true;
   }
   if (G.nextDealAt && ctx.now >= G.nextDealAt) {

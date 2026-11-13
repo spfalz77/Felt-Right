@@ -1661,6 +1661,12 @@ const VARIANTS = {
 const DISCARD_SECONDS = 20;
 // Seconds everyone gets to choose cards to draw (5-card draw), else they stand pat
 const DRAW_SECONDS = 25;
+// Everyone's all-in: the rest of the board is dealt one card at a time, this
+// many seconds apart, with the hands face up (house setting: tune to taste)
+const RUNOUT_CARD_SECONDS = 4;
+// A hand's result stays on screen until everyone still at the table taps OK,
+// or this long at most
+const RESULT_MAX_SECONDS = 30;
 
 // Blinds for a level index, from a blind structure. Beyond the defined
 // structure, keep doubling from the last level.
@@ -4718,6 +4724,88 @@ function tableSignature(state) {
   return JSON.stringify({ ...state, players: state.players.map(({ hand, ...rest }) => rest) });
 }
 
+// Game over: the end screen, for every phone (live update or the backup poller)
+function guestShowGameOver() {
+  // Clear any chop proposal/showdown overlay so it doesn't sit on top
+  const sd = document.getElementById('showdown-overlay');
+  if (sd) sd.style.display = 'none';
+  const winner = G.players.find(p => !p.eliminated && p.chips > 0) || G.players[0];
+  // Commit tournament stats for guests (host already did theirs in endTournament)
+  if (!amHost && me.id !== 'demo') {
+    const myPlayer = G.players.find(p => p.id === me.id);
+    if (myPlayer) {
+      let myPlacement = null;
+      if (winner?.id === me.id) {
+        myPlacement = 1;
+      } else {
+        const idx = G.finalPlacements?.findIndex(p => p.name === myPlayer.name) ?? -1;
+        if (idx >= 0) myPlacement = idx + 1;
+      }
+      // Only commit once — guard via sessionStorage
+      const key = `fr_tourney_done_${currentGameId}`;
+      if (!sessionStorage.getItem(key)) {
+        sessionStorage.setItem(key, '1');
+        commitTournamentStats(myPlacement, myPlayer.chips || 0);
+      }
+    }
+  }
+  // Show appropriate end overlay based on format
+  if (G.cashOuts && getFormatConfig().moneyMode) {
+    showHomeGameEnd();
+  } else {
+    showTournamentOverlay(winner);
+  }
+}
+
+// The hand's result, once per hand, whichever way the new table arrived (live
+// update or the backup poller). Stays up until the player taps Got It; on a
+// server game the next hand waits for everyone's OK (or 30s).
+// (Guts has its own reveal overlay driven by G.gutsResults; the host of a
+// phone-run game shows its own from doShowdown.)
+let _resultShownFor = null;
+function maybeShowHandResult(prevMyChips) {
+  if (amHost || !G || G.stage !== 'showdown' || G.variant === 'guts3' || G.tournamentOver) return;
+  // Phone-run games keep stage 'showdown' while the next dealer picks the
+  // variant: that's the picker's screen, not a result
+  if (G.pendingDealerChoice || G.breakActive || G.paused) return;
+  if (isServerGame() && !(G.lastResult && G.lastResult.hand === G.handNumber)) return;
+  const key = `${currentGameId}:${G.handNumber}`;
+  if (_resultShownFor === key) return;
+  _resultShownFor = key;
+  const myP = G.players.find(p => p.id === me.id);
+  // What I won this hand: the server's result when there is one
+  const won = G.lastResult && G.lastResult.hand === G.handNumber ? (G.lastResult.winnings?.[me.id] || 0) : null;
+  const before = won != null && myP ? (myP.chips || 0) - won : prevMyChips;
+  const stillIn = G.players.filter(p => !p.folded && !p.eliminated);
+  // (drawn a beat later; by then the table may have moved on: draw nothing)
+  const hand = G.handNumber;
+  const later = (fn) => setTimeout(() => {
+    if (G && G.stage === 'showdown' && G.handNumber === hand && !G.pendingDealerChoice && !G.tournamentOver) fn();
+  }, 200);
+  if (stillIn.length === 1 && stillIn[0].id === me.id) {
+    if (myP && myP.hand?.length && !myP.hand.some(c => c.hidden)) {
+      const winAmt = (myP.chips || 0) - (before || 0);
+      if (winAmt > 0) later(() => showMuckOrShow(myP, winAmt));
+      else ackHandResult();
+    }
+  } else if (stillIn.length > 1) {
+    later(() => guestShowShowdown(before));
+  } else if (stillIn.length === 1) {
+    later(() => guestShowFoldWinOverlay(stillIn[0]));
+  }
+}
+
+// "Got it" on a server game: the table deals the next hand once everyone has
+// (only once per hand)
+let _resultAckedFor = null;
+function ackHandResult() {
+  if (!G || !isServerGame() || G.stage !== 'showdown' || !currentGameId) return;
+  const key = `${currentGameId}:${G.handNumber}`;
+  if (_resultAckedFor === key) return;
+  _resultAckedFor = key;
+  callTable(currentGameId, 'result_ok');
+}
+
 // Re-reads the saved table and shows it if it differs from what's on screen
 // (cards aside: this phone's own cards come from private_hands). Comparing the
 // whole table means a stale or locally changed copy can't stick.
@@ -4728,16 +4816,26 @@ async function refreshGuestState() {
     if (!data?.state || !Array.isArray(data.state.players)) return;
     if (isOlderState(data.state, G)) return; // fetched before a newer update arrived
     if (tableSignature(data.state) === tableSignature(G)) return;
+    const prevMyChips = G?.players?.find(p => p.id === me.id)?.chips ?? null;
     G = data.state;
+    if (isServerState(G)) gameHostId = data.host_id;
     if (G.tournamentOver && G.abandoned) { showCalledOff(); return; }
+    // (the live update can be missed: the poller must do everything it would)
+    if (G.tournamentOver) { guestShowGameOver(); return; }
     applyMyPrivateHand();
     renderGame();
+    maybeShowHandResult(prevMyChips);
     if (G.stage === 'guts_decision' && G.variant === 'guts3') showGutsDecision();
     if (G.stage === 'showdown' && G.variant === 'guts3' && G.gutsResults) {
       const sd = document.getElementById('showdown-overlay');
       if (!sd || sd.dataset.kind !== 'guts-reveal') showGutsReveal();
     }
     if (G.pendingDealerChoice) showDealerChoice();
+    else {
+      // the pick is made: take the picker down (the live update would have)
+      const sd = document.getElementById('showdown-overlay');
+      if (sd && sd.dataset.kind === 'dealer-choice') { sd.style.display = 'none'; sd.dataset.kind = ''; }
+    }
     if (G.breakActive) showBreakOverlay(); else hideBreakOverlay();
     if (G.handNumber > 0) fetchMyPrivateHand(currentGameId, G.handNumber);
     if (G.stage === 'showdown') setTimeout(offerRebuyIfBroke, 4500);
@@ -4815,38 +4913,7 @@ function guestSubscribeToGame(gameId) {
       }
 
       // Tournament over — show end screen for everyone
-      if (G.tournamentOver) {
-        // Clear any chop proposal/showdown overlay so it doesn't sit on top
-        const sd = document.getElementById('showdown-overlay');
-        if (sd) sd.style.display = 'none';
-        const winner = G.players.find(p => !p.eliminated && p.chips > 0) || G.players[0];
-        // Commit tournament stats for guests (host already did theirs in endTournament)
-        if (!amHost && me.id !== 'demo') {
-          const myPlayer = G.players.find(p => p.id === me.id);
-          if (myPlayer) {
-            let myPlacement = null;
-            if (winner?.id === me.id) {
-              myPlacement = 1;
-            } else {
-              const idx = G.finalPlacements?.findIndex(p => p.name === myPlayer.name) ?? -1;
-              if (idx >= 0) myPlacement = idx + 1;
-            }
-            // Only commit once — guard via sessionStorage
-            const key = `fr_tourney_done_${currentGameId}`;
-            if (!sessionStorage.getItem(key)) {
-              sessionStorage.setItem(key, '1');
-              commitTournamentStats(myPlacement, myPlayer.chips || 0);
-            }
-          }
-        }
-        // Show appropriate end overlay based on format
-        if (G.cashOuts && getFormatConfig().moneyMode) {
-          showHomeGameEnd();
-        } else {
-          showTournamentOverlay(winner);
-        }
-        return;
-      }
+      if (G.tournamentOver) { guestShowGameOver(); return; }
 
       const pauseJustEnded = _prevPaused === true && !G.paused;
       _prevPaused = G.paused === true;
@@ -4881,24 +4948,8 @@ function guestSubscribeToGame(gameId) {
         commitHandStats();
       }
 
-      // Detect "I won by everyone folding" for guests (host runs this in doShowdown directly).
-      // Skip this for Guts — Guts has its own reveal overlay driven by G.gutsResults.
-      if (!amHost && G.stage === 'showdown' && prevStage !== 'showdown' && G.variant !== 'guts3') {
-        const stillIn = G.players.filter(p => !p.folded && !p.eliminated);
-        if (stillIn.length === 1 && stillIn[0].id === me.id) {
-          const myP = G.players.find(p => p.id === me.id);
-          if (myP && myP.hand?.length && !myP.hand.some(c => c.hidden)) {
-            const winAmt = (myP.chips || 0) - (prevMyChips || 0);
-            if (winAmt > 0) {
-              setTimeout(() => showMuckOrShow(myP, winAmt), 200);
-            }
-          }
-        } else if (stillIn.length > 1) {
-          setTimeout(() => guestShowShowdown(prevMyChips), 200);
-        } else if (stillIn.length === 1 && stillIn[0].id !== me.id) {
-          setTimeout(() => guestShowFoldWinOverlay(stillIn[0]), 200);
-        }
-      }
+      // The hand's result: the showdown breakdown, or who won when everyone folded
+      maybeShowHandResult(prevMyChips);
 
       // Busted this hand? After a moment to see the result, offer the re-buy.
       // (The host pauses for this decision, so no further update would prompt it.)
@@ -5924,33 +5975,81 @@ function isMyTurn() {
   return p && p.id === me.id && !p.folded;
 }
 
-// ── RENDER ───────────────────────────────────────────────────────────────────
-function renderGame() {
-  // ── SOUND triggers based on state changes ──
-  if (G && _lastSoundState) {
-    // Pot GREW = chip movement (someone bet/called/raised)
-    if (G.pot > _lastSoundState.pot) playChipSound();
-    // Pot SHRUNK to 0 = winner collected (also chip movement)
-    else if (G.pot === 0 && _lastSoundState.pot > 0) playChipSound();
-    // Community card count grew (flop/turn/river dealt)
-    if (G.community.length > _lastSoundState.communityLen) playCardDealSound();
-    // New hand started (handNumber incremented) — shuffle sound + small delay then deal sound
-    if (G.handNumber > _lastSoundState.handNumber) {
-      playCardShuffleSound();
-      // Hole-card deal sound a moment after shuffle
-      setTimeout(() => playCardDealSound(), 350);
-    }
-    // Stage transition into showdown — deal sound for revealed hands
-    if (G.stage === 'showdown' && _lastSoundState.stage !== 'showdown') {
-      playCardDealSound();
-    }
-  }
+// ── SOUNDS: each one tied to what just appeared on screen ─────────────────────
+// Compares the table now with the last one drawn:
+//   new hand → shuffle, then a card for each of my hole cards
+//   each bet/call/raise (mine or anyone's) → chips; each check → knock knock
+//   (not for a player checked automatically because they're away)
+//   each new board card → one card flip; hands turned over → a flip
+//   the pot pushed to the winner → chips
+// Server games number their moves (G.recentMoves), so a check that closes a
+// street still knocks even though the next street clears everyone's label.
+const SOUND_MOVE_GAP_MS = 180;
+function playTableSounds() {
+  const prev = _lastSoundState;
   _lastSoundState = G ? {
     pot: G.pot,
-    communityLen: G.community.length,
+    community: G.community.length,
     handNumber: G.handNumber,
     stage: G.stage,
+    moveSeq: G.moveSeq || 0,
+    labels: Object.fromEntries((G.players || []).map((p) => [p.id, p.lastAction ? `${p.lastAction.type}:${p.lastAction.label}` : ''])),
   } : null;
+  if (!G || !prev) return; // first look at this table: nothing "just happened"
+
+  const newHand = G.handNumber !== prev.handNumber;
+  let delay = 0;
+  if (newHand) {
+    playCardShuffleSound();
+    const mine = (G.players.find((p) => p.id === me?.id)?.hand || []).length;
+    setTimeout(() => playCardFlips(Math.min(mine || 2, 5), 160), 750);
+    delay = 750;
+  }
+
+  // Bets and checks
+  const soundFor = (type, label) => {
+    if (type === 'check') return label === 'Away' ? null : playKnockSound;
+    if (type === 'bet' || type === 'call' || type === 'raise' || type === 'allin') return playChipSound;
+    return null;
+  };
+  if (Array.isArray(G.recentMoves) && G.moveSeq != null) {
+    const fresh = G.recentMoves.filter((m) => m.seq > prev.moveSeq).slice(-3);
+    fresh.forEach((m, i) => {
+      const fn = soundFor(m.type, m.label);
+      if (fn) setTimeout(fn, delay + i * SOUND_MOVE_GAP_MS);
+    });
+    if (fresh.length) delay += fresh.length * SOUND_MOVE_GAP_MS;
+  } else if (!newHand) {
+    // Phone-run games: go by each player's label
+    let i = 0;
+    for (const p of G.players) {
+      const was = prev.labels[p.id] || '';
+      const now = p.lastAction ? `${p.lastAction.type}:${p.lastAction.label}` : '';
+      if (!now || now === was) continue;
+      const fn = soundFor(p.lastAction.type, p.lastAction.label);
+      if (fn) setTimeout(fn, delay + (i++) * SOUND_MOVE_GAP_MS);
+    }
+    if (G.pot > prev.pot && i === 0) playChipSound();
+  }
+
+  // New board cards: one flip per card
+  const added = newHand ? G.community.length : G.community.length - prev.community;
+  if (added > 0) setTimeout(() => playCardFlips(added), delay + 120);
+
+  // All-in: hands turned face up
+  if (G.stage === 'runout' && prev.stage !== 'runout') setTimeout(() => playCardFlips(2, 120), delay);
+
+  // Showdown: hands turned over (unless everyone else folded), then the pot goes to the winner
+  if (G.stage === 'showdown' && prev.stage !== 'showdown' && !newHand) {
+    let at = delay + 250;
+    if (!G.wonByFold && prev.stage !== 'runout') { setTimeout(playCardDealSound, at); at += 350; }
+    setTimeout(playChipSound, at);
+  }
+}
+
+// ── RENDER ───────────────────────────────────────────────────────────────────
+function renderGame() {
+  playTableSounds();
 
   // Handle pause state
   if (G?.paused) showPauseOverlay();
@@ -6035,7 +6134,13 @@ function renderGame() {
   document.getElementById('hand-num').textContent = `Hand #${G.handNumber}`;
   // Pot display — show side pots if any player is all-in
   const allInPlayers = G.players.filter(p => p.allIn && !p.eliminated);
-  if (allInPlayers.length > 0 && G.stage !== 'showdown') {
+  const result = G.stage === 'showdown' && G.lastResult && G.lastResult.hand === G.handNumber ? G.lastResult : null;
+  if (result) {
+    // The pot went to the winner(s): say so where the pot was
+    const won = Object.entries(result.winnings || {}).filter(([, amt]) => amt > 0);
+    const names = won.map(([id, amt]) => `${G.players.find((p) => p.id === id)?.name || '?'} +${formatChipsCompact(amt)}`);
+    document.getElementById('pot-display').textContent = names.length ? `🏆 ${names.join(' · ')}` : 'POT: 0';
+  } else if (allInPlayers.length > 0 && G.stage !== 'showdown') {
     const previewPots = buildSidePots(G.players);
     const potText = previewPots.length > 1
       ? previewPots.map((p, i) => `${i===0?'Main':'Side'}: ${formatChipsCompact(p.amount)}`).join(' · ')
@@ -6046,9 +6151,9 @@ function renderGame() {
   }
 
   const vStyle = (VARIANTS[G.variant] || VARIANTS.holdem).style;
-  const stages = vStyle === 'stud' ? { preflop:'2ND STREET', flop:'3RD STREET', turn:'4TH STREET', river:'5TH STREET', showdown:'SHOWDOWN' }
+  const stages = vStyle === 'stud' ? { preflop:'2ND STREET', flop:'3RD STREET', turn:'4TH STREET', river:'5TH STREET', showdown:'SHOWDOWN', runout:'ALL IN · RUNNING IT OUT' }
     : vStyle === 'draw' ? { preflop:'BEFORE THE DRAW', draw:'DRAW', river:'AFTER THE DRAW', showdown:'SHOWDOWN' }
-    : { preflop:'PRE-FLOP', flop:'FLOP', turn:'TURN', river:'RIVER', showdown:'SHOWDOWN', discard:'DISCARD' };
+    : { preflop:'PRE-FLOP', flop:'FLOP', turn:'TURN', river:'RIVER', showdown:'SHOWDOWN', discard:'DISCARD', runout:'ALL IN · RUNNING IT OUT' };
   const variantTag = ['omaha', 'pineapple', 'crazy_pineapple', 'draw5', 'stud5'].includes(G.variant) ? ' · ' + VARIANTS[G.variant].short : '';
   document.getElementById('stage-label').textContent = (stages[G.stage]||G.stage.toUpperCase()) + variantTag;
 
@@ -6102,7 +6207,7 @@ function renderGame() {
 
     const revealedCards = G.revealedHands?.[p.id];
     const cardsHtml = (revealedCards || p.hand).length ? (revealedCards || p.hand).map(c => {
-      const revealAtShowdown = G.stage === 'showdown' && !p.folded;
+      const revealAtShowdown = (G.stage === 'showdown' || G.stage === 'runout') && !p.folded;
       const revealFromReveal = !!revealedCards; // folded player chose to show
       const faceUp = !!(c && c.up && !p.folded); // 5-card stud upcards
       const reveal = revealAtShowdown || revealFromReveal || faceUp;
@@ -6156,9 +6261,12 @@ function renderGame() {
   // A new betting round is on screen: clear any leftover result overlay from the
   // last hand (on guests it could stay up and cover the action buttons on
   // their turn, e.g. after a hand won by everyone else folding)
+  // Server games: a result belongs to the showdown it came from. Once the
+  // table has moved on (next deal, the dealer's pick) it must not sit on top
+  // of the picker or the buttons, whether or not this player tapped Got It.
   const staleSd = document.getElementById('showdown-overlay');
   if (staleSd && staleSd.style.display !== 'none' && staleSd.dataset.kind === 'showdown'
-      && ['preflop', 'flop', 'turn', 'river'].includes(G?.stage)) {
+      && (['preflop', 'flop', 'turn', 'river'].includes(G?.stage) || (isServerGame() && G?.stage !== 'showdown'))) {
     staleSd.style.display = 'none';
     staleSd.dataset.kind = '';
   }
@@ -7858,9 +7966,21 @@ function guestShowShowdown(prevMyChips) {
   const showPlayers = active.filter(p => handMap[p.id])
     .sort((a, b) => cmpScore(handMap[b.id], handMap[a.id]));
 
-  // Determine winners (highest tied score)
+  // Who won what: the server's payout when there is one (side pots and all),
+  // else the best hand on this phone's reading
+  const result = G.lastResult && G.lastResult.hand === G.handNumber ? G.lastResult : null;
   const bestScore = showPlayers.length ? handMap[showPlayers[0].id] : null;
-  const isWinnerFn = (p) => bestScore && cmpScore(handMap[p.id], bestScore) === 0;
+  const isWinnerFn = result
+    ? (p) => (result.winnings?.[p.id] || 0) > 0
+    : (p) => bestScore && cmpScore(handMap[p.id], bestScore) === 0;
+  const nameOf = (id) => G.players.find(x => x.id === id)?.name || '?';
+  // One line per pot: "Main pot 2,640 → Fallz · Two Pair"
+  const potLines = (result?.pots || []).filter(pt => pt.amount > 0).map((pt, i, all) => `
+    <div style="display:flex;justify-content:space-between;gap:10px;font-size:0.8rem;padding:3px 0;
+      border-bottom:1px solid rgba(255,255,255,0.06)">
+      <span style="color:var(--text-dim)">${all.length > 1 ? (i === 0 ? 'Main pot' : `Side pot ${i}`) : 'Pot'} ${formatChipsCompact(pt.amount)}</span>
+      <span style="color:var(--gold-pale);text-align:right">→ ${pt.winners.map(nameOf).join(' & ')}${pt.winners.length > 1 ? ' (split)' : ''}${pt.hand ? ` · ${pt.hand}` : ''}</span>
+    </div>`).join('');
 
   overlay.style.display = 'flex';
   overlay.dataset.kind = 'showdown';
@@ -7895,7 +8015,8 @@ function guestShowShowdown(prevMyChips) {
           </div>`;
         }).join('');
         const isSplit = showPlayers.filter(isWinnerFn).length > 1;
-        const myDelta = (p.id === me.id && prevMyChips != null) ? (p.chips || 0) - prevMyChips : null;
+        const myDelta = result ? (result.winnings?.[p.id] || 0)
+          : (p.id === me.id && prevMyChips != null) ? (p.chips || 0) - prevMyChips : null;
         const wonLabel = (isWin && myDelta != null && myDelta > 0)
           ? `<span style="font-family:'Bebas Neue',sans-serif;color:var(--gold);font-size:1.25rem">
               ${isSplit ? 'SPLIT ' : ''}+${formatChipsCompact(myDelta)}
@@ -7913,6 +8034,7 @@ function guestShowShowdown(prevMyChips) {
           </div>
           <div style="font-family:'Bebas Neue',sans-serif;color:${isWin?'var(--gold-pale)':'var(--text)'};
             font-size:1rem;letter-spacing:0.08em">${hand?.name || '—'}</div>
+          ${stackChangeHtml(p)}
           <div>
             <div style="font-size:0.6rem;color:var(--text-dim);letter-spacing:0.1em;
               text-transform:uppercase;margin-bottom:3px">Hole</div>
@@ -7925,10 +8047,30 @@ function guestShowShowdown(prevMyChips) {
           </div>
         </div>`;
       }).join('')}
+      ${potLines ? `<div style="width:100%;max-width:340px;margin:2px 0 4px">${potLines}</div>` : ''}
       <button class="btn btn-primary btn-sm" onclick="dismissShowdown()"
         style="margin-top:8px;min-width:160px">Got It</button>
-      <div style="font-size:0.72rem;color:var(--text-dim);margin-top:4px">Next hand in 6s…</div>
+      <div style="font-size:0.72rem;color:var(--text-dim);margin-top:4px">${nextHandNote()}</div>
     </div>`;
+}
+
+// A player's stack at the start of this hand → now (from the server's result):
+// "1,180 → 2,640", so a winner sees the pot land on their stack
+function stackChangeHtml(p) {
+  const r = G?.lastResult;
+  if (!r || r.hand !== G.handNumber || !p) return '';
+  const now = p.chips || 0;
+  const before = now - (r.winnings?.[p.id] || 0) + (p.totalBet || 0);
+  if (before === now) return '';
+  const up = now > before;
+  return `<div style="font-size:0.78rem;color:${up ? 'var(--gold-pale)' : 'var(--text-dim)'};letter-spacing:0.02em">
+    Stack ${formatChipsCompact(before)} → <b style="color:${up ? 'var(--gold)' : 'var(--text)'}">${formatChipsCompact(now)}</b>
+    (${up ? '+' : '−'}${formatChipsCompact(Math.abs(now - before))})</div>`;
+}
+
+// Under the result: when the next hand comes
+function nextHandNote() {
+  return isServerGame() ? 'Next hand once everyone taps Got It' : 'Next hand in 6s…';
 }
 
 // When everyone folded leaving a single winner who isn't me, show the result overlay.
@@ -7987,12 +8129,13 @@ function guestShowFoldWinOverlay(winner) {
       <div class="avatar" style="font-size:1.4rem">${winner.emoji}</div>
       <div class="showdown-result lose">${winner.name} Wins</div>
       <div class="showdown-hand" style="color:var(--text-dim)">Everyone else folded</div>
+      ${stackChangeHtml(winner)}
       <div style="margin:8px 0">${cardsHtml}</div>
       <div style="font-size:0.78rem;color:var(--gold-pale);margin-bottom:6px">${statusMsg}</div>
       ${myFolded ? `<button class="btn btn-ghost btn-sm" onclick="showMyFoldedCards()" style="margin-top:6px">Show My Cards</button>` : ''}
       <button class="btn btn-primary btn-sm" onclick="dismissShowdown()"
         style="margin-top:8px;min-width:140px">Got It</button>
-      <div style="font-size:0.7rem;color:var(--text-dim);margin-top:6px">Next hand in 6s…</div>
+      <div style="font-size:0.7rem;color:var(--text-dim);margin-top:6px">${nextHandNote()}</div>
     </div>`;
 }
 
@@ -8054,6 +8197,7 @@ function showMuckOrShow(winner, winAmt) {
     <div class="showdown-bar">
       <div class="showdown-result win" style="font-size:1.6rem">You Win!</div>
       <div class="winner-pot" style="margin-bottom:4px">+${formatChipsCompact(winAmt)}${getFormatConfig().moneyMode?'':' chips'} — everyone folded</div>
+      ${stackChangeHtml(winner)}
       <div style="font-size:0.85rem;color:var(--text-dim);margin-bottom:14px;text-align:center;line-height:1.4">
         Tap cards to ${isOmaha ? 'select which to reveal' : 'select which to show'}
       </div>
@@ -8064,7 +8208,7 @@ function showMuckOrShow(winner, winAmt) {
         <button class="btn btn-primary btn-sm" onclick="showSelectedCards()" style="min-width:140px">Show Selected</button>
         <button class="btn btn-ghost btn-sm" onclick="muckFoldWin()" style="min-width:120px">Muck (Hide)</button>
       </div>
-      <div style="font-size:0.72rem;color:var(--text-dim);margin-top:14px">Auto-deal in 6s</div>
+      <div style="font-size:0.72rem;color:var(--text-dim);margin-top:14px">${nextHandNote()}</div>
     </div>`;
 
   // Track which cards are selected to show
@@ -8150,7 +8294,7 @@ function showSelectedCards() {
         Showing ${shown.length === 1 ? 'one card' : `${shown.length} cards`}
       </div>
       <button class="btn btn-primary btn-sm" onclick="dismissShowdown()" style="min-width:140px">Got It</button>
-      <div style="font-size:0.72rem;color:var(--text-dim);margin-top:6px">Auto-deal in 6s…</div>`;
+      <div style="font-size:0.72rem;color:var(--text-dim);margin-top:6px">${nextHandNote()}</div>`;
   }
 }
 
@@ -8831,6 +8975,7 @@ function cancelAutoDeal() {
 function dismissShowdown() {
   const overlay = document.getElementById('showdown-overlay');
   if (overlay) overlay.style.display = 'none';
+  ackHandResult(); // server game: the next hand waits for everyone's Got It
 
   // If I'm broke and rebuys are available, show rebuy overlay BEFORE advancing
   const myP = G?.players?.find(p => p.id === me.id);
@@ -10034,24 +10179,81 @@ function getCardAudio() {
   return a;
 }
 
-// Shuffle = play card sound 3 times in quick succession to simulate a riffle
-function playCardShuffleSound() {
-  if (!_soundsEnabled) return;
-  try {
-    const a1 = getCardAudio();
-    a1.play().catch(() => {});
-    setTimeout(() => {
-      const a2 = getCardAudio();
-      a2.play().catch(() => {});
-    }, 120);
-    setTimeout(() => {
-      const a3 = getCardAudio();
-      a3.play().catch(() => {});
-    }, 240);
-  } catch(e) {}
+// ── Synthesized sounds (Web Audio) ──────────────────────────────────────────
+// Phones only let a page make sound after a tap, so the audio context is
+// started on the first touch anywhere.
+['touchstart', 'pointerdown', 'keydown'].forEach((ev) =>
+  document.addEventListener(ev, () => { getAudioCtx(); }, { once: true, passive: true }));
+
+let _noiseBuf = null;
+function noiseBuffer(ctx) {
+  if (_noiseBuf && _noiseBuf.sampleRate === ctx.sampleRate) return _noiseBuf;
+  const len = Math.floor(ctx.sampleRate * 0.25);
+  _noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
+  const d = _noiseBuf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  return _noiseBuf;
 }
 
-// Single card landing
+// One short burst of filtered noise (a card edge, a knuckle on wood)
+function noiseTick(ctx, at, { freq = 3000, q = 1.2, dur = 0.03, gain = 0.5, type = 'bandpass' } = {}) {
+  const src = ctx.createBufferSource();
+  src.buffer = noiseBuffer(ctx);
+  const f = ctx.createBiquadFilter();
+  f.type = type; f.frequency.value = freq; f.Q.value = q;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, at);
+  g.gain.exponentialRampToValueAtTime(gain, at + 0.003);
+  g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+  src.connect(f); f.connect(g); g.connect(ctx.destination);
+  src.start(at, Math.random() * 0.2, dur + 0.02);
+}
+
+// Knock knock: two knuckle raps on the table (a check)
+function playKnockSound() {
+  if (!_soundsEnabled) return;
+  const ctx = getAudioCtx();
+  if (!ctx) return;
+  try {
+    const t0 = ctx.currentTime + 0.01;
+    [0, 0.16].forEach((dt) => {
+      const at = t0 + dt;
+      // the thud: a low tone that drops fast
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(190, at);
+      o.frequency.exponentialRampToValueAtTime(70, at + 0.09);
+      g.gain.setValueAtTime(0.0001, at);
+      g.gain.exponentialRampToValueAtTime(0.9, at + 0.004);
+      g.gain.exponentialRampToValueAtTime(0.0001, at + 0.12);
+      o.connect(g); g.connect(ctx.destination);
+      o.start(at); o.stop(at + 0.14);
+      // the knuckle: a dull click on top
+      noiseTick(ctx, at, { freq: 900, q: 0.8, dur: 0.035, gain: 0.35, type: 'lowpass' });
+    });
+  } catch (e) {}
+}
+
+// Shuffle: a riffle (a quick run of card edges), then the deck squared up
+function playCardShuffleSound() {
+  if (!_soundsEnabled) return;
+  const ctx = getAudioCtx();
+  if (!ctx) { playCardDealSound(); return; }
+  try {
+    const t0 = ctx.currentTime + 0.01;
+    const n = 26;
+    for (let i = 0; i < n; i++) {
+      // edges speed up, then slow down, like a real riffle
+      const x = i / (n - 1);
+      const at = t0 + 0.55 * (x - 0.25 * Math.sin(Math.PI * x) / Math.PI);
+      noiseTick(ctx, at, { freq: 2500 + Math.random() * 2500, q: 1.5, dur: 0.018 + Math.random() * 0.012, gain: 0.18 + 0.12 * Math.sin(Math.PI * x) });
+    }
+    noiseTick(ctx, t0 + 0.68, { freq: 1200, q: 0.7, dur: 0.07, gain: 0.35, type: 'lowpass' }); // squared up
+  } catch (e) {}
+}
+
+// Single card landing / flipping over
 function playCardDealSound() {
   if (!_soundsEnabled) return;
   try {
@@ -10060,6 +10262,11 @@ function playCardDealSound() {
   } catch(e) {}
 }
 
+
+// Several cards, one sound each, a beat apart (the flop, two hole cards)
+function playCardFlips(n, gapMs = 220) {
+  for (let i = 0; i < n; i++) setTimeout(playCardDealSound, i * gapMs);
+}
 // ════════════════════════════════════════════════════════════════════════════
 // STATS TRACKING
 // ════════════════════════════════════════════════════════════════════════════
@@ -10578,6 +10785,7 @@ function toServerAction(row) {
   if (a === 'pick_variant') return ['pick_variant', _variantByCode[row.amount] || 'holdem'];
   if (a === 'rebuy' || a === 'sit_out' || a === 'sit_back') return [a, null];
   if (a === 'step_away' || a === 'quit_cashout' || a === 'quit') return ['quit', null];
+  if (a === 'result_ok') return ['result_ok', null];
   if (['guts_in', 'guts_out', 'break_ready', 'add_on', 'chop_offer', 'chop_accept', 'chop_decline', 'chop_cancel', 'muck'].includes(a)) return [a, null];
   if (a === 'pause_request') return ['pause', null];
   if (a === 'pause_ready') return ['pause_ready', null];
@@ -10672,13 +10880,18 @@ function startServerTicker(gameId) {
       G.breakActive ? null : G.nextDealAt,
       G.pendingDealerChoice ? G.dealerChoiceDeadline : null,
       G.stage === 'guts_decision' ? G.gutsDeadlineMs : null,
+      G.stage === 'runout' ? G.runoutNextAt : null,
       G.stage === 'discard' ? G.discardDeadline : null,
       G.stage === 'discard' && G.discardStartMs && discardWaitingOn().some((p) => !isPlayerOnline(p.id)) ? G.discardStartMs + 5000 : null,
       G.stage === 'draw' ? G.drawDeadline : null,
       G.stage === 'draw' && G.drawStartMs && drawWaitingOn().some((p) => !isPlayerOnline(p.id)) ? G.drawStartMs + 5000 : null,
       levelEndsAt,
+      // Result up, others tapped OK, the one we're waiting on looks gone: the server decides
+      G.stage === 'showdown' && Object.keys(G.resultAcks || {}).length
+        && G.players.some((p) => !p.eliminated && !p.broke && !p.awayFromTable && !G.resultAcks[p.id] && !isPlayerOnline(p.id)) ? 1 : null,
     ].some((t) => t && serverNow() >= t);
-    if (!due || Date.now() - _lastTickAt < 2000) return;
+    // (runout cards are 4s apart: ask again sooner)
+    if (!due || Date.now() - _lastTickAt < (G.stage === 'runout' ? 900 : 2000)) return;
     _lastTickAt = Date.now();
     callTable(gameId, 'tick');
   }, 500);

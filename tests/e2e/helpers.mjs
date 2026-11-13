@@ -194,6 +194,7 @@ export function tableView(p) {
     lastLabel: Object.fromEntries(G.players.map((x) => [x.id, x.lastAction?.label || x.lastAction?.type || null])),
     actorId: G.players[G.actionIndex]?.id || null,
     finished: !!G.tournamentOver,
+    server: typeof isServerGame === 'function' && isServerGame(),
   }));
 }
 
@@ -212,6 +213,12 @@ async function tap(locator) {
 export async function botStep(p, strategy = () => 'checkcall') {
   const { page } = p;
   const v = await tableView(p);
+  // Server games: the next hand waits until everyone taps Got It on the result
+  // (only once the result is on screen: the hidden button of the last result doesn't count)
+  if (v?.stage === 'showdown' && v.server && p.gotItHand !== v.hand && v.overlays.includes('showdown-overlay')) {
+    const got = page.locator('#showdown-overlay button[onclick="dismissShowdown()"]');
+    if (await got.count() && await tap(got.first())) { p.gotItHand = v.hand; return 'got it'; }
+  }
   const pick = page.locator(`button[onclick="dealerPickedVariant('holdem')"]`);
   if (await pick.isVisible().catch(() => false)) {
     // A test can allow the pick only for one hand number, to set up the deal first

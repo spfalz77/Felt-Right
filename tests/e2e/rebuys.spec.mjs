@@ -6,7 +6,7 @@
 //     the ledger must count Cy's re-buy: Ace +$50, Bo −$20, Cy −$30.
 
 import { test, expect, devices } from '@playwright/test';
-import { setupHomeGame, runTable, cashOutAndCheckLedger, expectNoPageErrors, adminSelect, tableView, cards, rigNextHand, chipsOnTable, tapRecordLedger, ledgerRows } from './helpers.mjs';
+import { setupHomeGame, runTable, cashOutAndCheckLedger, expectNoPageErrors, adminSelect, tableView, botStep, cards, rigNextHand, chipsOnTable, tapRecordLedger, ledgerRows } from './helpers.mjs';
 
 const PHONES = [devices['iPhone 13'], devices['Pixel 7'], devices['iPhone SE']];
 const BOARD = cards('2c 7d 9h 3s 4d');
@@ -125,7 +125,11 @@ test('tournament with re-buys: prize pool and ledger include the re-buy', async 
       done: (views) => views[0]?.broke[moe.id] === true,
     });
     await tapOverlay(moe, '#sit-out-btn', 'Sit Out');
-    await expect.poll(async () => (await tableView(host)).finished, { timeout: 20_000, message: 'tournament over' }).toBe(true);
+    // (the winner taps Got It on the last hand's result, as a person would)
+    await expect.poll(async () => {
+      for (const p of all) await botStep(p, () => 'idle');
+      return (await tableView(host)).finished;
+    }, { timeout: 20_000, message: 'tournament over' }).toBe(true);
   });
 
   await test.step('results: Kai wins the $70 pool; ledger counts the re-buy', async () => {

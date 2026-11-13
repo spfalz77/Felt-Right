@@ -257,6 +257,7 @@ function cancelAutoDeal() {
 function dismissShowdown() {
   const overlay = document.getElementById('showdown-overlay');
   if (overlay) overlay.style.display = 'none';
+  ackHandResult(); // server game: the next hand waits for everyone's Got It
 
   // If I'm broke and rebuys are available, show rebuy overlay BEFORE advancing
   const myP = G?.players?.find(p => p.id === me.id);

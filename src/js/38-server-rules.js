@@ -105,6 +105,7 @@ function toServerAction(row) {
   if (a === 'pick_variant') return ['pick_variant', _variantByCode[row.amount] || 'holdem'];
   if (a === 'rebuy' || a === 'sit_out' || a === 'sit_back') return [a, null];
   if (a === 'step_away' || a === 'quit_cashout' || a === 'quit') return ['quit', null];
+  if (a === 'result_ok') return ['result_ok', null];
   if (['guts_in', 'guts_out', 'break_ready', 'add_on', 'chop_offer', 'chop_accept', 'chop_decline', 'chop_cancel', 'muck'].includes(a)) return [a, null];
   if (a === 'pause_request') return ['pause', null];
   if (a === 'pause_ready') return ['pause_ready', null];
@@ -199,13 +200,18 @@ function startServerTicker(gameId) {
       G.breakActive ? null : G.nextDealAt,
       G.pendingDealerChoice ? G.dealerChoiceDeadline : null,
       G.stage === 'guts_decision' ? G.gutsDeadlineMs : null,
+      G.stage === 'runout' ? G.runoutNextAt : null,
       G.stage === 'discard' ? G.discardDeadline : null,
       G.stage === 'discard' && G.discardStartMs && discardWaitingOn().some((p) => !isPlayerOnline(p.id)) ? G.discardStartMs + 5000 : null,
       G.stage === 'draw' ? G.drawDeadline : null,
       G.stage === 'draw' && G.drawStartMs && drawWaitingOn().some((p) => !isPlayerOnline(p.id)) ? G.drawStartMs + 5000 : null,
       levelEndsAt,
+      // Result up, others tapped OK, the one we're waiting on looks gone: the server decides
+      G.stage === 'showdown' && Object.keys(G.resultAcks || {}).length
+        && G.players.some((p) => !p.eliminated && !p.broke && !p.awayFromTable && !G.resultAcks[p.id] && !isPlayerOnline(p.id)) ? 1 : null,
     ].some((t) => t && serverNow() >= t);
-    if (!due || Date.now() - _lastTickAt < 2000) return;
+    // (runout cards are 4s apart: ask again sooner)
+    if (!due || Date.now() - _lastTickAt < (G.stage === 'runout' ? 900 : 2000)) return;
     _lastTickAt = Date.now();
     callTable(gameId, 'tick');
   }, 500);
