@@ -794,6 +794,16 @@ function showdown(G, ctx) {
   G.pot = 0;
   G.runoutNextAt = null;
   G.lastResult = { hand: G.handNumber, winnings, pots };
+  // Every hand's payout, with each stack before (start of hand) and after,
+  // so a disputed pot can be checked afterwards
+  G.resultLog = [...(G.resultLog || []), {
+    hand: G.handNumber, at: ctx.now, variant: G.variant, pots, wonByFold: G.wonByFold,
+    community: (G.community || []).map((c) => `${c.rank}${c.suit}`),
+    stacks: G.players.filter((p) => (p.totalBet || 0) > 0 || winnings[p.id]).map((p) => ({
+      id: p.id, name: p.name, before: p.chips - winnings[p.id] + (p.totalBet || 0), after: p.chips, folded: !!p.folded,
+      cards: !p.folded && !G.wonByFold ? (p.hand || []).map((c) => `${c.rank}${c.suit}`) : null,
+    })),
+  }].slice(-100);
 
   // Out of chips: re-buy offer (home game, or tournament while re-buys are open) or knocked out
   G.players.forEach((p) => {

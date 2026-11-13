@@ -72,6 +72,10 @@ test('check/call a hand to showdown: chips conserved, result recorded, next hand
   assert.equal(Object.values(t.G.lastResult.winnings).reduce((a, b) => a + b, 0), 60);
   assert.ok(T.redact(t.G).players.every((p) => p.hand.every((c) => c.rank)), 'hands shown at showdown');
   assert.ok(t.G.players.every((p) => p.bet === 0), 'chips in front went to the pot (and the winner)');
+  const log = t.G.resultLog.at(-1);
+  assert.equal(log.hand, 1);
+  for (const st of log.stacks) assert.equal(st.after, t.G.players.find((p) => p.id === st.id).chips);
+  assert.equal(log.stacks.reduce((a, st) => a + st.after - st.before, 0), 0, 'what the winner gained, the others lost');
   assert.equal(t.wait(T.RESULT_MAX_MS - 1), false, 'the result stays up while nobody has tapped OK');
   t.wait(1);
   assert.equal(t.G.handNumber, 2);
