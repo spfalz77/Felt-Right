@@ -17,7 +17,7 @@ function showScreen(id) {
 function navTo(id) {
   screenStack = [id];
   showScreen(id);
-  if (id === 'friends') { loadFriends(); renderLedger(); }
+  if (id === 'friends') { loadFriends(); renderLedger(); loadFeatures(); }
   if (id === 'home')    loadGames();
   if (id === 'profile') loadProfileScreen();
 }
