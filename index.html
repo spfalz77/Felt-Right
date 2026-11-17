@@ -759,6 +759,25 @@ h3 { font-size: 1rem; font-weight: 600; }
 .table-area.seats-on-rail > .community-area { flex-shrink: 0; }
 .community-area.shape-oblong { min-height: 300px; }
 .community-area.shape-oval { min-height: 360px; }
+
+/* Pull to refresh (43-refresh.js) */
+#pull-refresh {
+  position: fixed; top: calc(var(--safe-top, 0px) + 6px); left: 50%;
+  transform: translate(-50%, 0); opacity: 0; z-index: 3000; pointer-events: none;
+  width: 36px; height: 36px; border-radius: 50%;
+  background: var(--surface); border: 1px solid var(--gold-dim); color: var(--gold-dim);
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.4); font-size: 1.1rem;
+}
+#pull-refresh.ready { color: var(--gold); border-color: var(--gold); }
+#pull-refresh.spinning .pull-refresh-icon { animation: pull-spin 0.8s linear infinite; color: var(--gold); }
+@keyframes pull-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { #pull-refresh.spinning .pull-refresh-icon { animation-duration: 2.4s; } }
+.topbar-refresh {
+  background: none; border: 1px solid var(--gold-dim); color: var(--gold);
+  width: 28px; height: 28px; border-radius: 50%; cursor: pointer; font-size: 0.85rem;
+  display: flex; align-items: center; justify-content: center; padding: 0; line-height: 1;
+}
 </style>
 <script>
 // Capture console output from the very start, before any other script runs
@@ -898,7 +917,7 @@ window.__dbgLogs = [];
         <div class="home-sub" id="home-sub">Your games</div>
       </div>
       <div style="display:flex;align-items:center;gap:10px">
-        <button onclick="refreshApp()" title="Refresh"
+        <button onclick="refreshCurrentScreen()" title="Refresh" aria-label="Refresh"
           style="background:none;border:1px solid var(--gold-dim);color:var(--gold);
             width:38px;height:38px;border-radius:50%;cursor:pointer;font-size:1rem;
             display:flex;align-items:center;justify-content:center">↻</button>
@@ -952,7 +971,7 @@ window.__dbgLogs = [];
 
     <div class="section-head" style="display:flex;align-items:center;justify-content:space-between">
       <span>Standings</span>
-      <button onclick="renderLedger()" style="background:none;border:none;color:var(--gold);
+      <button onclick="refreshCurrentScreen()" style="background:none;border:none;color:var(--gold);
         font-size:0.7rem;cursor:pointer;padding:2px 6px">↻ Refresh</button>
     </div>
     <div class="ledger-disclaimer" style="margin:0 16px 10px;font-size:0.72rem;color:var(--text-dim);
@@ -977,6 +996,9 @@ window.__dbgLogs = [];
   <!-- ─── GAME LOBBY ─────────────────────────────────────────────────────── -->
   <div class="screen screen-full" id="screen-lobby">
     <div class="lobby-header" style="position:relative">
+      <button onclick="refreshCurrentScreen()" title="Refresh" aria-label="Refresh the lobby" style="position:absolute;top:12px;left:12px;
+        background:none;border:1px solid var(--gold-dim);color:var(--gold);
+        font-size:0.9rem;padding:5px 10px;border-radius:6px;cursor:pointer;line-height:1">↻</button>
       <button id="lobby-chat-btn" onclick="toggleChatPanel()" style="position:absolute;top:12px;right:12px;
         background:none;border:1px solid var(--gold-dim);color:var(--gold);
         font-size:0.9rem;padding:5px 10px;border-radius:6px;cursor:pointer;line-height:1">
@@ -1124,6 +1146,7 @@ window.__dbgLogs = [];
         <div class="stage-label" id="stage-label">PRE-FLOP</div>
         <div style="display:flex;align-items:center;gap:8px">
           <div class="hand-num" id="hand-num">Hand #1</div>
+          <button onclick="refreshCurrentScreen()" title="Refresh" aria-label="Refresh the table" class="topbar-refresh">↻</button>
           <div class="turn-timer" id="turn-timer" style="display:none">
             <svg width="36" height="36" viewBox="0 0 36 36">
               <circle class="turn-timer-track" cx="18" cy="18" r="15"/>
@@ -1301,6 +1324,14 @@ window.__dbgLogs = [];
         </div>
         <button id="notif-toggle-btn" onclick="toggleNotifications()" style="background:none;border:1px solid var(--gold-dim);
           color:var(--gold);padding:6px 16px;border-radius:6px;cursor:pointer;font-size:0.85rem;min-width:60px">On</button>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0">
+        <div>
+          <div style="font-size:0.88rem">Reload app</div>
+          <div style="font-size:0.72rem;color:var(--text-dim);margin-top:2px">Start fresh if something looks stuck. To update a screen, pull down on it.</div>
+        </div>
+        <button onclick="refreshApp()" style="background:none;border:1px solid var(--gold-dim);
+          color:var(--gold);padding:6px 16px;border-radius:6px;cursor:pointer;font-size:0.85rem;min-width:60px">Reload</button>
       </div>
     </div>
 
@@ -10719,6 +10750,120 @@ function dismissPushLobbyCard() {
 }
 
 if (!IS_NATIVE_APP) pushServiceWorker();
+// ════════════════════════════════════════════════════════════════════════════
+// REFRESH, ON EVERY SCREEN
+// ════════════════════════════════════════════════════════════════════════════
+// Pull down from the top of any screen (or tap a ↻ button) to fetch that
+// screen's data again, without reloading the app:
+//   Home → games and invites · Friends → friends and Standings · Me → profile
+//   and stats · Lobby → who's joined · Table → the latest table, cards and turn
+// A full reload (the old ↻) is still in Settings → Reload app, and on the
+// sign-in screen.
+
+let _refreshing = false;
+
+function activeScreenId() {
+  return document.querySelector('.screen.active')?.id?.replace('screen-', '') || '';
+}
+
+async function refreshCurrentScreen() {
+  if (_refreshing) return;
+  _refreshing = true;
+  pullIndicator('spin');
+  try {
+    const id = activeScreenId();
+    const isDemo = !me || me.id === 'demo';
+    if (id === 'home') {
+      await Promise.all([loadGames(), isDemo ? null : checkForNewInvites()]);
+    } else if (id === 'friends') {
+      await Promise.all([loadFriends(), renderLedger()]);
+    } else if (id === 'profile') {
+      await loadProfileScreen();
+    } else if (id === 'lobby') {
+      if (currentLobbyId && !isDemo) await refreshLobbyRoster(currentLobbyId);
+    } else if (id === 'game') {
+      // Same path as coming back to the app: latest table, my cards, my turn
+      document.dispatchEvent(new Event('visibilitychange'));
+      if (!isDemo && typeof isServerGame === 'function' && isServerGame()) await refreshGuestState();
+    } else {
+      location.reload(); // sign-in screen: nothing to fetch, start fresh
+      return;
+    }
+  } catch (e) {
+    console.warn('refresh:', e);
+    toast('Couldn’t refresh. Check your connection.');
+  } finally {
+    _refreshing = false;
+    pullIndicator('done');
+  }
+}
+
+// ── Pull to refresh ────────────────────────────────────────────────────────
+const PULL_TRIGGER_PX = 70;
+let _pull = null; // { startY, startX, dy, el }
+
+function pullIndicator(state, dy = 0) {
+  let el = document.getElementById('pull-refresh');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'pull-refresh';
+    el.setAttribute('aria-hidden', 'true');
+    el.innerHTML = '<span class="pull-refresh-icon">↻</span>';
+    document.body.appendChild(el);
+  }
+  el.classList.toggle('ready', state === 'pull' && dy >= PULL_TRIGGER_PX);
+  el.classList.toggle('spinning', state === 'spin');
+  if (state === 'pull') {
+    el.style.transition = 'none';
+    el.style.opacity = String(Math.min(dy / PULL_TRIGGER_PX, 1));
+    el.style.transform = `translate(-50%, ${Math.min(dy, PULL_TRIGGER_PX * 1.4) * 0.6}px) rotate(${dy * 3}deg)`;
+  } else if (state === 'spin') {
+    el.style.transition = 'transform 0.15s, opacity 0.15s';
+    el.style.opacity = '1';
+    el.style.transform = `translate(-50%, ${PULL_TRIGGER_PX * 0.6}px)`;
+  } else {
+    el.style.transition = 'transform 0.25s, opacity 0.25s';
+    el.style.opacity = '0';
+    el.style.transform = 'translate(-50%, 0)';
+  }
+}
+
+// The pull starts only when everything under the finger is scrolled to the top
+function atTop(target, screen) {
+  for (let n = target; n && n !== document.body; n = n.parentElement) {
+    if (n.scrollTop > 0) return false;
+    if (n === screen) return true;
+  }
+  return true;
+}
+
+document.addEventListener('touchstart', (e) => {
+  if (_refreshing || e.touches.length !== 1) return;
+  const screen = document.querySelector('.screen.active');
+  if (!screen || document.querySelector('.modal-backdrop.open')) return;
+  const t = e.target;
+  if (t.closest && t.closest('input, textarea, select, [data-no-pull]')) return;
+  if (!atTop(t, screen)) return;
+  _pull = { startY: e.touches[0].clientY, startX: e.touches[0].clientX, dy: 0 };
+}, { passive: true });
+
+document.addEventListener('touchmove', (e) => {
+  if (!_pull) return;
+  const dy = e.touches[0].clientY - _pull.startY;
+  const dx = Math.abs(e.touches[0].clientX - _pull.startX);
+  if (dy <= 0 || dx > dy) { if (_pull.dy) pullIndicator('done'); _pull = null; return; } // scrolling or swiping sideways
+  _pull.dy = dy;
+  pullIndicator('pull', dy);
+}, { passive: true });
+
+document.addEventListener('touchend', () => {
+  if (!_pull) return;
+  const pulled = _pull.dy >= PULL_TRIGGER_PX;
+  _pull = null;
+  if (pulled) refreshCurrentScreen();
+  else pullIndicator('done');
+});
+document.addEventListener('touchcancel', () => { if (_pull) { _pull = null; pullIndicator('done'); } });
 </script>
 
 <!-- Global Chat slide-up panel (outside all screens so it works in lobby AND game) -->

@@ -126,7 +126,7 @@
         <div class="home-sub" id="home-sub">Your games</div>
       </div>
       <div style="display:flex;align-items:center;gap:10px">
-        <button onclick="refreshApp()" title="Refresh"
+        <button onclick="refreshCurrentScreen()" title="Refresh" aria-label="Refresh"
           style="background:none;border:1px solid var(--gold-dim);color:var(--gold);
             width:38px;height:38px;border-radius:50%;cursor:pointer;font-size:1rem;
             display:flex;align-items:center;justify-content:center">↻</button>
@@ -180,7 +180,7 @@
 
     <div class="section-head" style="display:flex;align-items:center;justify-content:space-between">
       <span>Standings</span>
-      <button onclick="renderLedger()" style="background:none;border:none;color:var(--gold);
+      <button onclick="refreshCurrentScreen()" style="background:none;border:none;color:var(--gold);
         font-size:0.7rem;cursor:pointer;padding:2px 6px">↻ Refresh</button>
     </div>
     <div class="ledger-disclaimer" style="margin:0 16px 10px;font-size:0.72rem;color:var(--text-dim);
@@ -205,6 +205,9 @@
   <!-- ─── GAME LOBBY ─────────────────────────────────────────────────────── -->
   <div class="screen screen-full" id="screen-lobby">
     <div class="lobby-header" style="position:relative">
+      <button onclick="refreshCurrentScreen()" title="Refresh" aria-label="Refresh the lobby" style="position:absolute;top:12px;left:12px;
+        background:none;border:1px solid var(--gold-dim);color:var(--gold);
+        font-size:0.9rem;padding:5px 10px;border-radius:6px;cursor:pointer;line-height:1">↻</button>
       <button id="lobby-chat-btn" onclick="toggleChatPanel()" style="position:absolute;top:12px;right:12px;
         background:none;border:1px solid var(--gold-dim);color:var(--gold);
         font-size:0.9rem;padding:5px 10px;border-radius:6px;cursor:pointer;line-height:1">
@@ -352,6 +355,7 @@
         <div class="stage-label" id="stage-label">PRE-FLOP</div>
         <div style="display:flex;align-items:center;gap:8px">
           <div class="hand-num" id="hand-num">Hand #1</div>
+          <button onclick="refreshCurrentScreen()" title="Refresh" aria-label="Refresh the table" class="topbar-refresh">↻</button>
           <div class="turn-timer" id="turn-timer" style="display:none">
             <svg width="36" height="36" viewBox="0 0 36 36">
               <circle class="turn-timer-track" cx="18" cy="18" r="15"/>
@@ -529,6 +533,14 @@
         </div>
         <button id="notif-toggle-btn" onclick="toggleNotifications()" style="background:none;border:1px solid var(--gold-dim);
           color:var(--gold);padding:6px 16px;border-radius:6px;cursor:pointer;font-size:0.85rem;min-width:60px">On</button>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0">
+        <div>
+          <div style="font-size:0.88rem">Reload app</div>
+          <div style="font-size:0.72rem;color:var(--text-dim);margin-top:2px">Start fresh if something looks stuck. To update a screen, pull down on it.</div>
+        </div>
+        <button onclick="refreshApp()" style="background:none;border:1px solid var(--gold-dim);
+          color:var(--gold);padding:6px 16px;border-radius:6px;cursor:pointer;font-size:0.85rem;min-width:60px">Reload</button>
       </div>
     </div>
 
