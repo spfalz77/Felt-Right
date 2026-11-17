@@ -386,3 +386,33 @@ test('push: the Web Push key is made once; tokens are saved per user and private
   await http('/rest/v1/rpc/remove_push_token', { token: t.players[1].token, method: 'POST', body: { p_token: sub.endpoint + 'Quin' } });
   assert.equal((await admin(`/rest/v1/push_tokens?token=eq.${encodeURIComponent(sub.endpoint + 'Quin')}&select=id`)).data.length, 0);
 });
+
+test('installs: counted once each; a coming-soon feature turns to beta when app downloads reach its threshold', async () => {
+  const key = `test_flag_${RUN}`.slice(0, 60);
+  const base = (await http('/rest/v1/rpc/feature_status', { method: 'POST', body: {} })).data;
+  assert.ok(base.some((f) => f.key === 'public_games' && f.threshold === 300), 'public games waits for 300 downloads');
+  const now = Number(base.find((f) => f.key === 'public_games').installs);
+  // A test switch that opens 2 app downloads from now
+  const ins = await admin('/rest/v1/feature_flags', { method: 'POST', body: { key, state: 'coming_soon', threshold: now + 2 } });
+  assert.ok(ins.status < 300, JSON.stringify(ins.data));
+  const flag = async () => (await http('/rest/v1/rpc/feature_status', { method: 'POST', body: {} })).data.find((f) => f.key === key);
+
+  const id = () => crypto.randomUUID();
+  const a = id();
+  assert.ok((await http('/rest/v1/rpc/register_install', { method: 'POST', body: { p_install_id: a, p_platform: 'android' } })).status < 300);
+  await http('/rest/v1/rpc/register_install', { method: 'POST', body: { p_install_id: a, p_platform: 'android' } }); // same install again
+  await http('/rest/v1/rpc/register_install', { method: 'POST', body: { p_install_id: id(), p_platform: 'web' } });  // the website isn't a download
+  assert.equal((await flag()).state, 'coming_soon');
+  assert.equal(Number((await flag()).installs), now + 1);
+  await http('/rest/v1/rpc/register_install', { method: 'POST', body: { p_install_id: id(), p_platform: 'ios' } });
+  const f = await flag();
+  assert.equal(f.state, 'beta');
+  assert.ok(f.reached_at);
+
+  // Phones can read switches but not write them or see installs
+  assert.ok((await http('/rest/v1/feature_flags', { method: 'POST', body: { key: key + 'x', state: 'on' } })).status >= 400);
+  assert.ok((await http(`/rest/v1/feature_flags?key=eq.${key}`, { method: 'PATCH', body: { state: 'off' } })).data?.length !== 1);
+  assert.equal((await http('/rest/v1/app_installs?select=install_id')).data?.length ?? 0, 0);
+  assert.ok((await http('/rest/v1/rpc/register_install', { method: 'POST', body: { p_install_id: id(), p_platform: 'windows' } })).status >= 400);
+  await admin(`/rest/v1/feature_flags?key=eq.${key}`, { method: 'DELETE' });
+});

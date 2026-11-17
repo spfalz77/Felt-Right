@@ -24,7 +24,7 @@ async function refreshCurrentScreen() {
     if (id === 'home') {
       await Promise.all([loadGames(), isDemo ? null : checkForNewInvites()]);
     } else if (id === 'friends') {
-      await Promise.all([loadFriends(), renderLedger()]);
+      await Promise.all([loadFriends(), renderLedger(), loadFeatures()]);
     } else if (id === 'profile') {
       await loadProfileScreen();
     } else if (id === 'lobby') {
