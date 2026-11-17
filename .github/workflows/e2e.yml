@@ -35,7 +35,7 @@ jobs:
           node-version: 22
       - uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: 3.2.0 # pinned: "latest" looks up GitHub releases and hits the rate limit
       - name: Start local Supabase (applies supabase/migrations)
         run: |
           EXCLUDE=studio,imgproxy,logflare,vector,supavisor,storage-api,postgres-meta
@@ -73,7 +73,7 @@ jobs:
           cache: npm
       - uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: 3.2.0 # pinned: "latest" looks up GitHub releases and hits the rate limit
 
       - name: Start local Supabase (applies supabase/migrations)
         # GitHub's runners sometimes have a port still held; stop cleanly and retry once
