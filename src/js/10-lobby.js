@@ -457,7 +457,7 @@ function copyLobbyLink() {
 let _lobbyRosterSig = '';
 async function refreshLobbyRoster(gameId) {
   const { data: fresh } = await sb.from('game_players')
-    .select('*,user:users(id,display_name,avatar_emoji)')
+    .select('*,user:users(id,display_name,avatar_emoji,is_guest)')
     .eq('game_id', gameId).order('joined_at');
   if (currentLobbyId !== gameId || !fresh) return;
   const sig = fresh.map(p => p.user_id + ':' + p.status).join(',');
