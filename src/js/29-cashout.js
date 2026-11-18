@@ -174,6 +174,7 @@ function showHomeGameEnd() {
       ${ledgerBtnHtml}
       <button class="btn btn-primary" onclick="goHome()" style="margin-top:14px">Back to Home</button>
     </div>`;
+  noteGuestResults(overlay.querySelector('.tourney-result'), (G?.players || []).map((p) => p.id));
 }
 
 // Records the home game to the friends ledger for every player (both sides),
@@ -454,6 +455,7 @@ function showTournamentOverlay(winner) {
       ${ledgerBtnHtml}
       <button class="btn btn-primary" onclick="goHome()" style="margin-top:14px">Back to Home</button>
     </div>`;
+  noteGuestResults(overlay.querySelector('.tourney-result'), (G?.players || []).map((p) => p.id));
 }
 
 function goHome() {

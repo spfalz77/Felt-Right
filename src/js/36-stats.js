@@ -70,6 +70,7 @@ function makeEmptyPrivateStats() {
 }
 
 async function commitHandStats() {
+  if (isGuest()) return; // guests keep no stats
   if (!sb || !me?.id || me.id === 'demo') return;
   if (!_myPublicStats || !_myPrivateStats) return;
   if (!_statsThisHand.hand_played) { resetHandStats(); return; }
@@ -127,6 +128,7 @@ async function commitHandStats() {
 }
 
 async function commitTournamentStats(placement, finalChips) {
+  if (isGuest()) return; // guests keep no stats
   if (!sb || !me?.id || me.id === 'demo') return;
   if (!_myPublicStats) return;
   const pub = _myPublicStats;

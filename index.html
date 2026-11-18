@@ -778,6 +778,31 @@ h3 { font-size: 1rem; font-weight: 600; }
   width: 28px; height: 28px; border-radius: 50%; cursor: pointer; font-size: 0.85rem;
   display: flex; align-items: center; justify-content: center; padding: 0; line-height: 1;
 }
+
+/* Guests (45-guest.js) */
+.guest-avatars { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; margin-top: 6px; }
+.guest-avatars button {
+  font-size: 1.5rem; line-height: 1; padding: 8px 0; border-radius: 10px; cursor: pointer;
+  background: var(--surface2); border: 2px solid transparent;
+}
+.guest-avatars button[aria-checked="true"] { border-color: var(--gold); background: rgba(212,168,67,0.12); }
+.guest-avatars button:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.guest-gate {
+  margin: 8px 16px 12px; padding: 14px; border-radius: 12px;
+  background: var(--surface); border: 1px solid var(--gold-dim);
+}
+.guest-gate-title { font-weight: 600; font-size: 0.95rem; margin-bottom: 4px; }
+.guest-gate-text { font-size: 0.8rem; color: var(--text-dim); line-height: 1.45; margin-bottom: 12px; }
+body.is-guest .account-only { display: none !important; }
+body.is-guest #screen-friends > :not(.friends-header):not(#friends-guest-gate):not(#public-games-card) { display: none !important; }
+body.is-guest #screen-friends .search-bar { display: none; }
+body.is-guest #friends-guest-gate, body.is-guest #profile-guest-card { display: block !important; }
+.badge-dev {
+  display: inline-block; font-size: 0.62rem; font-weight: 600; letter-spacing: 0.04em;
+  padding: 2px 7px; border-radius: 999px; vertical-align: middle;
+  color: var(--gold); border: 1px solid var(--gold-dim); background: rgba(212,168,67,0.08);
+}
+.guest-tag { font-size: 0.62rem; color: var(--text-dim); border: 1px solid var(--border); border-radius: 999px; padding: 1px 6px; margin-left: 4px; }
 </style>
 <script>
 // Capture console output from the very start, before any other script runs
@@ -838,7 +863,31 @@ window.__dbgLogs = [];
       <div class="splash-sub">Texas Hold'em</div>
       <div class="splash-rule"></div>
     </div>
-    <div class="splash-form">
+    <!-- PLAY NOW: no account needed (45-guest.js) -->
+    <div class="splash-form" id="splash-play" style="display:none">
+      <div id="guest-invite-note" style="display:none;text-align:center;font-size:0.85rem;color:var(--gold);margin-bottom:10px">
+        You're invited to a game
+      </div>
+      <div class="input-group">
+        <label class="input-label" for="guest-name">Your name at the table</label>
+        <input class="input" id="guest-name" type="text" maxlength="20" placeholder="Poker Face Pete" autocomplete="nickname"
+          onkeydown="if(event.key==='Enter')playAsGuest()">
+      </div>
+      <div class="input-label" style="margin-top:4px">Pick an avatar</div>
+      <div id="guest-avatars" class="guest-avatars" role="radiogroup" aria-label="Avatar"></div>
+      <button class="btn btn-primary btn-full" id="guest-play-btn" onclick="playAsGuest()" style="margin-top:14px">Play now</button>
+      <div style="margin-top:8px;font-size:0.72rem;color:var(--text-dim);text-align:center;line-height:1.4">
+        No account needed. Play chips only. Results aren't saved until you create an account.
+      </div>
+      <div style="text-align:center;margin-top:16px;font-size:0.85rem;color:var(--text-dim)">
+        Have an account? <span style="color:var(--gold);cursor:pointer" onclick="showAccountPanel('login')">Sign in</span>
+        · <span style="color:var(--gold);cursor:pointer" onclick="showAccountPanel('signup')">Create one</span>
+      </div>
+    </div>
+    <div class="splash-form" id="splash-account">
+      <div id="splash-account-invite" style="display:none;text-align:center;font-size:0.85rem;color:var(--gold);margin-bottom:10px">
+        You're invited to a game. Sign in or create an account to join.
+      </div>
       <div class="splash-tabs">
         <div class="splash-tab active" onclick="switchTab('login')">Sign In</div>
         <div class="splash-tab" onclick="switchTab('signup')">Create Account</div>
@@ -863,10 +912,6 @@ window.__dbgLogs = [];
         </div>
         <div style="text-align:center; margin-top:10px; color:var(--text-dim); font-size:0.8rem;">
           No account? <span style="color:var(--gold); cursor:pointer" onclick="switchTab('signup')">Sign up</span>
-        </div>
-        <div style="margin-top:16px; border-top:1px solid var(--border); padding-top:16px; text-align:center;">
-          <button class="btn btn-ghost btn-full btn-sm" onclick="enterDemoMode()">🃏 Try Demo Mode</button>
-          <div style="margin-top:8px; font-size:0.72rem; color:var(--text-dim);">No account needed · simulates friends joining</div>
         </div>
       </div>
       <!-- SIGN UP -->
@@ -902,7 +947,10 @@ window.__dbgLogs = [];
           <button type="submit" class="btn btn-primary btn-full" style="margin-top:8px">Create Account</button>
         </form>
       </div>
-      <div style="text-align:center;margin-top:16px">
+      <div id="splash-back-to-guest" style="display:none;text-align:center;margin-top:16px;font-size:0.85rem">
+        <span style="color:var(--gold);cursor:pointer" onclick="showGuestPanel()">← Play without an account</span>
+      </div>
+      <div style="text-align:center;margin-top:12px">
         <span onclick="refreshApp()" style="color:var(--text-dim);font-size:0.78rem;
           cursor:pointer;text-decoration:underline">↻ Refresh app</span>
       </div>
@@ -953,6 +1001,12 @@ window.__dbgLogs = [];
         <span class="search-icon">🔍</span>
         <input id="friend-search" type="text" placeholder="Search by name or phone…" oninput="searchFriends(this.value)">
       </div>
+    </div>
+    <div id="friends-guest-gate" class="guest-gate" style="display:none">
+      <div class="guest-gate-title">Friends and Standings need an account</div>
+      <div class="guest-gate-text">As a guest you can join any game you're invited to, but friends, Standings and stats
+        aren't kept. Create an account to keep them.</div>
+      <button class="btn btn-primary btn-full" onclick="leaveGuestForAccount()">Create an account</button>
     </div>
     <div id="friend-requests-section" style="display:none">
       <div class="section-head">Requests</div>
@@ -1282,17 +1336,25 @@ window.__dbgLogs = [];
       </div>
     </div>
 
+    <!-- Guest: what an account adds (45-guest.js) -->
+    <div id="profile-guest-card" class="guest-gate" style="display:none;margin:0 16px 16px">
+      <div class="guest-gate-title">You're playing as a guest</div>
+      <div class="guest-gate-text">Your results show at the table but aren't saved. Create an account to keep your
+        Standings and stats, add friends, and host games.</div>
+      <button class="btn btn-primary btn-full" onclick="leaveGuestForAccount()">Create an account</button>
+    </div>
+
     <!-- Fields -->
     <div style="padding:0 16px 16px">
       <div class="input-group">
         <div class="input-label">Display Name</div>
         <input class="input" id="profile-name" type="text" placeholder="Your name" maxlength="20">
       </div>
-      <div class="input-group">
+      <div class="input-group account-only">
         <div class="input-label">Email</div>
         <input class="input" id="profile-email" type="text" readonly style="color:var(--text-dim)">
       </div>
-      <div class="input-group">
+      <div class="input-group account-only">
         <div class="input-label">Phone <span style="color:var(--text-dim);font-weight:400">(optional, for friend search)</span></div>
         <input class="input" id="profile-phone" type="tel" placeholder="(555) 867-5309" oninput="formatPhone(this)">
       </div>
@@ -1300,13 +1362,13 @@ window.__dbgLogs = [];
     </div>
 
     <!-- Share -->
-    <div style="margin:0 16px 16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px">
+    <div class="account-only" style="margin:0 16px 16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px">
       <div style="font-size:0.78rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px">Invite Friends</div>
       <button class="btn btn-ghost btn-full btn-sm" onclick="copyInviteLink()">📋 Copy App Link</button>
     </div>
 
     <!-- Stats -->
-    <div id="profile-stats-section" style="margin:0 16px 16px"></div>
+    <div id="profile-stats-section" class="account-only" style="margin:0 16px 16px"></div>
 
     <!-- Settings -->
     <div style="margin:0 16px 16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:6px 16px">
@@ -2063,8 +2125,8 @@ async function init() {
   try {
     sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   } catch(e) {
-    console.warn('Supabase not configured, running in demo mode');
-    enterDemoMode();
+    console.warn('Supabase not configured', e);
+    toast('Can’t reach Felt Right. Check your connection and reload.');
     return;
   }
 
@@ -2113,15 +2175,13 @@ async function init() {
       }
     }
 
-    // Check the auto-restore flag for in-app reloads
-    if (sessionStorage.getItem('fr_auto_restore') === '1') {
-      sessionStorage.removeItem('fr_auto_restore');
-      enterApp();
-      return;
-    }
+    // Signed in (an account or a guest): straight in, no sign-in screen
+    sessionStorage.removeItem('fr_auto_restore');
+    enterApp();
+    return;
   } catch(e) { console.warn('init auto-restore:', e); }
 
-  // Default: show splash / login
+  // Not signed in: the splash ("Play now", or sign in)
 }
 
 function enterDemoMode() {
@@ -2140,7 +2200,8 @@ function enterApp() {
   document.getElementById('my-name').textContent = me.display_name;
 
   const demoBanner = document.getElementById('demo-banner');
-  if (demoBanner) demoBanner.style.display = me.id === 'demo' ? 'flex' : 'none';
+  if (demoBanner) demoBanner.style.display = 'none'; // (Demo mode is retired: guests play for real)
+  applyGuestMode();
 
   // Show admin kill button only for Fallz
   const killBtn = document.getElementById('admin-kill-btn');
@@ -2170,6 +2231,8 @@ function enterApp() {
 
   // Global: listen for game invites arriving in real time
   if (me.id !== 'demo' && sb) subscribeToInvites();
+  // Opened from an invite link: go to that game
+  if (pendingJoinCode()) setTimeout(handlePendingJoin, 300);
 }
 
 let _homeRefreshInterval = null;
@@ -2321,6 +2384,10 @@ function goBack() {
 }
 
 function switchTab(tab) {
+  // (the sign-in / create-account forms sit behind "Have an account?")
+  const play = document.getElementById('splash-play'), acct = document.getElementById('splash-account');
+  if (play && acct) { play.style.display = 'none'; acct.style.display = ''; }
+  if (typeof _splashPicked !== 'undefined') _splashPicked = true;
   document.querySelectorAll('.splash-tab').forEach((t,i) => {
     t.classList.toggle('active', (i===0&&tab==='login')||(i===1&&tab==='signup'));
   });
@@ -2333,7 +2400,7 @@ function switchTab(tab) {
 // FRIENDS
 // ════════════════════════════════════════════════════════════════════════════
 async function loadFriends() {
-  if (!sb || me.id === 'demo') return;
+  if (!sb || me.id === 'demo' || isGuest()) return;
   try {
     // Load accepted friends
     const { data } = await sb.from('friendships')
@@ -2506,6 +2573,7 @@ function searchFriends(q) {
       const { data } = await sb.from('users')
         .select('id,display_name,avatar_emoji,phone')
         .or(`display_name.ilike.%${q}%,phone.ilike.%${q}%`)
+        .eq('is_guest', false) // guests can't be added as friends
         .neq('id', me.id).limit(15);
       list.innerHTML = (data||[]).length
         ? (data||[]).map(u => userRow(u)).join('')
@@ -2650,7 +2718,9 @@ function renderGamesList() {
   const el = document.getElementById('games-list');
 
   if (!myGames.length) {
-    el.innerHTML = `<div style="padding:40px 20px;text-align:center;color:var(--text-dim);font-size:0.9rem;font-style:italic;">No games yet.<br>Tap + to create one.</div>`;
+    el.innerHTML = isGuest() && !guestCanHost()
+      ? `<div style="padding:40px 20px;text-align:center;color:var(--text-dim);font-size:0.9rem;line-height:1.5">No games yet.<br>Open an invite link from a friend to join their table.</div>`
+      : `<div style="padding:40px 20px;text-align:center;color:var(--text-dim);font-size:0.9rem;font-style:italic;">No games yet.<br>Tap + to create one.</div>`;
     return;
   }
 
@@ -2758,6 +2828,7 @@ function gameCard(g, type) {
 // CREATE GAME
 // ════════════════════════════════════════════════════════════════════════════
 function openCreateGame() {
+  if (!guestCanHost()) { showGuestHostSheet(); return; }
   document.getElementById('new-game-name').value = '';
   openModal('modal-create-game');
 }
@@ -3159,7 +3230,7 @@ async function openLobby(gameId) {
   // Load players
   try {
     const { data } = await sb.from('game_players')
-      .select('*,user:users(id,display_name,avatar_emoji)')
+      .select('*,user:users(id,display_name,avatar_emoji,is_guest)')
       .eq('game_id', gameId).order('joined_at');
 
     lobbyPlayers = (data || [])
@@ -3293,7 +3364,7 @@ function renderLobbySeats() {
       html += `<div class="seat filled">
         <div class="avatar sm ${canNudge?'lobby-nudge-avatar':''}"
           ${canNudge ? `data-nudge-id="${p.user.id}" data-nudge-name="${name}" style="cursor:pointer" title="Tap to nudge ${name}"` : ''}>${emoji}</div>
-        <div class="seat-name">${name}</div>
+        <div class="seat-name">${name}${p.user?.is_guest ? '<span class="guest-tag">Guest</span>' : ''}</div>
         ${isHost ? `<div class="seat-host">Host</div>` : ''}
       </div>`;
     } else {
@@ -8478,6 +8549,7 @@ function showHomeGameEnd() {
       ${ledgerBtnHtml}
       <button class="btn btn-primary" onclick="goHome()" style="margin-top:14px">Back to Home</button>
     </div>`;
+  noteGuestResults(overlay.querySelector('.tourney-result'), (G?.players || []).map((p) => p.id));
 }
 
 // Records the home game to the friends ledger for every player (both sides),
@@ -8758,6 +8830,7 @@ function showTournamentOverlay(winner) {
       ${ledgerBtnHtml}
       <button class="btn btn-primary" onclick="goHome()" style="margin-top:14px">Back to Home</button>
     </div>`;
+  noteGuestResults(overlay.querySelector('.tourney-result'), (G?.players || []).map((p) => p.id));
 }
 
 function goHome() {
@@ -9135,11 +9208,7 @@ async function refreshApp() {
 // BOOT
 // ════════════════════════════════════════════════════════════════════════════
 window.addEventListener('load', () => {
-  // Check for join link
-  const params = new URLSearchParams(location.search);
-  if (params.has('join')) {
-    toast(`Joining game ${params.get('join')}…`);
-  }
+  // (A ?join= link is picked up by 45-guest.js and opened after sign-in)
   init();
 });
 
@@ -9530,7 +9599,7 @@ function standingsColor(net) {
 
 async function renderLedger() {
   const el = document.getElementById('friends-ledger-list');
-  if (!el) return;
+  if (!el || isGuest()) return;
   el.innerHTML = `<div style="color:var(--text-dim);font-size:0.85rem;padding:8px 0">Loading…</div>`;
   let s;
   try { s = await loadStandings(); }
@@ -9799,6 +9868,7 @@ function makeEmptyPrivateStats() {
 }
 
 async function commitHandStats() {
+  if (isGuest()) return; // guests keep no stats
   if (!sb || !me?.id || me.id === 'demo') return;
   if (!_myPublicStats || !_myPrivateStats) return;
   if (!_statsThisHand.hand_played) { resetHandStats(); return; }
@@ -9856,6 +9926,7 @@ async function commitHandStats() {
 }
 
 async function commitTournamentStats(placement, finalChips) {
+  if (isGuest()) return; // guests keep no stats
   if (!sb || !me?.id || me.id === 'demo') return;
   if (!_myPublicStats) return;
   const pub = _myPublicStats;
@@ -10914,6 +10985,7 @@ async function loadFeatures() {
     FEATURES = Object.fromEntries((data || []).map((f) => [f.key, f]));
   } catch (e) { console.warn('feature_status:', e); }
   renderPublicGamesCard();
+  applyGuestPlaySwitch();
 }
 
 // Friends screen: where public games will live
@@ -10949,6 +11021,190 @@ function renderPublicGamesCard() {
 
 // On every open (signed in or not): count this install, read the switches
 registerInstall().then(loadFeatures);
+// ════════════════════════════════════════════════════════════════════════════
+// GUESTS — play without an account (getting-in plan, phase 1)
+// ════════════════════════════════════════════════════════════════════════════
+// "Play now" signs in anonymously (Supabase anonymous sign-in) with a name and
+// an avatar: a real user id, so server games, presence and notifications all
+// work. A guest can join any game they're invited to (a ?join= link or an
+// invite) and sees results at the table, but nothing is saved for them: the
+// database blocks hosting (until the guest_hosting switch is on), friends and
+// stats, and drops Standings rows that involve a guest.
+// See supabase/migrations/20261117200000_guest_entry.sql.
+
+const GUEST_AVATARS = ['🃏', '🦊', '🐙', '🦉', '🐻', '🦁', '🐢', '🦄', '🐺', '🐸', '🦈', '🌵'];
+let _guestAvatar = GUEST_AVATARS[Math.floor(Math.random() * GUEST_AVATARS.length)];
+
+function isGuest() { return !!(me && me.is_guest); }
+
+// ── Splash ─────────────────────────────────────────────────────────────────
+function renderGuestAvatars() {
+  const el = document.getElementById('guest-avatars');
+  if (!el) return;
+  el.innerHTML = GUEST_AVATARS.map((a) => `
+    <button type="button" role="radio" aria-checked="${a === _guestAvatar}" aria-label="Avatar ${a}"
+      onclick="pickGuestAvatar('${a}')">${a}</button>`).join('');
+}
+function pickGuestAvatar(a) { _guestAvatar = a; renderGuestAvatars(); }
+
+// The splash shows "Play now" only when the guest_play switch is on (it needs
+// Anonymous sign-ins enabled in the Supabase dashboard); otherwise sign in /
+// create account, as before. Once someone picks a panel, it stays put.
+let _splashPicked = false;
+function applyGuestPlaySwitch() {
+  const on = featureOn('guest_play');
+  const back = document.getElementById('splash-back-to-guest');
+  if (back) back.style.display = on ? '' : 'none';
+  if (on && !_splashPicked) showGuestPanel(true);
+  if (!on && pendingJoinCode()) {
+    const acct = document.getElementById('splash-account-invite');
+    if (acct) acct.style.display = 'block';
+  }
+}
+
+function showAccountPanel(tab) {
+  _splashPicked = true;
+  document.getElementById('splash-play').style.display = 'none';
+  document.getElementById('splash-account').style.display = '';
+  if (tab) switchTab(tab);
+}
+function showGuestPanel(auto) {
+  if (!auto) _splashPicked = true;
+  document.getElementById('splash-account').style.display = 'none';
+  document.getElementById('splash-play').style.display = '';
+}
+
+async function playAsGuest() {
+  const name = (document.getElementById('guest-name').value || '').trim().replace(/\s+/g, ' ');
+  if (name.length < 2) { toast('Pick a name (2–20 characters)'); document.getElementById('guest-name').focus(); return; }
+  if (!sb) { toast('Can’t reach Felt Right. Check your connection.'); return; }
+  const btn = document.getElementById('guest-play-btn');
+  btn.disabled = true;
+  try {
+    const { data, error } = await sb.auth.signInAnonymously({
+      options: { data: { display_name: name.slice(0, 20), avatar_emoji: _guestAvatar } },
+    });
+    if (error) {
+      console.warn('guest sign-in:', error);
+      toast(/disabled/i.test(error.message || '') ? 'Playing as a guest isn’t switched on yet. Create an account for now.' : 'Couldn’t start. Try again.');
+      return;
+    }
+    me = await getProfile(data.user.id);
+    if (!me) { toast('Couldn’t start. Try again.'); return; }
+    enterApp();
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// A guest who wants friends, Standings or hosting: sign up for an account.
+// (Phase 2 turns this into "verify": email + code, keeping the same identity.
+// For now the guest signs out first; nothing was saved for them anyway.)
+async function leaveGuestForAccount() {
+  if (!isGuest()) return;
+  if (!confirm('Create an account? You’ll leave guest mode on this phone. (Results from guest games aren’t saved.)')) return;
+  await signOut();
+  showAccountPanel('signup');
+}
+
+// Guests can host once the guest_hosting switch is on (after store launch)
+function guestCanHost() { return !isGuest() || featureOn('guest_hosting'); }
+function showGuestHostSheet() {
+  let el = document.getElementById('modal-guest-host');
+  if (!el) {
+    el = document.createElement('div');
+    el.className = 'modal-backdrop';
+    el.id = 'modal-guest-host';
+    el.onclick = (e) => { if (e.target === el) closeModal('modal-guest-host'); };
+    el.innerHTML = `
+      <div class="modal-sheet" onclick="event.stopPropagation()">
+        <div class="modal-handle"></div>
+        <div class="modal-title">Host a game <span class="badge-dev">In development</span></div>
+        <div style="font-size:0.85rem;color:var(--text-dim);line-height:1.5;margin-bottom:14px">
+          Hosting as a guest is coming after launch. Until then, guests can join any game they’re invited to.
+          Create an account to host your own table now.
+        </div>
+        <button class="btn btn-primary btn-full" onclick="closeModal('modal-guest-host');leaveGuestForAccount()">Create an account</button>
+        <button class="btn btn-ghost btn-full" style="margin-top:8px" onclick="closeModal('modal-guest-host')">Not now</button>
+      </div>`;
+    document.body.appendChild(el);
+  }
+  openModal('modal-guest-host');
+}
+
+// Applied on entering the app: body class drives what guests see
+function applyGuestMode() {
+  document.body.classList.toggle('is-guest', isGuest());
+  const fab = document.querySelector('#screen-home .fab');
+  if (fab) fab.setAttribute('aria-label', isGuest() && !featureOn('guest_hosting') ? 'Host a game (in development for guests)' : 'New game');
+}
+
+// ── Invite links: ?join=<code> ─────────────────────────────────────────────
+// Kept for the session, so it survives choosing a name or signing in.
+(function captureJoinCode() {
+  try {
+    const code = new URLSearchParams(location.search).get('join');
+    if (!code) return;
+    sessionStorage.setItem('fr_join', code);
+    const url = new URL(location.href);
+    url.searchParams.delete('join');
+    history.replaceState(null, '', url.pathname + (url.search || '') + url.hash);
+  } catch (e) {}
+})();
+
+function pendingJoinCode() { try { return sessionStorage.getItem('fr_join'); } catch (e) { return null; } }
+
+function renderSplashInvite() {
+  const invited = !!pendingJoinCode();
+  const note = document.getElementById('guest-invite-note');
+  if (note) note.style.display = invited ? 'block' : 'none';
+  const btn = document.getElementById('guest-play-btn');
+  if (btn) btn.textContent = invited ? 'Join the game' : 'Play now';
+}
+
+async function handlePendingJoin() {
+  const code = pendingJoinCode();
+  if (!code || !sb || !me) return;
+  try { sessionStorage.removeItem('fr_join'); } catch (e) {}
+  try {
+    const { data, error } = await sb.rpc('game_for_code', { p_code: code });
+    if (error) throw error;
+    const game = (data || [])[0];
+    if (!game) { toast('That game link has expired'); return; }
+    if (game.status === 'active') {
+      const { data: seat } = await sb.from('game_players').select('id').eq('game_id', game.id).eq('user_id', me.id).maybeSingle();
+      if (!seat) { toast('That game has already started'); return; }
+    }
+    await openLobby(game.id);
+  } catch (e) {
+    console.warn('join link:', e);
+    toast('Couldn’t open that game. Try the link again.');
+  }
+}
+
+// ── At the end of a game: who counts ──────────────────────────────────────
+// Adds one line under a results screen: guests' results aren't saved, and
+// verified players' results against guests don't count in Standings.
+async function noteGuestResults(container, playerIds) {
+  if (!container || !sb || !playerIds?.length || container.querySelector('.guest-results-note')) return;
+  let guests = [];
+  try {
+    const { data } = await sb.from('users').select('id, is_guest').in('id', playerIds);
+    guests = (data || []).filter((u) => u.is_guest).map((u) => u.id);
+  } catch (e) { return; }
+  let text = '';
+  if (isGuest()) text = 'You played as a guest: these results aren’t saved. Create an account to keep them next time.';
+  else if (guests.length) text = 'Results against guests aren’t counted in Standings.';
+  if (!text) return;
+  const div = document.createElement('div');
+  div.className = 'guest-results-note';
+  div.style.cssText = 'font-size:0.75rem;color:var(--text-dim);text-align:center;margin:10px 0 0;line-height:1.4';
+  div.textContent = text;
+  container.appendChild(div);
+}
+
+renderGuestAvatars();
+renderSplashInvite();
 </script>
 
 <!-- Global Chat slide-up panel (outside all screens so it works in lobby AND game) -->

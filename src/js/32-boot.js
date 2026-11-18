@@ -2,11 +2,7 @@
 // BOOT
 // ════════════════════════════════════════════════════════════════════════════
 window.addEventListener('load', () => {
-  // Check for join link
-  const params = new URLSearchParams(location.search);
-  if (params.has('join')) {
-    toast(`Joining game ${params.get('join')}…`);
-  }
+  // (A ?join= link is picked up by 45-guest.js and opened after sign-in)
   init();
 });
 

@@ -70,6 +70,10 @@ function goBack() {
 }
 
 function switchTab(tab) {
+  // (the sign-in / create-account forms sit behind "Have an account?")
+  const play = document.getElementById('splash-play'), acct = document.getElementById('splash-account');
+  if (play && acct) { play.style.display = 'none'; acct.style.display = ''; }
+  if (typeof _splashPicked !== 'undefined') _splashPicked = true;
   document.querySelectorAll('.splash-tab').forEach((t,i) => {
     t.classList.toggle('active', (i===0&&tab==='login')||(i===1&&tab==='signup'));
   });

@@ -36,6 +36,8 @@ port = 55327
 enabled = true
 site_url = "http://felt-right.test/Felt-Right/"
 enable_signup = true
+# Guests (getting-in plan, phase 1)
+enable_anonymous_sign_ins = true
 
 [auth.email]
 enable_signup = true

@@ -47,7 +47,31 @@
       <div class="splash-sub">Texas Hold'em</div>
       <div class="splash-rule"></div>
     </div>
-    <div class="splash-form">
+    <!-- PLAY NOW: no account needed (45-guest.js) -->
+    <div class="splash-form" id="splash-play" style="display:none">
+      <div id="guest-invite-note" style="display:none;text-align:center;font-size:0.85rem;color:var(--gold);margin-bottom:10px">
+        You're invited to a game
+      </div>
+      <div class="input-group">
+        <label class="input-label" for="guest-name">Your name at the table</label>
+        <input class="input" id="guest-name" type="text" maxlength="20" placeholder="Poker Face Pete" autocomplete="nickname"
+          onkeydown="if(event.key==='Enter')playAsGuest()">
+      </div>
+      <div class="input-label" style="margin-top:4px">Pick an avatar</div>
+      <div id="guest-avatars" class="guest-avatars" role="radiogroup" aria-label="Avatar"></div>
+      <button class="btn btn-primary btn-full" id="guest-play-btn" onclick="playAsGuest()" style="margin-top:14px">Play now</button>
+      <div style="margin-top:8px;font-size:0.72rem;color:var(--text-dim);text-align:center;line-height:1.4">
+        No account needed. Play chips only. Results aren't saved until you create an account.
+      </div>
+      <div style="text-align:center;margin-top:16px;font-size:0.85rem;color:var(--text-dim)">
+        Have an account? <span style="color:var(--gold);cursor:pointer" onclick="showAccountPanel('login')">Sign in</span>
+        · <span style="color:var(--gold);cursor:pointer" onclick="showAccountPanel('signup')">Create one</span>
+      </div>
+    </div>
+    <div class="splash-form" id="splash-account">
+      <div id="splash-account-invite" style="display:none;text-align:center;font-size:0.85rem;color:var(--gold);margin-bottom:10px">
+        You're invited to a game. Sign in or create an account to join.
+      </div>
       <div class="splash-tabs">
         <div class="splash-tab active" onclick="switchTab('login')">Sign In</div>
         <div class="splash-tab" onclick="switchTab('signup')">Create Account</div>
@@ -72,10 +96,6 @@
         </div>
         <div style="text-align:center; margin-top:10px; color:var(--text-dim); font-size:0.8rem;">
           No account? <span style="color:var(--gold); cursor:pointer" onclick="switchTab('signup')">Sign up</span>
-        </div>
-        <div style="margin-top:16px; border-top:1px solid var(--border); padding-top:16px; text-align:center;">
-          <button class="btn btn-ghost btn-full btn-sm" onclick="enterDemoMode()">🃏 Try Demo Mode</button>
-          <div style="margin-top:8px; font-size:0.72rem; color:var(--text-dim);">No account needed · simulates friends joining</div>
         </div>
       </div>
       <!-- SIGN UP -->
@@ -111,7 +131,10 @@
           <button type="submit" class="btn btn-primary btn-full" style="margin-top:8px">Create Account</button>
         </form>
       </div>
-      <div style="text-align:center;margin-top:16px">
+      <div id="splash-back-to-guest" style="display:none;text-align:center;margin-top:16px;font-size:0.85rem">
+        <span style="color:var(--gold);cursor:pointer" onclick="showGuestPanel()">← Play without an account</span>
+      </div>
+      <div style="text-align:center;margin-top:12px">
         <span onclick="refreshApp()" style="color:var(--text-dim);font-size:0.78rem;
           cursor:pointer;text-decoration:underline">↻ Refresh app</span>
       </div>
@@ -162,6 +185,12 @@
         <span class="search-icon">🔍</span>
         <input id="friend-search" type="text" placeholder="Search by name or phone…" oninput="searchFriends(this.value)">
       </div>
+    </div>
+    <div id="friends-guest-gate" class="guest-gate" style="display:none">
+      <div class="guest-gate-title">Friends and Standings need an account</div>
+      <div class="guest-gate-text">As a guest you can join any game you're invited to, but friends, Standings and stats
+        aren't kept. Create an account to keep them.</div>
+      <button class="btn btn-primary btn-full" onclick="leaveGuestForAccount()">Create an account</button>
     </div>
     <div id="friend-requests-section" style="display:none">
       <div class="section-head">Requests</div>
@@ -491,17 +520,25 @@
       </div>
     </div>
 
+    <!-- Guest: what an account adds (45-guest.js) -->
+    <div id="profile-guest-card" class="guest-gate" style="display:none;margin:0 16px 16px">
+      <div class="guest-gate-title">You're playing as a guest</div>
+      <div class="guest-gate-text">Your results show at the table but aren't saved. Create an account to keep your
+        Standings and stats, add friends, and host games.</div>
+      <button class="btn btn-primary btn-full" onclick="leaveGuestForAccount()">Create an account</button>
+    </div>
+
     <!-- Fields -->
     <div style="padding:0 16px 16px">
       <div class="input-group">
         <div class="input-label">Display Name</div>
         <input class="input" id="profile-name" type="text" placeholder="Your name" maxlength="20">
       </div>
-      <div class="input-group">
+      <div class="input-group account-only">
         <div class="input-label">Email</div>
         <input class="input" id="profile-email" type="text" readonly style="color:var(--text-dim)">
       </div>
-      <div class="input-group">
+      <div class="input-group account-only">
         <div class="input-label">Phone <span style="color:var(--text-dim);font-weight:400">(optional, for friend search)</span></div>
         <input class="input" id="profile-phone" type="tel" placeholder="(555) 867-5309" oninput="formatPhone(this)">
       </div>
@@ -509,13 +546,13 @@
     </div>
 
     <!-- Share -->
-    <div style="margin:0 16px 16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px">
+    <div class="account-only" style="margin:0 16px 16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px">
       <div style="font-size:0.78rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px">Invite Friends</div>
       <button class="btn btn-ghost btn-full btn-sm" onclick="copyInviteLink()">📋 Copy App Link</button>
     </div>
 
     <!-- Stats -->
-    <div id="profile-stats-section" style="margin:0 16px 16px"></div>
+    <div id="profile-stats-section" class="account-only" style="margin:0 16px 16px"></div>
 
     <!-- Settings -->
     <div style="margin:0 16px 16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:6px 16px">

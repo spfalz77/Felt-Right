@@ -92,7 +92,9 @@ function renderGamesList() {
   const el = document.getElementById('games-list');
 
   if (!myGames.length) {
-    el.innerHTML = `<div style="padding:40px 20px;text-align:center;color:var(--text-dim);font-size:0.9rem;font-style:italic;">No games yet.<br>Tap + to create one.</div>`;
+    el.innerHTML = isGuest() && !guestCanHost()
+      ? `<div style="padding:40px 20px;text-align:center;color:var(--text-dim);font-size:0.9rem;line-height:1.5">No games yet.<br>Open an invite link from a friend to join their table.</div>`
+      : `<div style="padding:40px 20px;text-align:center;color:var(--text-dim);font-size:0.9rem;font-style:italic;">No games yet.<br>Tap + to create one.</div>`;
     return;
   }
 

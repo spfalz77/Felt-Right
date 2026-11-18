@@ -130,7 +130,7 @@ async function openLobby(gameId) {
   // Load players
   try {
     const { data } = await sb.from('game_players')
-      .select('*,user:users(id,display_name,avatar_emoji)')
+      .select('*,user:users(id,display_name,avatar_emoji,is_guest)')
       .eq('game_id', gameId).order('joined_at');
 
     lobbyPlayers = (data || [])
@@ -264,7 +264,7 @@ function renderLobbySeats() {
       html += `<div class="seat filled">
         <div class="avatar sm ${canNudge?'lobby-nudge-avatar':''}"
           ${canNudge ? `data-nudge-id="${p.user.id}" data-nudge-name="${name}" style="cursor:pointer" title="Tap to nudge ${name}"` : ''}>${emoji}</div>
-        <div class="seat-name">${name}</div>
+        <div class="seat-name">${name}${p.user?.is_guest ? '<span class="guest-tag">Guest</span>' : ''}</div>
         ${isHost ? `<div class="seat-host">Host</div>` : ''}
       </div>`;
     } else {

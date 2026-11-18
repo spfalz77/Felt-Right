@@ -46,6 +46,7 @@ async function loadFeatures() {
     FEATURES = Object.fromEntries((data || []).map((f) => [f.key, f]));
   } catch (e) { console.warn('feature_status:', e); }
   renderPublicGamesCard();
+  applyGuestPlaySwitch();
 }
 
 // Friends screen: where public games will live

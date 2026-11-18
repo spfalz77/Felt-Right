@@ -2,6 +2,7 @@
 // CREATE GAME
 // ════════════════════════════════════════════════════════════════════════════
 function openCreateGame() {
+  if (!guestCanHost()) { showGuestHostSheet(); return; }
   document.getElementById('new-game-name').value = '';
   openModal('modal-create-game');
 }
