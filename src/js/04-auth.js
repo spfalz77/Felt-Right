@@ -46,6 +46,9 @@ async function doSignup() {
         id: data.user.id, phone: phone || null, display_name: name,
       });
       me = { id: data.user.id, display_name: name, avatar_emoji: '🃏', phone, email };
+      // Claim the name as this player's own if nobody has it (else asked later)
+      const { error: nameErr } = await sb.rpc('set_player_name', { p_name: name });
+      me.name_set = !nameErr;
       enterApp();
     } else {
       // Email confirmation on — tell them to check email

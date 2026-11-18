@@ -47,6 +47,7 @@ async function loadFeatures() {
   } catch (e) { console.warn('feature_status:', e); }
   renderPublicGamesCard();
   applyGuestPlaySwitch();
+  renderAccountPanel();
 }
 
 // Friends screen: where public games will live

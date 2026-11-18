@@ -478,3 +478,87 @@ test('guests: hosting opens when the guest_hosting switch is on', async () => {
     await admin('/rest/v1/feature_flags?key=eq.guest_hosting', { method: 'PATCH', body: { state: before } });
   }
 });
+
+// ── Verified players (getting-in plan, phase 2) ────────────────────────────
+// Sign-in codes land in the local test inbox (Mailpit, supabase/config.toml)
+const MAIL = process.env.MAILPIT_URL || 'http://127.0.0.1:55324';
+async function emailCode(to, after = 0) {
+  for (let i = 0; i < 40; i++) {
+    const r = await fetch(`${MAIL}/api/v1/search?query=${encodeURIComponent(`to:"${to}"`)}`).then((x) => x.json()).catch(() => null);
+    const msg = (r?.messages || []).find((m) => Date.parse(m.Created) >= after);
+    if (msg) {
+      const full = await fetch(`${MAIL}/api/v1/message/${msg.ID}`).then((x) => x.json());
+      const code = (full.Text || full.HTML || '').match(/\b(\d{6})\b/);
+      if (code) return code[1];
+    }
+    await new Promise((res) => setTimeout(res, 250));
+  }
+  throw new Error(`no code emailed to ${to}`);
+}
+async function codeSignIn(email) {
+  const t0 = Date.now() - 2000;
+  const send = await http('/auth/v1/otp', { method: 'POST', body: { email, create_user: true } });
+  assert.equal(send.status, 200, JSON.stringify(send.data));
+  const token = await emailCode(email, t0);
+  const v = await http('/auth/v1/verify', { method: 'POST', body: { type: 'email', email, token } });
+  assert.equal(v.status, 200, JSON.stringify(v.data));
+  return { id: v.data.user.id, token: v.data.access_token, email };
+}
+
+test('verified players: sign in with an emailed code; unique player names; names only change through set_player_name', async () => {
+  const a = await codeSignIn(`ann-${RUN}@test.local`);
+  const b = await codeSignIn(`bob-${RUN}@test.local`);
+  const prof = async (p) => (await http(`/rest/v1/users?id=eq.${p.id}&select=display_name,name_set,is_guest`, { token: p.token })).data[0];
+  assert.equal((await prof(a)).name_set, false, 'a new code sign-in picks a name next');
+
+  const name = `Ace ${RUN}`.slice(0, 20);
+  const problem = (p, n) => http('/rest/v1/rpc/player_name_problem', { token: p.token, method: 'POST', body: { p_name: n } }).then((r) => r.data);
+  assert.equal(await problem(a, name), null);
+  assert.equal(await problem(a, 'ab'), 'length');
+  assert.equal(await problem(a, 'Ace<b>'), 'characters');
+  assert.equal(await problem(a, 'Admin'), 'reserved');
+  const set = (p, n) => http('/rest/v1/rpc/set_player_name', { token: p.token, method: 'POST', body: { p_name: n } });
+  assert.equal((await set(a, name)).status, 200);
+  assert.deepEqual(await prof(a), { display_name: name, name_set: true, is_guest: false });
+  assert.equal(await problem(b, name.toUpperCase()), 'taken', 'unique ignoring case');
+  const clash = await set(b, name.toLowerCase());
+  assert.ok(clash.status >= 400);
+  assert.match(clash.data.message, /taken/);
+  assert.equal(await problem(a, name), null, 'your own name is fine for you');
+
+  // No going around it
+  const patch = (p, body) => http(`/rest/v1/users?id=eq.${p.id}`, { token: p.token, method: 'PATCH', body });
+  assert.ok((await patch(a, { display_name: 'Sneaky' })).status >= 400, 'a verified name changes only via set_player_name');
+  assert.ok((await patch(b, { name_set: true })).status >= 400);
+  assert.ok((await patch(b, { is_guest: true })).status >= 400);
+  assert.equal((await patch(a, { avatar_emoji: '🦊' })).status < 300, true, 'other fields still editable');
+});
+
+test('verified players: a guest verifies with an emailed code and keeps the same identity', async () => {
+  const g = await guest('Gil');
+  const email = `gil-${RUN}@test.local`;
+  const t0 = Date.now() - 2000;
+  const upd = await http('/auth/v1/user', { token: g.token, method: 'PUT', body: { email } });
+  assert.equal(upd.status, 200, JSON.stringify(upd.data));
+  const token = await emailCode(email, t0);
+  const v = await http('/auth/v1/verify', { token: g.token, method: 'POST', body: { type: 'email_change', email, token } });
+  assert.equal(v.status, 200, JSON.stringify(v.data));
+  assert.equal(v.data.user?.id ?? g.id, g.id, 'same user id');
+  const fresh = v.data.access_token || g.token;
+  const prof = (await http(`/rest/v1/users?id=eq.${g.id}&select=is_guest,name_set`, { token: fresh })).data[0];
+  assert.deepEqual(prof, { is_guest: false, name_set: false });
+  // Now verified: can claim a name and keep stats
+  assert.equal((await http('/rest/v1/rpc/set_player_name', { token: fresh, method: 'POST', body: { p_name: `Gil ${RUN}`.slice(0, 20) } })).status, 200);
+});
+
+test('verified players: delete account forgets the player and the sign-in', async () => {
+  const p = await codeSignIn(`del-${RUN}@test.local`);
+  await http('/rest/v1/rpc/set_player_name', { token: p.token, method: 'POST', body: { p_name: `Del ${RUN}`.slice(0, 20) } });
+  const r = await http('/functions/v1/account', { token: p.token, method: 'POST', body: { action: 'delete' } });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  const row = (await admin(`/rest/v1/users?id=eq.${p.id}&select=display_name,name_set,deleted_at`)).data[0];
+  assert.equal(row.display_name, 'Deleted player');
+  assert.equal(row.name_set, false);
+  assert.ok(row.deleted_at);
+  assert.equal((await http('/functions/v1/account', { token: p.token, method: 'POST', body: { action: 'delete' } })).status, 401, 'the session no longer works');
+});

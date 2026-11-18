@@ -72,6 +72,46 @@
       <div id="splash-account-invite" style="display:none;text-align:center;font-size:0.85rem;color:var(--gold);margin-bottom:10px">
         You're invited to a game. Sign in or create an account to join.
       </div>
+      <!-- SIGN IN WITH AN EMAILED CODE (46-account.js; behind the email_code_login switch) -->
+      <div id="account-code" style="display:none">
+        <div id="code-step-email">
+          <div style="font-weight:600;font-size:1rem;margin-bottom:4px">Sign in or create an account</div>
+          <div style="font-size:0.78rem;color:var(--text-dim);margin-bottom:12px;line-height:1.4">We'll email you a 6-digit code. No password.</div>
+          <form onsubmit="event.preventDefault();sendSignInCode()">
+            <div class="input-group">
+              <label class="input-label" for="code-email">Email</label>
+              <input class="input" id="code-email" type="email" placeholder="you@example.com" autocomplete="email" name="email">
+            </div>
+            <button type="submit" class="btn btn-primary btn-full" id="code-send-btn">Email me a code</button>
+          </form>
+        </div>
+        <div id="code-step-code" style="display:none">
+          <div style="font-weight:600;font-size:1rem;margin-bottom:4px">Check your email</div>
+          <div style="font-size:0.78rem;color:var(--text-dim);margin-bottom:12px;line-height:1.4">
+            Enter the 6-digit code we sent to <span id="code-sent-to" style="color:var(--text)"></span>.</div>
+          <form onsubmit="event.preventDefault();verifySignInCode()">
+            <div class="input-group">
+              <label class="input-label" for="code-input">Code</label>
+              <input class="input code-input" id="code-input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6"
+                autocomplete="one-time-code" placeholder="123456">
+            </div>
+            <button type="submit" class="btn btn-primary btn-full" id="code-verify-btn">Sign in</button>
+          </form>
+          <div style="text-align:center;margin-top:12px;font-size:0.82rem">
+            <span style="color:var(--gold);cursor:pointer" onclick="sendSignInCode(true)">Send a new code</span>
+            · <span style="color:var(--gold);cursor:pointer" onclick="showCodeStep('email')">Use another email</span>
+          </div>
+        </div>
+        <div class="ledger-disclaimer" style="font-size:0.75rem;color:var(--text-dim);margin:14px 0 0;
+          padding:10px;background:var(--surface2);border-radius:6px;line-height:1.5">
+          <strong style="color:var(--gold)">Play chips only.</strong> Felt Right never handles real money.
+          The chip ledger is a personal scorecard for self-moderation: a way to see how you're
+          doing and how you match up against different play styles. It is not a record of debts
+          or a payment system.
+        </div>
+      </div>
+      <!-- SIGN IN WITH A PASSWORD (until the email_code_login switch is on) -->
+      <div id="account-password">
       <div class="splash-tabs">
         <div class="splash-tab active" onclick="switchTab('login')">Sign In</div>
         <div class="splash-tab" onclick="switchTab('signup')">Create Account</div>
@@ -131,6 +171,7 @@
           <button type="submit" class="btn btn-primary btn-full" style="margin-top:8px">Create Account</button>
         </form>
       </div>
+      </div>
       <div id="splash-back-to-guest" style="display:none;text-align:center;margin-top:16px;font-size:0.85rem">
         <span style="color:var(--gold);cursor:pointer" onclick="showGuestPanel()">← Play without an account</span>
       </div>
@@ -155,10 +196,6 @@
             display:flex;align-items:center;justify-content:center">↻</button>
         <div class="avatar lg" id="home-avatar" onclick="navTo('profile')" style="cursor:pointer">?</div>
       </div>
-    </div>
-    <div id="demo-banner" style="display:none; margin: 0 16px 8px; background: rgba(212,168,67,0.1); border: 1px solid var(--gold-dim); border-radius: var(--r-sm); padding: 10px 14px; font-size: 0.8rem; color: var(--gold); align-items: center; gap: 10px;">
-      <span>🃏</span>
-      <span style="flex:1"><strong>Demo Mode</strong> — Friends joining the lobby are simulated. Tap + to create a game.</span>
     </div>
     <!-- Admin toolbar -->
     <div id="admin-bar" style="display:none;padding:0 16px 8px;display:flex;gap:8px;flex-wrap:wrap">
@@ -190,7 +227,7 @@
       <div class="guest-gate-title">Friends and Standings need an account</div>
       <div class="guest-gate-text">As a guest you can join any game you're invited to, but friends, Standings and stats
         aren't kept. Create an account to keep them.</div>
-      <button class="btn btn-primary btn-full" onclick="leaveGuestForAccount()">Create an account</button>
+      <button class="btn btn-primary btn-full" onclick="startGuestVerify()">Create an account</button>
     </div>
     <div id="friend-requests-section" style="display:none">
       <div class="section-head">Requests</div>
@@ -525,7 +562,7 @@
       <div class="guest-gate-title">You're playing as a guest</div>
       <div class="guest-gate-text">Your results show at the table but aren't saved. Create an account to keep your
         Standings and stats, add friends, and host games.</div>
-      <button class="btn btn-primary btn-full" onclick="leaveGuestForAccount()">Create an account</button>
+      <button class="btn btn-primary btn-full" onclick="startGuestVerify()">Create an account</button>
     </div>
 
     <!-- Fields -->
@@ -543,6 +580,13 @@
         <input class="input" id="profile-phone" type="tel" placeholder="(555) 867-5309" oninput="formatPhone(this)">
       </div>
       <button class="btn btn-primary btn-full" onclick="saveProfile()">Save Changes</button>
+    </div>
+
+    <!-- Account: sign out / delete (46-account.js) -->
+    <div class="account-only" style="margin:0 16px 16px">
+      <button class="btn btn-full btn-danger-outline" onclick="deleteAccount()">Delete account</button>
+      <div style="font-size:0.7rem;color:var(--text-dim);margin-top:6px;text-align:center;line-height:1.4">
+        Removes your name, friends, stats and Standings for good. Games you played stay in other players' history as "Deleted player".</div>
     </div>
 
     <!-- Share -->
