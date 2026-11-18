@@ -98,7 +98,8 @@ test('a guest verifies with an emailed code and keeps playing as the same player
   // A project that confirms emails automatically skips the code
   const codeStep = page.locator('#verify-step-code');
   const named = page.locator('#modal-player-name');
-  await expect(codeStep.or(named.locator('.modal-title'))).toBeVisible({ timeout: 15_000 });
+  await expect.poll(async () => (await codeStep.isVisible()) || /open/.test(await named.getAttribute('class').catch(() => '') || ''),
+    { timeout: 15_000 }).toBe(true);
   if (await codeStep.isVisible()) {
     await page.fill('#verify-code', await emailCode(email, t0));
     await sheet.getByRole('button', { name: 'Verify' }).click();
