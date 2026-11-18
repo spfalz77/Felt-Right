@@ -422,7 +422,7 @@ async function guest(name) {
   const r = await http('/auth/v1/signup', { method: 'POST', body: { data: { display_name: name, avatar_emoji: '🦊' } } });
   assert.equal(r.status, 200, JSON.stringify(r.data));
   assert.equal(r.data.user.is_anonymous, true);
-  return { name, id: r.data.user.id, token: r.data.access_token, guest: true };
+  return { name, id: r.data.user.id, token: r.data.access_token, refresh: r.data.refresh_token, guest: true };
 }
 
 test('guests: a profile with no markup; can join by code and play; can\'t host, befriend or keep stats', async () => {
@@ -540,11 +540,18 @@ test('verified players: a guest verifies with an emailed code and keeps the same
   const t0 = Date.now() - 2000;
   const upd = await http('/auth/v1/user', { token: g.token, method: 'PUT', body: { email } });
   assert.equal(upd.status, 200, JSON.stringify(upd.data));
-  const token = await emailCode(email, t0);
-  const v = await http('/auth/v1/verify', { token: g.token, method: 'POST', body: { type: 'email_change', email, token } });
-  assert.equal(v.status, 200, JSON.stringify(v.data));
-  assert.equal(v.data.user?.id ?? g.id, g.id, 'same user id');
-  const fresh = v.data.access_token || g.token;
+  let fresh = g.token;
+  if (upd.data.email === email && !upd.data.is_anonymous) {
+    // (A project that confirms emails automatically applies the change at once)
+    console.log('email change applied without a code (auto-confirm)');
+    fresh = (await http('/auth/v1/token?grant_type=refresh_token', { method: 'POST', body: { refresh_token: g.refresh } })).data.access_token || g.token;
+  } else {
+    const token = await emailCode(email, t0);
+    const v = await http('/auth/v1/verify', { token: g.token, method: 'POST', body: { type: 'email_change', email, token } });
+    assert.equal(v.status, 200, JSON.stringify(v.data));
+    assert.equal(v.data.user?.id ?? g.id, g.id, 'same user id');
+    fresh = v.data.access_token || g.token;
+  }
   const prof = (await http(`/rest/v1/users?id=eq.${g.id}&select=is_guest,name_set`, { token: fresh })).data[0];
   assert.deepEqual(prof, { is_guest: false, name_set: false });
   // Now verified: can claim a name and keep stats

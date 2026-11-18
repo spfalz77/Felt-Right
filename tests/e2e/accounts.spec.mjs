@@ -27,7 +27,11 @@ async function emailCode(to, after) {
 // Switch the code flow on in this page only
 async function codeLoginOn(page) {
   await page.waitForFunction(() => typeof FEATURES === 'object' && Object.keys(FEATURES).length > 0, null, { timeout: 15_000 });
-  await page.evaluate(() => { FEATURES.email_code_login = { state: 'on' }; renderAccountPanel(); });
+  await page.evaluate(() => {
+    window.FEATURE_OVERRIDES = { email_code_login: { state: 'on' } };
+    Object.assign(FEATURES, window.FEATURE_OVERRIDES);
+    renderAccountPanel();
+  });
 }
 
 test.beforeAll(() => setFeature('guest_play', 'on'));
@@ -36,7 +40,7 @@ test('sign in with an emailed code, pick a unique name, delete the account', asy
   test.setTimeout(2 * 60_000);
   const p = await newPlayer(browser, 'Coda', devices['iPhone 13']);
   const page = p.page;
-  page.on('dialog', (d) => d.accept());
+  page.on('console', (m) => { if (/delete account|account/i.test(m.text())) console.log('[page]', m.text()); });
   await codeLoginOn(page);
   await page.evaluate(() => showAccountPanel());
   await expect(page.locator('#account-code')).toBeVisible();
@@ -91,9 +95,14 @@ test('a guest verifies with an emailed code and keeps playing as the same player
   const t0 = Date.now() - 2000;
   await page.fill('#verify-email', email);
   await sheet.getByRole('button', { name: 'Email me a code' }).click();
-  await expect(page.locator('#verify-step-code')).toBeVisible({ timeout: 15_000 });
-  await page.fill('#verify-code', await emailCode(email, t0));
-  await sheet.getByRole('button', { name: 'Verify' }).click();
+  // A project that confirms emails automatically skips the code
+  const codeStep = page.locator('#verify-step-code');
+  const named = page.locator('#modal-player-name');
+  await expect(codeStep.or(named.locator('.modal-title'))).toBeVisible({ timeout: 15_000 });
+  if (await codeStep.isVisible()) {
+    await page.fill('#verify-code', await emailCode(email, t0));
+    await sheet.getByRole('button', { name: 'Verify' }).click();
+  }
 
   await expect(page.locator('#modal-player-name')).toHaveClass(/open/, { timeout: 15_000 });
   const name = `Gwen ${RUN}`.slice(0, 20);

@@ -44,6 +44,8 @@ async function loadFeatures() {
     const { data, error } = await sb.rpc('feature_status');
     if (error) throw error;
     FEATURES = Object.fromEntries((data || []).map((f) => [f.key, f]));
+    // (tests switch features on in their own page only)
+    if (window.FEATURE_OVERRIDES) Object.assign(FEATURES, window.FEATURE_OVERRIDES);
   } catch (e) { console.warn('feature_status:', e); }
   renderPublicGamesCard();
   applyGuestPlaySwitch();

@@ -10984,6 +10984,8 @@ async function loadFeatures() {
     const { data, error } = await sb.rpc('feature_status');
     if (error) throw error;
     FEATURES = Object.fromEntries((data || []).map((f) => [f.key, f]));
+    // (tests switch features on in their own page only)
+    if (window.FEATURE_OVERRIDES) Object.assign(FEATURES, window.FEATURE_OVERRIDES);
   } catch (e) { console.warn('feature_status:', e); }
   renderPublicGamesCard();
   applyGuestPlaySwitch();
@@ -11344,7 +11346,11 @@ async function sendVerifyCode() {
   const btn = document.getElementById('verify-send-btn');
   btn.disabled = true;
   try {
-    const { error } = await sb.auth.updateUser({ email });
+    const { data, error } = await sb.auth.updateUser({ email });
+    if (!error && data?.user?.email === email && !data.user.is_anonymous) {
+      await finishGuestVerify(); // (projects that confirm emails automatically: no code)
+      return;
+    }
     if (error) {
       console.warn('verify updateUser:', error);
       if (error.code === 'email_exists' || /already.*(registered|exists)/i.test(error.message || '')) {
@@ -11371,17 +11377,21 @@ async function verifyGuestCode() {
   try {
     const { error } = await sb.auth.verifyOtp({ email: _verifyEmail, token, type: 'email_change' });
     if (error) { toast('That code didn’t work. Check it or try again.'); return; }
-    await sb.auth.refreshSession();
-    const guestName = me.display_name;
-    me = await getProfile(me.id);
-    closeModal('modal-verify');
-    applyGuestMode();
-    await askPlayerName(guestName);
-    enterApp();
-    toast('You’re verified. Your results are saved from now on.');
+    await finishGuestVerify();
   } finally {
     btn.disabled = false;
   }
+}
+
+async function finishGuestVerify() {
+  await sb.auth.refreshSession();
+  const guestName = me.display_name;
+  me = await getProfile(me.id);
+  closeModal('modal-verify');
+  applyGuestMode();
+  await askPlayerName(guestName);
+  enterApp();
+  toast('You’re verified. Your results are saved from now on.');
 }
 
 // The email belongs to an existing account: leave guest mode and sign in there
