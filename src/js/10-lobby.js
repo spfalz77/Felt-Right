@@ -245,28 +245,31 @@ function renderLobbySeats() {
   const hostId = myGames.find(g => g.id === currentLobbyId)?.host_id;
   let html = '';
 
-  // Show joined players first (in order), then fill remaining seats with "Open"
+  // Seats sit around the oval table, clockwise from the top: joined players
+  // first (in order), then open seats.
   for (let i = 0; i < MAX_SEATS; i++) {
+    const a = (-90 + i * (360 / MAX_SEATS)) * Math.PI / 180;
+    const pos = `left:${(50 + 47 * Math.cos(a)).toFixed(1)}%;top:${(50 + 45 * Math.sin(a)).toFixed(1)}%`;
     const p = lobbyPlayers[i];
     if (p) {
       const isHost = p.user?.id === hostId;
       const isMe = p.user?.id === me?.id;
       const canNudge = !isMe && p.user?.id;
       const emoji = p.user?.avatar_emoji||p.user?.display_name?.[0]||'?';
-      const name = p.user?.display_name||'Player';
-      html += `<div class="seat filled">
+      const name = escapeHtml(p.user?.display_name||'Player');
+      const tag = isHost ? '<span class="seat-host">Host</span>' : p.user?.is_guest ? '<span class="guest-tag">Guest</span>' : '';
+      html += `<div class="seat filled${isHost ? ' host' : ''}" style="${pos}">
         <div class="avatar sm ${canNudge?'lobby-nudge-avatar':''}"
           ${canNudge ? `data-nudge-id="${p.user.id}" data-nudge-name="${name}" style="cursor:pointer" title="Tap to nudge ${name}"` : ''}>${emoji}</div>
-        <div class="seat-name">${name}${p.user?.is_guest ? '<span class="guest-tag">Guest</span>' : ''}</div>
-        ${isHost ? `<div class="seat-host">Host</div>` : ''}
+        <div class="seat-name">${name}${tag}</div>
       </div>`;
     } else {
-      html += `<div class="seat"><div class="seat-empty">+</div><div class="seat-name" style="color:var(--text-dim);font-size:0.72rem">Open</div></div>`;
+      html += `<div class="seat open" style="${pos}"><div class="seat-empty">${icon('plus')}</div><div class="seat-name">Open</div></div>`;
     }
   }
 
   el.innerHTML = html;
-  document.getElementById('lobby-player-count').textContent = `${lobbyPlayers.length} / ${MAX_SEATS} joined`;
+  document.getElementById('lobby-player-count').innerHTML = `<b>${lobbyPlayers.length} of ${MAX_SEATS}</b><span>seated</span>`;
 
   // Wire nudge handlers on lobby avatars
   el.querySelectorAll('.lobby-nudge-avatar').forEach(av => {

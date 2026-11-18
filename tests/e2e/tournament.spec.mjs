@@ -64,7 +64,7 @@ test('tournament: eliminations, final placements, prize and ledger', async ({ br
         });
         throw new Error(`${p.name} doesn't see the results: ${JSON.stringify(d)}`);
       }
-      await expect(ov).toContainText(p === ace ? 'You Won!' : 'Ace Wins!');
+      await expect(ov).toContainText(p === ace ? 'You win' : 'Ace wins');
       // Placements in order, with the prize next to 1st
       const rows = ov.locator('.place-row');
       await expect(rows).toHaveCount(3);

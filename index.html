@@ -11,8 +11,8 @@
 <meta name="theme-color" content="#0d1f14">
 <title>Felt Right</title>
 <link rel="manifest" href="manifest.json?v=5">
-<link rel="icon" type="image/svg+xml" href="icon-192.svg?v=5">
-<link rel="apple-touch-icon" href="icon-192.svg?v=5">
+<link rel="icon" type="image/svg+xml" href="icon-192.svg?v=6">
+<link rel="apple-touch-icon" href="icon-192.svg?v=6">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Felt Right">
@@ -808,6 +808,141 @@ body.is-guest #friends-guest-gate, body.is-guest #profile-guest-card { display: 
 .btn-danger-outline { background: none; color: var(--red-light); border: 1px solid var(--red-light); }
 .btn-danger-outline:hover { background: rgba(192,57,43,0.12); }
 .code-input { font-size: 1.4rem; letter-spacing: 0.4em; text-align: center; font-variant-numeric: tabular-nums; }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   SCREEN REFRESH (splash, Home, lobby, results, nav, icons)
+══════════════════════════════════════════════════════════════════════════════ */
+:root { --text-dim: #a39882; --wood: #2b1a10; --wood-hi: #4a2e1c; --up: #6fcf97; --down: #ff8a7a; }
+
+/* Icons: one stroke set, drawn in the text color (47-icons.js) */
+.ic { width: 20px; height: 20px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.75;
+  stroke-linecap: round; stroke-linejoin: round; vertical-align: middle; }
+.btn .ic { width: 18px; height: 18px; }
+.icon-btn { width: 44px; height: 44px; border-radius: 12px; border: none; background: var(--surface);
+  color: var(--text); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; position: relative; }
+.icon-btn:active { transform: scale(0.95); }
+.icon-btn .ic { width: 22px; height: 22px; }
+.link-btn { background: none; border: none; color: var(--gold); font-family: 'DM Sans', sans-serif; font-size: 0.85rem;
+  cursor: pointer; display: inline-flex; align-items: center; gap: 6px; padding: 10px 6px; min-height: 44px; }
+.link-btn.dim { color: var(--text-dim); }
+.link-btn .ic { width: 16px; height: 16px; }
+.btn-outline { background: transparent; color: var(--cream); border: 1px solid rgba(240,208,128,0.45); }
+.btn-full.btn-primary, .btn-full.btn-outline { min-height: 52px; border-radius: var(--r); font-size: 1rem; letter-spacing: 0.01em; }
+
+/* Bottom nav: wood rail */
+#nav { background: var(--wood); border-top: 1px solid var(--wood-hi); }
+.nav-item { background: none; border: none; font-family: 'DM Sans', sans-serif; color: #cfc3ab; padding: 9px 0 8px; }
+.nav-item.active { color: var(--gold-pale); }
+.nav-item .nav-icon { width: 24px; height: 24px; font-size: inherit; }
+.nav-label { font-size: 12px; letter-spacing: 0; text-transform: none; font-weight: 500; }
+.nav-item.active .nav-label { font-weight: 600; }
+
+/* Splash */
+#screen-splash { background: radial-gradient(ellipse 140% 60% at 50% 30%, #1c4a30 0%, #0f2d1c 55%, #080f0b 100%);
+  justify-content: center; padding: calc(var(--safe-top) + 24px) 0 calc(var(--safe-bot) + 20px); }
+.splash-hero { display: flex; flex-direction: column; align-items: center; text-align: center; margin-bottom: 28px; }
+.splash-hero-cards { margin-bottom: 18px; gap: 0; height: 104px; }
+.splash-hero-cards .splash-card { width: 64px; height: 90px; border-radius: 9px; font-size: 1.8rem; padding: 7px 8px;
+  box-shadow: 0 10px 24px rgba(0,0,0,0.45); }
+.splash-hero-cards .splash-card .c-suit { font-size: 1.35rem; }
+.splash-hero-cards .splash-card:nth-child(1) { transform: rotate(-12deg) translate(10px, 6px); }
+.splash-hero-cards .splash-card:nth-child(2) { transform: rotate(9deg) translate(-10px, 0); }
+.splash-logo { font-weight: 400; font-size: 4.6rem; line-height: 0.9; letter-spacing: 0.04em; color: var(--gold-pale); margin: 0; }
+.splash-sub { font-size: 1.05rem; letter-spacing: 0; text-transform: none; color: var(--text); margin: 14px 0 0; max-width: 270px; line-height: 1.45; }
+.splash-form { max-width: 380px; }
+.splash-invite { display: flex; align-items: center; gap: 12px; text-align: left; font-size: 0.9rem; line-height: 1.35; color: var(--text);
+  background: rgba(8,15,11,0.55); border: 1px solid rgba(212,168,67,0.35); border-radius: var(--r); padding: 12px 14px; margin-bottom: 16px; }
+.splash-invite-icon { width: 36px; height: 36px; border-radius: 50%; background: var(--oxblood-hi); color: var(--cream);
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.splash-signin-btn { margin-top: 12px; }
+.splash-fine { margin-top: 14px; font-size: 0.8rem; color: var(--text-dim); text-align: center; line-height: 1.45; }
+
+/* Home */
+.home-header { background: none; padding: calc(var(--safe-top) + 18px) 20px 10px; }
+.home-greeting { font-size: 2.1rem; letter-spacing: 0.04em; line-height: 1; }
+.home-sub { font-size: 0.85rem; margin-top: 4px; }
+.home-manage { display: flex; justify-content: flex-end; padding: 0 14px; margin-top: -6px; }
+#games-list { padding: 0 20px; }
+.games-empty { padding: 40px 10px; text-align: center; color: var(--text-dim); font-size: 0.95rem; line-height: 1.5; }
+.games-section-title { font-size: 0.9rem; font-weight: 600; color: var(--text-dim); margin: 20px 0 2px; }
+.game-card { margin: 0; border: none; background: none; border-radius: 0; overflow: visible; cursor: pointer; }
+.game-card.featured { display: flex; flex-direction: column; gap: 6px; padding: 18px; border-radius: 18px; margin-top: 4px;
+  background: radial-gradient(ellipse 120% 90% at 30% 20%, var(--felt-center) 0%, var(--felt) 75%); border: 2px solid var(--wood-hi);
+  box-shadow: 0 10px 26px rgba(0,0,0,0.45); }
+.game-card.featured .game-card-name { font-family: 'Bebas Neue', sans-serif; font-weight: 400; font-size: 2.1rem; line-height: 1; letter-spacing: 0.02em; color: var(--cream); margin-top: 6px; }
+.game-card.featured .game-card-sub { color: #cfc3ab; font-size: 0.88rem; }
+.game-card-top, .game-card-bottom { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.game-card-bottom { margin-top: 8px; }
+.game-card-status { font-size: 0.82rem; color: #cfc3ab; }
+.game-card-pill { font-size: 0.78rem; font-weight: 600; color: #1a1408; background: var(--gold-pale); padding: 3px 10px; border-radius: 999px; }
+.game-card-pill.sm { font-size: 0.68rem; padding: 1px 7px; vertical-align: 2px; margin-left: 4px; }
+.game-card-chips { font-weight: 600; color: var(--gold-pale); }
+.game-card-out { font-weight: 600; color: var(--down); }
+.games-rows .game-card.row { display: flex; align-items: center; gap: 14px; padding: 13px 0; border-bottom: 1px solid rgba(212,168,67,0.14); }
+.games-rows .game-card.row:last-child { border-bottom: none; }
+.game-card-main { flex: 1; min-width: 0; }
+.game-card.row .game-card-name { font-size: 1rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; }
+.game-card.row .game-card-sub { font-size: 0.82rem; color: var(--text-dim); margin-top: 2px; }
+.game-card.row .game-card-chips { font-weight: 500; }
+.game-card .btn-sm { min-height: 40px; }
+.game-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; background: var(--gold); }
+.game-dot.live { background: #3f8f5e; }
+.game-dot.turn { background: var(--gold-pale); box-shadow: 0 0 0 4px rgba(240,208,128,0.18); }
+.game-dot.done { background: none; border: 1.5px solid var(--text-dim); box-sizing: border-box; }
+.new-game-bar { position: fixed; left: 0; right: 0; bottom: calc(var(--safe-bot) + 66px); z-index: 50; padding: 10px 20px;
+  background: linear-gradient(to top, var(--bg) 60%, transparent); pointer-events: none; }
+#screen-home { padding-bottom: calc(var(--safe-bot) + 150px); }
+.fab { position: static; width: 100%; height: 56px; border-radius: var(--r); gap: 8px; pointer-events: auto;
+  font-family: 'DM Sans', sans-serif; font-size: 1.05rem; font-weight: 600; box-shadow: 0 6px 20px rgba(0,0,0,0.4); }
+.fab .ic { width: 22px; height: 22px; stroke-width: 2; }
+
+/* Lobby */
+.lobby-header { background: radial-gradient(ellipse 120% 100% at 50% 0%, var(--felt-center) 0%, var(--felt) 70%, var(--bg) 100%);
+  padding: calc(var(--safe-top) + 18px) 64px 18px; }
+.lobby-corner { position: absolute; top: calc(var(--safe-top) + 12px); background: rgba(8,15,11,0.5); color: var(--cream); }
+.lobby-corner.left { left: 12px; } .lobby-corner.right { right: 12px; }
+.lobby-title { font-size: 2.5rem; letter-spacing: 0.02em; color: var(--cream); line-height: 1; }
+.lobby-code { font-size: 0.85rem; color: #cfc3ab; letter-spacing: 0.06em; margin-top: 6px; }
+.lobby-table-wrap { position: relative; margin: 40px 34px 44px; aspect-ratio: 1.15 / 1; max-height: 320px; }
+.lobby-table { position: absolute; inset: 0; border-radius: 50%;
+  background: radial-gradient(ellipse 80% 70% at 50% 50%, var(--felt-center) 0%, var(--felt-edge) 100%);
+  border: 10px solid var(--wood); box-shadow: inset 0 0 0 2px var(--wood-hi), 0 14px 30px rgba(0,0,0,0.5); }
+.lobby-table-count { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); text-align: center; pointer-events: none;
+  display: flex; flex-direction: column; color: #cfc3ab; font-size: 0.82rem; }
+.lobby-table-count b { font-family: 'Bebas Neue', sans-serif; font-weight: 400; font-size: 2.2rem; line-height: 1; color: var(--gold-pale); }
+.lobby-table .seat { position: absolute; transform: translate(-50%, -50%); background: none; border: none; padding: 0; min-height: 0;
+  gap: 3px; width: 96px; border-radius: 0; }
+.lobby-table .seat .avatar.sm { width: 42px; height: 42px; font-size: 1.15rem; }
+.lobby-table .seat.host .avatar { border-color: var(--gold-pale); }
+.lobby-table .seat-name { font-size: 0.72rem; background: rgba(8,15,11,0.78); color: var(--cream); padding: 1px 7px; border-radius: 6px;
+  max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lobby-table .seat-name .guest-tag, .lobby-table .seat-name .seat-host { margin-left: 4px; }
+.lobby-table .seat-host { font-size: 0.6rem; letter-spacing: 0.04em; text-transform: none; }
+.lobby-table .seat.open .seat-name { color: #cfc3ab; }
+.lobby-table .seat-empty { width: 42px; height: 42px; border-radius: 50%; border: 2px dashed rgba(240,208,128,0.5); box-sizing: border-box;
+  display: flex; align-items: center; justify-content: center; color: var(--gold-pale); background: rgba(8,15,11,0.45); opacity: 1; }
+.lobby-table .seat-empty .ic { width: 18px; height: 18px; stroke-width: 2; }
+.lobby-section-title { font-size: 0.9rem; font-weight: 600; color: var(--text-dim); margin-bottom: 10px; }
+
+/* Results */
+.tourney-result { gap: 10px; padding: 30px 22px; justify-content: center; overflow-y: auto;
+  background: radial-gradient(ellipse 120% 60% at 50% 0%, rgba(29,90,58,0.95) 0%, rgba(15,45,28,0.97) 45%, rgba(8,15,11,0.98) 100%); }
+.trophy { font-size: 0; color: var(--gold-pale); }
+.trophy .ic { width: 44px; height: 44px; stroke-width: 1.5; }
+.tourney-title { font-size: 3.4rem; line-height: 0.95; letter-spacing: 0.02em; color: var(--cream); }
+.tourney-sub { font-size: 0.95rem; color: #cfc3ab; margin-bottom: 12px; }
+.final-places { max-width: 360px; }
+.place-row { justify-content: flex-start; gap: 12px; padding: 11px 0; border-bottom: 1px solid rgba(212,168,67,0.14); }
+.place-row:last-child { border-bottom: none; }
+.place-row.me { background: rgba(212,168,67,0.07); margin: 0 -10px; padding-left: 10px; padding-right: 10px; border-radius: 10px; }
+.place-medal { width: 20px; font-family: 'Bebas Neue', sans-serif; font-size: 1.5rem; color: var(--gold-pale); text-align: center; }
+.place-name { flex: 1; min-width: 0; font-size: 1rem; }
+.place-you { font-size: 0.7rem; color: var(--text-dim); border: 1px solid var(--border); border-radius: 999px; padding: 0 6px; margin-left: 6px; vertical-align: 2px; }
+.place-net { font-weight: 600; font-size: 1rem; color: var(--text-dim); }
+.place-net.up { color: var(--up); } .place-net.down { color: var(--down); }
+.place-add { min-height: 38px; padding: 6px 10px; font-size: 0.8rem; }
+.place-add .ic { width: 16px; height: 16px; }
+.place-sent { font-size: 0.78rem; color: var(--text-dim); }
 </style>
 <script>
 // Capture console output from the very start, before any other script runs
@@ -855,23 +990,50 @@ window.__dbgLogs = [];
 </script>
 </head>
 <body>
+<!-- Icon set (47-icons.js: icon(name)) -->
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/><path d="M10 20v-6h4v6"/></symbol>
+  <symbol id="i-friends" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><circle cx="17" cy="9" r="2.5"/><path d="M16.5 14.6c2.4.2 4.2 1.9 5 4.9"/></symbol>
+  <symbol id="i-me" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1-4.2 4.2-6.5 8-6.5s7 2.3 8 6.5"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 21h4"/></symbol>
+  <symbol id="i-archive" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v10h14V9"/><path d="M10 13h4"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></symbol>
+  <symbol id="i-user-plus" viewBox="0 0 24 24"><circle cx="10" cy="8" r="3.5"/><path d="M3 20c.8-3.6 3.6-5.5 7-5.5 1.4 0 2.6.3 3.7.9"/><path d="M18 14v6M15 17h6"/></symbol>
+  <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3.5 6.5 12 13l8.5-6.5"/></symbol>
+  <symbol id="i-trophy" viewBox="0 0 24 24"><path d="M8 4h8v5a4 4 0 0 1-8 0z"/><path d="M8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4"/><path d="M12 13v4M8 21h8M9 17h6"/></symbol>
+  <symbol id="i-rankings" viewBox="0 0 24 24"><path d="M5 20V12M12 20V5M19 20v-5"/></symbol>
+  <symbol id="i-trainer" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="1"/></symbol>
+  <symbol id="i-chips" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><path d="M12 3.5v3M12 17.5v3M3.5 12h3M17.5 12h3"/></symbol>
+  <symbol id="i-public" viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></symbol>
+  <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
+  <symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-handshake" viewBox="0 0 24 24"><path d="M3 11l4-4 4 2 3-2 7 5"/><path d="M7 13l3 3a1.5 1.5 0 0 0 2-2l-1-1"/><path d="M12 15l1.5 1.5a1.5 1.5 0 0 0 2-2"/><path d="M15 13.5l.5.5a1.5 1.5 0 0 0 2-2l-3-3"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></symbol>
+</svg>
 <div id="root">
 
   <!-- ─── SPLASH / AUTH ─────────────────────────────────────────────────── -->
   <div class="screen active screen-full" id="screen-splash">
-    <div style="text-align:center; margin-bottom: 0;">
-      <div class="splash-hero-cards">
+    <div class="splash-hero">
+      <div class="splash-hero-cards" aria-hidden="true">
         <div class="splash-card red">A<span class="c-suit">♥</span></div>
         <div class="splash-card black">K<span class="c-suit">♠</span></div>
       </div>
-      <div class="splash-logo">FELT RIGHT</div>
-      <div class="splash-sub">Texas Hold'em</div>
-      <div class="splash-rule"></div>
+      <h1 class="splash-logo">Felt<br>Right</h1>
+      <p class="splash-sub">Poker night with your friends, on your phone.</p>
     </div>
     <!-- PLAY NOW: no account needed (45-guest.js) -->
     <div class="splash-form" id="splash-play" style="display:none">
-      <div id="guest-invite-note" style="display:none;text-align:center;font-size:0.85rem;color:var(--gold);margin-bottom:10px">
-        You're invited to a game
+      <div id="guest-invite-note" class="splash-invite" style="display:none">
+        <div class="splash-invite-icon"><svg class="ic" aria-hidden="true"><use href="#i-mail"></use></svg></div>
+        <div>You're invited to a game. Pick a name and you're in.</div>
       </div>
       <div class="input-group">
         <label class="input-label" for="guest-name">Your name at the table</label>
@@ -881,17 +1043,16 @@ window.__dbgLogs = [];
       <div class="input-label" style="margin-top:4px">Pick an avatar</div>
       <div id="guest-avatars" class="guest-avatars" role="radiogroup" aria-label="Avatar"></div>
       <button class="btn btn-primary btn-full" id="guest-play-btn" onclick="playAsGuest()" style="margin-top:14px">Play now</button>
-      <div style="margin-top:8px;font-size:0.72rem;color:var(--text-dim);text-align:center;line-height:1.4">
+      <button class="btn btn-outline btn-full splash-signin-btn" onclick="showAccountPanel('login')">
+        <svg class="ic" aria-hidden="true"><use href="#i-mail"></use></svg>Sign in or create an account</button>
+      <div class="splash-fine">
         No account needed. Play chips only. Results aren't saved until you create an account.
-      </div>
-      <div style="text-align:center;margin-top:16px;font-size:0.85rem;color:var(--text-dim)">
-        Have an account? <span style="color:var(--gold);cursor:pointer" onclick="showAccountPanel('login')">Sign in</span>
-        · <span style="color:var(--gold);cursor:pointer" onclick="showAccountPanel('signup')">Create one</span>
       </div>
     </div>
     <div class="splash-form" id="splash-account">
-      <div id="splash-account-invite" style="display:none;text-align:center;font-size:0.85rem;color:var(--gold);margin-bottom:10px">
-        You're invited to a game. Sign in or create an account to join.
+      <div id="splash-account-invite" class="splash-invite" style="display:none">
+        <div class="splash-invite-icon"><svg class="ic" aria-hidden="true"><use href="#i-mail"></use></svg></div>
+        <div>You're invited to a game. Sign in or create an account to join.</div>
       </div>
       <!-- SIGN IN WITH AN EMAILED CODE (46-account.js; behind the email_code_login switch) -->
       <div id="account-code" style="display:none">
@@ -994,11 +1155,10 @@ window.__dbgLogs = [];
       </div>
       </div>
       <div id="splash-back-to-guest" style="display:none;text-align:center;margin-top:16px;font-size:0.85rem">
-        <span style="color:var(--gold);cursor:pointer" onclick="showGuestPanel()">← Play without an account</span>
+        <button class="link-btn" onclick="showGuestPanel()"><svg class="ic" aria-hidden="true"><use href="#i-chevron-left"></use></svg>Play without an account</button>
       </div>
       <div style="text-align:center;margin-top:12px">
-        <span onclick="refreshApp()" style="color:var(--text-dim);font-size:0.78rem;
-          cursor:pointer;text-decoration:underline">↻ Refresh app</span>
+        <button class="link-btn dim" onclick="refreshApp()"><svg class="ic" aria-hidden="true"><use href="#i-refresh"></use></svg>Refresh app</button>
       </div>
     </div>
   </div>
@@ -1007,32 +1167,30 @@ window.__dbgLogs = [];
   <div class="screen" id="screen-home">
     <div class="home-header">
       <div>
-        <div class="home-greeting" id="home-greeting">FELT RIGHT</div>
+        <div class="home-greeting" id="home-greeting">Felt Right</div>
         <div class="home-sub" id="home-sub">Your games</div>
       </div>
-      <div style="display:flex;align-items:center;gap:10px">
-        <button onclick="refreshCurrentScreen()" title="Refresh" aria-label="Refresh"
-          style="background:none;border:1px solid var(--gold-dim);color:var(--gold);
-            width:38px;height:38px;border-radius:50%;cursor:pointer;font-size:1rem;
-            display:flex;align-items:center;justify-content:center">↻</button>
+      <div style="display:flex;align-items:center;gap:8px">
+        <button class="icon-btn" onclick="refreshCurrentScreen()" title="Refresh" aria-label="Refresh"><svg class="ic" aria-hidden="true"><use href="#i-refresh"></use></svg></button>
         <div class="avatar lg" id="home-avatar" onclick="navTo('profile')" style="cursor:pointer">?</div>
       </div>
     </div>
     <!-- Admin toolbar -->
     <div id="admin-bar" style="display:none;padding:0 16px 8px;display:flex;gap:8px;flex-wrap:wrap">
-      <button class="btn btn-surface btn-sm" onclick="archiveMyGames()" style="font-size:0.75rem">📦 Archive Finished</button>
-      <button id="admin-kill-btn" class="btn btn-surface btn-sm" onclick="killStuckGames()" style="font-size:0.75rem;color:var(--red-light);display:none">⏹ End My Stuck Games</button>
+      <button class="btn btn-surface btn-sm" onclick="archiveMyGames()" style="font-size:0.75rem"><svg class="ic" aria-hidden="true"><use href="#i-archive"></use></svg> Archive finished</button>
+      <button id="admin-kill-btn" class="btn btn-surface btn-sm" onclick="killStuckGames()" style="font-size:0.75rem;color:var(--red-light);display:none"><svg class="ic" aria-hidden="true"><use href="#i-stop"></use></svg> End my stuck games</button>
     </div>
-    <div class="section-head" style="display:flex;align-items:center;justify-content:space-between;padding-right:16px">
-      <span>Games</span>
-      <button onclick="toggleAdminBar()" style="background:none;border:none;color:var(--text-dim);font-size:0.72rem;cursor:pointer;letter-spacing:0.06em">⚙ Manage</button>
+    <div class="home-manage">
+      <button class="link-btn dim" onclick="toggleAdminBar()"><svg class="ic" aria-hidden="true"><use href="#i-settings"></use></svg>Manage</button>
     </div>
     <div id="games-list">
       <div style="padding: 40px 20px; text-align:center; color:var(--text-dim); font-size:0.9rem; font-style:italic;">
-        No games yet.<br>Tap + to start one.
+        No games yet.<br>Tap New game to start one.
       </div>
     </div>
-    <button class="fab" onclick="openCreateGame()">+</button>
+    <div class="new-game-bar">
+      <button class="fab" onclick="openCreateGame()" aria-label="New game"><svg class="ic" aria-hidden="true"><use href="#i-plus"></use></svg>New game</button>
+    </div>
   </div>
 
   <!-- ─── FRIENDS ───────────────────────────────────────────────────────── -->
@@ -1040,7 +1198,7 @@ window.__dbgLogs = [];
     <div class="friends-header">
       <h2 style="margin-bottom:12px">Friends</h2>
       <div class="search-bar">
-        <span class="search-icon">🔍</span>
+        <span class="search-icon"><svg class="ic" aria-hidden="true"><use href="#i-search"></use></svg></span>
         <input id="friend-search" type="text" placeholder="Search by name or phone…" oninput="searchFriends(this.value)">
       </div>
     </div>
@@ -1070,7 +1228,7 @@ window.__dbgLogs = [];
     <div class="section-head" style="display:flex;align-items:center;justify-content:space-between">
       <span>Standings</span>
       <button onclick="refreshCurrentScreen()" style="background:none;border:none;color:var(--gold);
-        font-size:0.7rem;cursor:pointer;padding:2px 6px">↻ Refresh</button>
+        font-size:0.7rem;cursor:pointer;padding:2px 6px;display:inline-flex;align-items:center;gap:4px"><svg class="ic" aria-hidden="true" style="width:14px;height:14px"><use href="#i-refresh"></use></svg>Refresh</button>
     </div>
     <div class="ledger-disclaimer" style="margin:0 16px 10px;font-size:0.72rem;color:var(--text-dim);
       padding:8px 10px;background:var(--surface2);border-radius:6px;line-height:1.45">
@@ -1086,7 +1244,7 @@ window.__dbgLogs = [];
     <div style="padding: 16px;">
       <div style="background:var(--surface); border-radius:var(--r); padding:14px 16px; border:1px solid var(--border);">
         <div style="font-size:0.78rem; color:var(--text-dim); margin-bottom:10px; text-transform:uppercase; letter-spacing:0.1em;">Invite a friend to Felt Right</div>
-        <button class="btn btn-ghost btn-full btn-sm" onclick="copyInviteLink()">📋 Copy Invite Link</button>
+        <button class="btn btn-ghost btn-full btn-sm" onclick="copyInviteLink()"><svg class="ic" aria-hidden="true"><use href="#i-link"></use></svg> Copy invite link</button>
       </div>
     </div>
   </div>
@@ -1094,13 +1252,9 @@ window.__dbgLogs = [];
   <!-- ─── GAME LOBBY ─────────────────────────────────────────────────────── -->
   <div class="screen screen-full" id="screen-lobby">
     <div class="lobby-header" style="position:relative">
-      <button onclick="refreshCurrentScreen()" title="Refresh" aria-label="Refresh the lobby" style="position:absolute;top:12px;left:12px;
-        background:none;border:1px solid var(--gold-dim);color:var(--gold);
-        font-size:0.9rem;padding:5px 10px;border-radius:6px;cursor:pointer;line-height:1">↻</button>
-      <button id="lobby-chat-btn" onclick="toggleChatPanel()" style="position:absolute;top:12px;right:12px;
-        background:none;border:1px solid var(--gold-dim);color:var(--gold);
-        font-size:0.9rem;padding:5px 10px;border-radius:6px;cursor:pointer;line-height:1">
-        💬
+      <button class="icon-btn lobby-corner left" onclick="refreshCurrentScreen()" title="Refresh" aria-label="Refresh the lobby"><svg class="ic" aria-hidden="true"><use href="#i-refresh"></use></svg></button>
+      <button id="lobby-chat-btn" class="icon-btn lobby-corner right" onclick="toggleChatPanel()" title="Chat" aria-label="Chat">
+        <svg class="ic" aria-hidden="true"><use href="#i-chat"></use></svg>
         <span id="lobby-chat-unread-badge" style="display:none;position:absolute;top:-6px;right:-6px;
           background:var(--red);color:#fff;border-radius:10px;font-size:0.6rem;
           min-width:16px;height:16px;padding:0 4px;font-weight:700;
@@ -1109,7 +1263,7 @@ window.__dbgLogs = [];
       <div class="lobby-title" id="lobby-game-name">GAME NAME</div>
       <div id="lobby-variant-badge" style="font-family:'Bebas Neue',sans-serif;font-size:0.78rem;
         letter-spacing:0.18em;color:var(--gold-pale);text-align:center;margin-top:-4px;
-        margin-bottom:8px;opacity:0.7">HOLDEM</div>
+        margin-bottom:8px;opacity:0.8">HOLDEM</div>
       <div class="lobby-code" id="lobby-game-id">Game ID: —</div>
       <div style="margin-top:8px; display:flex; gap:8px; justify-content:center; flex-wrap:wrap;" id="lobby-badges">
         <span class="badge badge-gold">Sit & Go</span>
@@ -1126,7 +1280,7 @@ window.__dbgLogs = [];
         <div style="color:var(--text-dim);font-size:0.72rem">When the game starts and when it's your turn</div>
       </div>
       <button class="btn btn-primary btn-sm" onclick="onPushLobbyTurnOn()">Turn on</button>
-      <button onclick="dismissPushLobbyCard()" aria-label="Not now" style="background:none;border:none;color:var(--text-dim);font-size:1rem;cursor:pointer;padding:4px">✕</button>
+      <button onclick="dismissPushLobbyCard()" aria-label="Not now" style="background:none;border:none;color:var(--text-dim);cursor:pointer;padding:8px;display:flex"><svg class="ic" aria-hidden="true"><use href="#i-close"></use></svg></button>
     </div>
 
     <!-- Leave button — uses native link for bulletproof navigation -->
@@ -1141,18 +1295,17 @@ window.__dbgLogs = [];
       </a>
     </div>
 
-    <div style="padding:16px 16px 8px; display:flex; align-items:center; justify-content:space-between;">
-      <div style="font-size:0.78rem; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.1em;">Players</div>
-      <div id="lobby-player-count" style="font-size:0.85rem; color:var(--text-dim);">0 joined</div>
+    <div class="lobby-table-wrap">
+      <div class="lobby-table" id="lobby-seats"></div>
+      <div class="lobby-table-count" id="lobby-player-count">0 joined</div>
     </div>
-    <div class="seat-grid" id="lobby-seats"></div>
 
     <div style="padding:0 16px 8px">
-      <div style="font-size:0.78rem; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.1em; margin-bottom:10px;">Invite Friends</div>
+      <div class="lobby-section-title">Invite friends</div>
       <div id="lobby-friend-invite-list"></div>
       <div class="invite-link-box" style="margin-top:10px">
         <div class="invite-link-text" id="lobby-invite-url">felt.app/join/———</div>
-        <button class="btn btn-ghost btn-sm" onclick="copyLobbyLink()">Copy</button>
+        <button class="btn btn-ghost btn-sm" onclick="copyLobbyLink()" style="display:inline-flex;align-items:center;gap:6px"><svg class="ic" aria-hidden="true" style="width:16px;height:16px"><use href="#i-link"></use></svg>Copy</button>
       </div>
     </div>
 
@@ -1457,18 +1610,18 @@ window.__dbgLogs = [];
 
   <!-- ─── BOTTOM NAV ─────────────────────────────────────────────────────── -->
   <nav id="nav">
-    <div class="nav-item active" onclick="navTo('home')">
-      <div class="nav-icon">🏠</div>
-      <div class="nav-label">Home</div>
-    </div>
-    <div class="nav-item" onclick="navTo('friends')">
-      <div class="nav-icon">👥</div>
-      <div class="nav-label">Friends</div>
-    </div>
-    <div class="nav-item" onclick="navTo('profile')">
-      <div class="nav-icon" id="nav-profile-icon">🃏</div>
-      <div class="nav-label">Profile</div>
-    </div>
+    <button class="nav-item active" onclick="navTo('home')">
+      <svg class="ic nav-icon" aria-hidden="true"><use href="#i-home"></use></svg>
+      <span class="nav-label">Home</span>
+    </button>
+    <button class="nav-item" onclick="navTo('friends')">
+      <svg class="ic nav-icon" aria-hidden="true"><use href="#i-friends"></use></svg>
+      <span class="nav-label">Friends</span>
+    </button>
+    <button class="nav-item" onclick="navTo('profile')">
+      <svg class="ic nav-icon" aria-hidden="true"><use href="#i-me"></use></svg>
+      <span class="nav-label">Me</span>
+    </button>
   </nav>
 </div>
 
@@ -2764,8 +2917,8 @@ function renderGamesList() {
 
   if (!myGames.length) {
     el.innerHTML = isGuest() && !guestCanHost()
-      ? `<div style="padding:40px 20px;text-align:center;color:var(--text-dim);font-size:0.9rem;line-height:1.5">No games yet.<br>Open an invite link from a friend to join their table.</div>`
-      : `<div style="padding:40px 20px;text-align:center;color:var(--text-dim);font-size:0.9rem;font-style:italic;">No games yet.<br>Tap + to create one.</div>`;
+      ? `<div class="games-empty">No games yet.<br>Open an invite link from a friend to join their table.</div>`
+      : `<div class="games-empty">No games yet.<br>Tap New game to start one.</div>`;
     return;
   }
 
@@ -2776,96 +2929,88 @@ function renderGamesList() {
   const friendActive  = myGames.filter(g => g.my_status === 'friend_playing');
   const finished      = myGames.filter(g => g.status === 'finished');
 
+  // The game that most needs you goes on top as a felt tile: your turn first,
+  // then any game in play, then an invite.
+  const spotlight = active.find(g => isMyTurnIn(g)) || active[0] || invites[0] || null;
+  const rest = (list) => list.filter(g => g !== spotlight);
+
   let html = '';
+  if (spotlight) html += gameCard(spotlight, spotlight.status === 'active' ? 'active' : 'invite', true);
 
-  if (invites.length) {
-    html += `<div class="section-head" style="color:var(--gold)">📨 Invited — Waiting to Start</div>`;
-    html += invites.map(g => gameCard(g, 'invite')).join('');
-  }
-
-  if (active.length) {
-    html += `<div class="section-head">Active</div>`;
-    html += active.map(g => gameCard(g, 'active')).join('');
-  }
-
-  if (myLobbies.length) {
-    html += `<div class="section-head">Your Lobbies</div>`;
-    html += myLobbies.map(g => gameCard(g, 'lobby')).join('');
-  }
-
-  if (friendLobbies.length) {
-    html += `<div class="section-head">Friends' Open Lobbies</div>`;
-    html += friendLobbies.map(g => gameCard(g, 'friend_lobby')).join('');
-  }
-
-  if (friendActive.length) {
-    html += `<div class="section-head">Friends Playing</div>`;
-    html += friendActive.map(g => gameCard(g, 'friend')).join('');
-  }
-
-  if (finished.length) {
-    html += `<div class="section-head">Recent</div>`;
-    html += finished.map(g => gameCard(g, 'finished')).join('');
-  }
+  const section = (title, list, type) => {
+    const items = rest(list);
+    if (!items.length) return;
+    html += `<div class="games-section-title">${title}</div><div class="games-rows">${items.map(g => gameCard(g, type)).join('')}</div>`;
+  };
+  section('Invited', invites, 'invite');
+  section('In play', active, 'active');
+  section('Your lobbies', myLobbies, 'lobby');
+  section('Friends’ open lobbies', friendLobbies, 'friend_lobby');
+  section('Friends playing', friendActive, 'friend');
+  section('Recent', finished, 'finished');
 
   el.innerHTML = html;
 }
 
-function gameCard(g, type) {
-  let badgeClass = type==='active' ? 'badge-green' : type==='invite' ? 'badge-gold' : type==='lobby' ? 'badge-gold' : type==='friend' ? 'badge-green' : type==='friend_lobby' ? 'badge-gold' : 'badge-dim';
-  let badgeText  = type==='active' ? 'ACTIVE' : type==='invite' ? 'INVITED' : type==='lobby' ? 'LOBBY' : type==='friend' ? 'ACTIVE' : type==='friend_lobby' ? 'OPEN' : 'DONE';
-  let btnClass   = type==='active' ? 'btn-primary' : type==='invite' ? 'btn-primary' : type==='friend_lobby' ? 'btn-primary' : type==='friend' ? 'btn-ghost' : 'btn-ghost';
-  let btnText    = type==='active' ? 'Rejoin' : type==='invite' ? 'Join' : type==='friend' ? 'Spectate' : type==='friend_lobby' ? 'Join' : type==='lobby' ? 'Open' : 'View';
-  const subLine    = (type==='friend' || type==='friend_lobby') ? `<div style="font-size:0.7rem;color:var(--text-dim)">${g.friend_name}'s game</div>` : '';
+function isMyTurnIn(g) {
+  const st = g?.state;
+  if (!st?.players || st.paused || st.tournamentOver || st.stage === 'finished' || st.stage === 'showdown') return false;
+  const p = st.players[st.actionIndex];
+  return !!p && p.id === me?.id && !p.folded;
+}
 
-  // Find my chips in this game from the state if available
-  let myChipsHtml = '';
-  let isAway = false;
+function gameCard(g, type, featured) {
+  let btnText = type==='active' ? 'Rejoin' : type==='invite' ? 'Join' : type==='friend' ? 'Spectate' : type==='friend_lobby' ? 'Join' : type==='lobby' ? 'Open' : 'View';
+  let btnClass = (type==='active' || type==='invite' || type==='friend_lobby') ? 'btn-primary' : 'btn-ghost';
+  let dot = type==='finished' ? 'done' : (type==='active' || type==='friend') ? 'live' : 'wait';
+  let status = type==='invite' ? `Invited ${timeAgo(g.created_at)}`
+    : type==='lobby' ? 'Your lobby, waiting to start'
+    : type==='friend_lobby' ? `${g.friend_name}'s lobby is open`
+    : type==='friend' ? `${g.friend_name} is playing`
+    : type==='finished' ? 'Finished'
+    : `Hand ${g.hand_number || 0}`;
+
+  let chipsLine = '';
+  let pill = '';
   if (type === 'active' && g.state?.players) {
-    const me_in_game = g.state.players.find(p => p.id === me.id);
-    if (me_in_game) {
-      const eliminated = me_in_game.eliminated;
-      isAway = me_in_game.awayFromTable && !eliminated;
-      myChipsHtml = eliminated
-        ? `<div class="game-card-stat"><div class="val" style="color:var(--red-light)">Out</div><div class="lbl">Status</div></div>`
-        : `<div class="game-card-stat"><div class="val">${me_in_game.chips.toLocaleString()}</div><div class="lbl">My Chips</div></div>`;
+    const mine = g.state.players.find(p => p.id === me.id);
+    if (mine) {
+      if (mine.eliminated) chipsLine = `<span class="game-card-out">Out</span>`;
+      else chipsLine = `<span class="game-card-chips">${(mine.chips || 0).toLocaleString()} chips</span>`;
+      if (mine.awayFromTable && !mine.eliminated) {
+        btnText = 'Sit Back Down'; btnClass = 'btn-primary'; pill = 'Away'; dot = 'wait';
+      }
     }
+    if (!pill && isMyTurnIn(g)) { pill = 'Your turn'; dot = 'turn'; }
   }
-  // Override the badge and button for "away" state — the user explicitly left
-  // the table and needs to tap Sit Back Down to rejoin active play.
-  if (isAway) {
-    badgeClass = 'badge-gold';
-    badgeText = 'AWAY';
-    btnText = '🪑 Sit Back Down';
-    btnClass = 'btn-primary';
-  }
+  if (type === 'invite') pill = pill || 'Invited';
 
-  const timeStamp = type === 'invite'
-    ? `<div style="font-size:0.7rem;color:var(--text-dim);margin-top:2px">${timeAgo(g.created_at)}</div>`
-    : '';
+  const players = `${g.player_count || 0} ${g.player_count === 1 ? 'player' : 'players'}`;
+  const name = escapeHtml(g.name || 'Game');
 
-  const handInfo = type === 'active'
-    ? `<div class="game-card-stat"><div class="val">#${g.hand_number||0}</div><div class="lbl">Hand</div></div>`
-    : '';
-
-  return `
-    <div class="game-card" onclick="openLobby('${g.id}')">
-      <div class="game-card-header">
-        <div>
-          <div class="game-card-name">${g.name}</div>
-          ${subLine}
-          ${timeStamp}
-        </div>
-        <span class="badge ${badgeClass}">${badgeText}</span>
+  if (featured) {
+    return `
+    <div class="game-card featured" onclick="openLobby('${g.id}')">
+      <div class="game-card-top">
+        ${pill ? `<span class="game-card-pill">${pill}</span>` : '<span></span>'}
+        <span class="game-card-status">${status}</span>
       </div>
-      <div class="game-card-body">
-        <div class="game-card-meta">
-          <div class="game-card-stat"><div class="val">${g.player_count||'—'}</div><div class="lbl">Players</div></div>
-          ${handInfo}
-          ${myChipsHtml}
-        </div>
+      <div class="game-card-name">${name}</div>
+      <div class="game-card-sub">${players}</div>
+      <div class="game-card-bottom">
+        ${chipsLine || '<span></span>'}
         <button class="btn ${btnClass} btn-sm">${btnText}</button>
       </div>
+    </div>`;
+  }
+  return `
+    <div class="game-card row" onclick="openLobby('${g.id}')">
+      <span class="game-dot ${dot}" aria-hidden="true"></span>
+      <div class="game-card-main">
+        <div class="game-card-name">${name}${pill ? ` <span class="game-card-pill sm">${pill}</span>` : ''}</div>
+        <div class="game-card-sub">${status}, ${players}${chipsLine ? ', ' : ''}${chipsLine}</div>
+      </div>
+      <button class="btn ${btnClass} btn-sm">${btnText}</button>
     </div>`;
 }
 
@@ -3390,28 +3535,31 @@ function renderLobbySeats() {
   const hostId = myGames.find(g => g.id === currentLobbyId)?.host_id;
   let html = '';
 
-  // Show joined players first (in order), then fill remaining seats with "Open"
+  // Seats sit around the oval table, clockwise from the top: joined players
+  // first (in order), then open seats.
   for (let i = 0; i < MAX_SEATS; i++) {
+    const a = (-90 + i * (360 / MAX_SEATS)) * Math.PI / 180;
+    const pos = `left:${(50 + 47 * Math.cos(a)).toFixed(1)}%;top:${(50 + 45 * Math.sin(a)).toFixed(1)}%`;
     const p = lobbyPlayers[i];
     if (p) {
       const isHost = p.user?.id === hostId;
       const isMe = p.user?.id === me?.id;
       const canNudge = !isMe && p.user?.id;
       const emoji = p.user?.avatar_emoji||p.user?.display_name?.[0]||'?';
-      const name = p.user?.display_name||'Player';
-      html += `<div class="seat filled">
+      const name = escapeHtml(p.user?.display_name||'Player');
+      const tag = isHost ? '<span class="seat-host">Host</span>' : p.user?.is_guest ? '<span class="guest-tag">Guest</span>' : '';
+      html += `<div class="seat filled${isHost ? ' host' : ''}" style="${pos}">
         <div class="avatar sm ${canNudge?'lobby-nudge-avatar':''}"
           ${canNudge ? `data-nudge-id="${p.user.id}" data-nudge-name="${name}" style="cursor:pointer" title="Tap to nudge ${name}"` : ''}>${emoji}</div>
-        <div class="seat-name">${name}${p.user?.is_guest ? '<span class="guest-tag">Guest</span>' : ''}</div>
-        ${isHost ? `<div class="seat-host">Host</div>` : ''}
+        <div class="seat-name">${name}${tag}</div>
       </div>`;
     } else {
-      html += `<div class="seat"><div class="seat-empty">+</div><div class="seat-name" style="color:var(--text-dim);font-size:0.72rem">Open</div></div>`;
+      html += `<div class="seat open" style="${pos}"><div class="seat-empty">${icon('plus')}</div><div class="seat-name">Open</div></div>`;
     }
   }
 
   el.innerHTML = html;
-  document.getElementById('lobby-player-count').textContent = `${lobbyPlayers.length} / ${MAX_SEATS} joined`;
+  document.getElementById('lobby-player-count').innerHTML = `<b>${lobbyPlayers.length} of ${MAX_SEATS}</b><span>seated</span>`;
 
   // Wire nudge handlers on lobby avatars
   el.querySelectorAll('.lobby-nudge-avatar').forEach(av => {
@@ -8517,7 +8665,7 @@ function showHomeGameEnd() {
     <button id="record-ledger-btn" onclick="onRecordHomeGameLedger()" style="background:none;
       border:1px solid var(--gold-dim);color:var(--gold);
       font-size:0.85rem;padding:10px 18px;border-radius:8px;cursor:pointer;margin-top:10px;font-weight:600">
-      📒 Record to Standings
+      Record to Standings
     </button>` : (alreadyRecorded ? `
     <div style="font-size:0.78rem;color:var(--gold-pale);margin-top:8px;font-style:italic">
       ✓ Recorded to Standings
@@ -8525,27 +8673,54 @@ function showHomeGameEnd() {
 
   overlay.innerHTML = `
     <div class="tourney-result">
-      <div class="trophy">🪙</div>
-      <div class="tourney-title">Game Over</div>
-      <div class="tourney-sub" style="margin-bottom:14px">Home Game · Final standings</div>
+      <div class="trophy">${icon('trophy')}</div>
+      <div class="tourney-title">${cashOuts[0] ? (cashOuts[0].id === me.id ? 'You win' : `${escapeHtml(cashOuts[0].name)} wins`) : 'Game over'}</div>
+      <div class="tourney-sub">Home game, final chip counts</div>
       <div class="final-places">
         ${cashOuts.map((p, i) => {
           const net = p.netCents;
-          const netStr = chipNet(net);
-          const color = net > 0 ? 'var(--gold)' : net < 0 ? 'var(--red-light)' : 'var(--text-dim)';
-          return `<div class="place-row">
-            <div class="place-medal">${i+1}.</div>
-            <div class="place-name">${p.emoji} ${p.name}</div>
-            <div style="font-family:'Bebas Neue',sans-serif;color:${color};font-size:1.1rem;margin-left:auto">
-              ${netStr}
-            </div>
-          </div>`;
+          const cls = net > 0 ? 'up' : net < 0 ? 'down' : 'even';
+          return resultRow(p, i, `<div class="place-net ${cls}">${chipNet(net)}</div>`);
         }).join('')}
       </div>
       ${ledgerBtnHtml}
-      <button class="btn btn-primary" onclick="goHome()" style="margin-top:14px">Back to Home</button>
+      <button class="btn btn-primary btn-full" onclick="goHome()" style="margin-top:18px">Back to Home</button>
     </div>`;
   noteGuestResults(overlay.querySelector('.tourney-result'), (G?.players || []).map((p) => p.id));
+  showAddFriendButtons(overlay);
+}
+
+// One finishing place: rank, avatar, name and (for players you aren't friends
+// with yet) an Add friend button, shown once we know they aren't a guest.
+function resultRow(p, i, valueHtml) {
+  const id = p.id || (G?.players || []).find(q => q.name === p.name)?.id;
+  const isMe = id && id === me?.id;
+  const canAdd = id && !isMe && !isGuest() && me?.id !== 'demo'
+    && !(myFriends || []).some(f => f.id === id) && !(myPendingSent || []).includes(id);
+  return `<div class="place-row${isMe ? ' me' : ''}">
+    <div class="place-medal">${i + 1}</div>
+    <div class="avatar sm">${p.emoji || (p.name || '?')[0]}</div>
+    <div class="place-name">${escapeHtml(p.name || 'Player')}${isMe ? '<span class="place-you">you</span>' : ''}</div>
+    ${valueHtml || ''}
+    ${canAdd ? `<button class="btn btn-ghost btn-sm place-add" data-friend-id="${id}" data-friend-name="${escapeHtml(p.name || '')}" hidden
+      onclick="addFriendFromResults(this)">${icon('user-plus')}Add friend</button>` : ''}
+  </div>`;
+}
+
+async function showAddFriendButtons(container) {
+  const btns = [...container.querySelectorAll('.place-add')];
+  if (!btns.length || !sb) return;
+  try {
+    const { data } = await sb.from('users').select('id, is_guest').in('id', btns.map(b => b.dataset.friendId));
+    const ok = new Set((data || []).filter(u => !u.is_guest).map(u => u.id));
+    btns.forEach(b => { if (ok.has(b.dataset.friendId)) b.hidden = false; else b.remove(); });
+  } catch (e) { btns.forEach(b => b.remove()); }
+}
+
+async function addFriendFromResults(btn) {
+  btn.disabled = true;
+  await addFriend(btn.dataset.friendId, btn.dataset.friendName);
+  btn.outerHTML = '<span class="place-sent">Request sent</span>';
 }
 
 // Records the home game to the friends ledger for every player (both sides),
@@ -8556,7 +8731,7 @@ async function onRecordHomeGameLedger() {
   const res = await settleHomeGameLedger(currentGameId);
   if (!res || res.error) {
     toast('Could not record to Standings');
-    if (btn) { btn.disabled = false; btn.textContent = '📒 Record to Standings'; }
+    if (btn) { btn.disabled = false; btn.textContent = 'Record to Standings'; }
     return;
   }
   sessionStorage.setItem(`fr_ledger_recorded_${currentGameId}`, '1');
@@ -8781,52 +8956,42 @@ function showTournamentOverlay(winner) {
   if (isChop) {
     overlay.innerHTML = `
       <div class="tourney-result">
-        <div class="trophy">🤝</div>
-        <div class="tourney-title">Chop!</div>
-        <div class="tourney-sub" style="margin-bottom:14px">Game ended by agreement</div>
+        <div class="trophy">${icon('handshake')}</div>
+        <div class="tourney-title">Chop</div>
+        <div class="tourney-sub">Game ended by agreement</div>
         ${gameBuyIn > 0 ? `<div style="font-size:0.78rem;color:var(--gold-pale);text-align:center;margin-bottom:14px;
           padding:8px 14px;background:rgba(212,168,67,0.08);border:1px solid var(--gold-dim);border-radius:8px">
           ${chipAmt((actualPool ?? gameBuyIn * totalPlayers) * 100)} prize pool · split equally
         </div>` : ''}
         <div class="final-places">
-          ${G.finalPlacements.map((p,i) => `
-            <div class="place-row">
-              <div class="place-medal">${['🥇','🥈','🥉'][i]||`${i+1}.`}</div>
-              <div class="place-name">${p.emoji} ${p.name}</div>
-              ${payoutByPlace[i+1] ? `<div style="font-family:'Bebas Neue',sans-serif;color:var(--gold);font-size:1.1rem;margin-left:auto">
-                ${chipAmt(payoutByPlace[i+1] * 100)}
-              </div>` : ''}
-            </div>`).join('')}
+          ${G.finalPlacements.map((p,i) => resultRow(p, i,
+            payoutByPlace[i+1] ? `<div class="place-net up">${chipAmt(payoutByPlace[i+1] * 100)}</div>` : '')).join('')}
         </div>
         ${ledgerBtnHtml}
-        <button class="btn btn-primary" onclick="goHome()" style="margin-top:14px">Back to Home</button>
+        <button class="btn btn-primary btn-full" onclick="goHome()" style="margin-top:18px">Back to Home</button>
       </div>`;
+    showAddFriendButtons(overlay);
     return;
   }
 
   overlay.innerHTML = `
     <div class="tourney-result">
-      <div class="trophy">${iWon ? '🏆' : '🃏'}</div>
-      <div class="tourney-title">${iWon ? 'You Won!' : winner?.name + ' Wins!'}</div>
-      <div class="tourney-sub" style="margin-bottom:14px">Tournament Complete</div>
+      <div class="trophy">${icon('trophy')}</div>
+      <div class="tourney-title">${iWon ? 'You win' : escapeHtml(winner?.name || 'Winner') + ' wins'}</div>
+      <div class="tourney-sub">Tournament complete</div>
       ${gameBuyIn > 0 ? `<div style="font-size:0.78rem;color:var(--gold-pale);text-align:center;margin-bottom:14px;
         padding:8px 14px;background:rgba(212,168,67,0.08);border:1px solid var(--gold-dim);border-radius:8px">
         ${chipAmt((actualPool ?? gameBuyIn * totalPlayers) * 100)} prize pool · ${totalPlayers} buy-ins of ${chipAmt(gameBuyIn * 100)}
       </div>` : ''}
       <div class="final-places">
-        ${G.finalPlacements.map((p,i) => `
-          <div class="place-row">
-            <div class="place-medal">${['🥇','🥈','🥉'][i]||`${i+1}.`}</div>
-            <div class="place-name">${p.emoji} ${p.name}</div>
-            ${payoutByPlace[i+1] ? `<div style="font-family:'Bebas Neue',sans-serif;color:var(--gold);font-size:1.1rem;margin-left:auto">
-              ${chipAmt(payoutByPlace[i+1] * 100)}
-            </div>` : ''}
-          </div>`).join('')}
+        ${G.finalPlacements.map((p,i) => resultRow(p, i,
+          payoutByPlace[i+1] ? `<div class="place-net up">${chipAmt(payoutByPlace[i+1] * 100)}</div>` : '')).join('')}
       </div>
       ${ledgerBtnHtml}
-      <button class="btn btn-primary" onclick="goHome()" style="margin-top:14px">Back to Home</button>
+      <button class="btn btn-primary btn-full" onclick="goHome()" style="margin-top:18px">Back to Home</button>
     </div>`;
   noteGuestResults(overlay.querySelector('.tourney-result'), (G?.players || []).map((p) => p.id));
+  showAddFriendButtons(overlay);
 }
 
 function goHome() {
@@ -11513,6 +11678,15 @@ async function deleteAccount() {
     console.warn('delete account:', e);
     toast('Couldn’t delete the account. Try again.');
   }
+}
+// ════════════════════════════════════════════════════════════════════════════
+// ICONS
+// ════════════════════════════════════════════════════════════════════════════
+// One stroke icon set, drawn in the current text color. The shapes live in the
+// sprite at the top of index.html (<symbol id="i-NAME">); markup uses
+// <svg class="ic"><use href="#i-NAME"></use></svg>, and JS uses icon(name).
+function icon(name, extraClass) {
+  return `<svg class="ic${extraClass ? ' ' + extraClass : ''}" aria-hidden="true"><use href="#i-${name}"></use></svg>`;
 }
 </script>
 

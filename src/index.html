@@ -11,8 +11,8 @@
 <meta name="theme-color" content="#0d1f14">
 <title>Felt Right</title>
 <link rel="manifest" href="manifest.json?v=5">
-<link rel="icon" type="image/svg+xml" href="icon-192.svg?v=5">
-<link rel="apple-touch-icon" href="icon-192.svg?v=5">
+<link rel="icon" type="image/svg+xml" href="icon-192.svg?v=6">
+<link rel="apple-touch-icon" href="icon-192.svg?v=6">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Felt Right">
@@ -34,23 +34,50 @@
 </script>
 </head>
 <body>
+<!-- Icon set (47-icons.js: icon(name)) -->
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/><path d="M10 20v-6h4v6"/></symbol>
+  <symbol id="i-friends" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><circle cx="17" cy="9" r="2.5"/><path d="M16.5 14.6c2.4.2 4.2 1.9 5 4.9"/></symbol>
+  <symbol id="i-me" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1-4.2 4.2-6.5 8-6.5s7 2.3 8 6.5"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 21h4"/></symbol>
+  <symbol id="i-archive" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v10h14V9"/><path d="M10 13h4"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></symbol>
+  <symbol id="i-user-plus" viewBox="0 0 24 24"><circle cx="10" cy="8" r="3.5"/><path d="M3 20c.8-3.6 3.6-5.5 7-5.5 1.4 0 2.6.3 3.7.9"/><path d="M18 14v6M15 17h6"/></symbol>
+  <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3.5 6.5 12 13l8.5-6.5"/></symbol>
+  <symbol id="i-trophy" viewBox="0 0 24 24"><path d="M8 4h8v5a4 4 0 0 1-8 0z"/><path d="M8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4"/><path d="M12 13v4M8 21h8M9 17h6"/></symbol>
+  <symbol id="i-rankings" viewBox="0 0 24 24"><path d="M5 20V12M12 20V5M19 20v-5"/></symbol>
+  <symbol id="i-trainer" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="1"/></symbol>
+  <symbol id="i-chips" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><path d="M12 3.5v3M12 17.5v3M3.5 12h3M17.5 12h3"/></symbol>
+  <symbol id="i-public" viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></symbol>
+  <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
+  <symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-handshake" viewBox="0 0 24 24"><path d="M3 11l4-4 4 2 3-2 7 5"/><path d="M7 13l3 3a1.5 1.5 0 0 0 2-2l-1-1"/><path d="M12 15l1.5 1.5a1.5 1.5 0 0 0 2-2"/><path d="M15 13.5l.5.5a1.5 1.5 0 0 0 2-2l-3-3"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></symbol>
+</svg>
 <div id="root">
 
   <!-- ─── SPLASH / AUTH ─────────────────────────────────────────────────── -->
   <div class="screen active screen-full" id="screen-splash">
-    <div style="text-align:center; margin-bottom: 0;">
-      <div class="splash-hero-cards">
+    <div class="splash-hero">
+      <div class="splash-hero-cards" aria-hidden="true">
         <div class="splash-card red">A<span class="c-suit">♥</span></div>
         <div class="splash-card black">K<span class="c-suit">♠</span></div>
       </div>
-      <div class="splash-logo">FELT RIGHT</div>
-      <div class="splash-sub">Texas Hold'em</div>
-      <div class="splash-rule"></div>
+      <h1 class="splash-logo">Felt<br>Right</h1>
+      <p class="splash-sub">Poker night with your friends, on your phone.</p>
     </div>
     <!-- PLAY NOW: no account needed (45-guest.js) -->
     <div class="splash-form" id="splash-play" style="display:none">
-      <div id="guest-invite-note" style="display:none;text-align:center;font-size:0.85rem;color:var(--gold);margin-bottom:10px">
-        You're invited to a game
+      <div id="guest-invite-note" class="splash-invite" style="display:none">
+        <div class="splash-invite-icon"><svg class="ic" aria-hidden="true"><use href="#i-mail"></use></svg></div>
+        <div>You're invited to a game. Pick a name and you're in.</div>
       </div>
       <div class="input-group">
         <label class="input-label" for="guest-name">Your name at the table</label>
@@ -60,17 +87,16 @@
       <div class="input-label" style="margin-top:4px">Pick an avatar</div>
       <div id="guest-avatars" class="guest-avatars" role="radiogroup" aria-label="Avatar"></div>
       <button class="btn btn-primary btn-full" id="guest-play-btn" onclick="playAsGuest()" style="margin-top:14px">Play now</button>
-      <div style="margin-top:8px;font-size:0.72rem;color:var(--text-dim);text-align:center;line-height:1.4">
+      <button class="btn btn-outline btn-full splash-signin-btn" onclick="showAccountPanel('login')">
+        <svg class="ic" aria-hidden="true"><use href="#i-mail"></use></svg>Sign in or create an account</button>
+      <div class="splash-fine">
         No account needed. Play chips only. Results aren't saved until you create an account.
-      </div>
-      <div style="text-align:center;margin-top:16px;font-size:0.85rem;color:var(--text-dim)">
-        Have an account? <span style="color:var(--gold);cursor:pointer" onclick="showAccountPanel('login')">Sign in</span>
-        · <span style="color:var(--gold);cursor:pointer" onclick="showAccountPanel('signup')">Create one</span>
       </div>
     </div>
     <div class="splash-form" id="splash-account">
-      <div id="splash-account-invite" style="display:none;text-align:center;font-size:0.85rem;color:var(--gold);margin-bottom:10px">
-        You're invited to a game. Sign in or create an account to join.
+      <div id="splash-account-invite" class="splash-invite" style="display:none">
+        <div class="splash-invite-icon"><svg class="ic" aria-hidden="true"><use href="#i-mail"></use></svg></div>
+        <div>You're invited to a game. Sign in or create an account to join.</div>
       </div>
       <!-- SIGN IN WITH AN EMAILED CODE (46-account.js; behind the email_code_login switch) -->
       <div id="account-code" style="display:none">
@@ -173,11 +199,10 @@
       </div>
       </div>
       <div id="splash-back-to-guest" style="display:none;text-align:center;margin-top:16px;font-size:0.85rem">
-        <span style="color:var(--gold);cursor:pointer" onclick="showGuestPanel()">← Play without an account</span>
+        <button class="link-btn" onclick="showGuestPanel()"><svg class="ic" aria-hidden="true"><use href="#i-chevron-left"></use></svg>Play without an account</button>
       </div>
       <div style="text-align:center;margin-top:12px">
-        <span onclick="refreshApp()" style="color:var(--text-dim);font-size:0.78rem;
-          cursor:pointer;text-decoration:underline">↻ Refresh app</span>
+        <button class="link-btn dim" onclick="refreshApp()"><svg class="ic" aria-hidden="true"><use href="#i-refresh"></use></svg>Refresh app</button>
       </div>
     </div>
   </div>
@@ -186,32 +211,30 @@
   <div class="screen" id="screen-home">
     <div class="home-header">
       <div>
-        <div class="home-greeting" id="home-greeting">FELT RIGHT</div>
+        <div class="home-greeting" id="home-greeting">Felt Right</div>
         <div class="home-sub" id="home-sub">Your games</div>
       </div>
-      <div style="display:flex;align-items:center;gap:10px">
-        <button onclick="refreshCurrentScreen()" title="Refresh" aria-label="Refresh"
-          style="background:none;border:1px solid var(--gold-dim);color:var(--gold);
-            width:38px;height:38px;border-radius:50%;cursor:pointer;font-size:1rem;
-            display:flex;align-items:center;justify-content:center">↻</button>
+      <div style="display:flex;align-items:center;gap:8px">
+        <button class="icon-btn" onclick="refreshCurrentScreen()" title="Refresh" aria-label="Refresh"><svg class="ic" aria-hidden="true"><use href="#i-refresh"></use></svg></button>
         <div class="avatar lg" id="home-avatar" onclick="navTo('profile')" style="cursor:pointer">?</div>
       </div>
     </div>
     <!-- Admin toolbar -->
     <div id="admin-bar" style="display:none;padding:0 16px 8px;display:flex;gap:8px;flex-wrap:wrap">
-      <button class="btn btn-surface btn-sm" onclick="archiveMyGames()" style="font-size:0.75rem">📦 Archive Finished</button>
-      <button id="admin-kill-btn" class="btn btn-surface btn-sm" onclick="killStuckGames()" style="font-size:0.75rem;color:var(--red-light);display:none">⏹ End My Stuck Games</button>
+      <button class="btn btn-surface btn-sm" onclick="archiveMyGames()" style="font-size:0.75rem"><svg class="ic" aria-hidden="true"><use href="#i-archive"></use></svg> Archive finished</button>
+      <button id="admin-kill-btn" class="btn btn-surface btn-sm" onclick="killStuckGames()" style="font-size:0.75rem;color:var(--red-light);display:none"><svg class="ic" aria-hidden="true"><use href="#i-stop"></use></svg> End my stuck games</button>
     </div>
-    <div class="section-head" style="display:flex;align-items:center;justify-content:space-between;padding-right:16px">
-      <span>Games</span>
-      <button onclick="toggleAdminBar()" style="background:none;border:none;color:var(--text-dim);font-size:0.72rem;cursor:pointer;letter-spacing:0.06em">⚙ Manage</button>
+    <div class="home-manage">
+      <button class="link-btn dim" onclick="toggleAdminBar()"><svg class="ic" aria-hidden="true"><use href="#i-settings"></use></svg>Manage</button>
     </div>
     <div id="games-list">
       <div style="padding: 40px 20px; text-align:center; color:var(--text-dim); font-size:0.9rem; font-style:italic;">
-        No games yet.<br>Tap + to start one.
+        No games yet.<br>Tap New game to start one.
       </div>
     </div>
-    <button class="fab" onclick="openCreateGame()">+</button>
+    <div class="new-game-bar">
+      <button class="fab" onclick="openCreateGame()" aria-label="New game"><svg class="ic" aria-hidden="true"><use href="#i-plus"></use></svg>New game</button>
+    </div>
   </div>
 
   <!-- ─── FRIENDS ───────────────────────────────────────────────────────── -->
@@ -219,7 +242,7 @@
     <div class="friends-header">
       <h2 style="margin-bottom:12px">Friends</h2>
       <div class="search-bar">
-        <span class="search-icon">🔍</span>
+        <span class="search-icon"><svg class="ic" aria-hidden="true"><use href="#i-search"></use></svg></span>
         <input id="friend-search" type="text" placeholder="Search by name or phone…" oninput="searchFriends(this.value)">
       </div>
     </div>
@@ -249,7 +272,7 @@
     <div class="section-head" style="display:flex;align-items:center;justify-content:space-between">
       <span>Standings</span>
       <button onclick="refreshCurrentScreen()" style="background:none;border:none;color:var(--gold);
-        font-size:0.7rem;cursor:pointer;padding:2px 6px">↻ Refresh</button>
+        font-size:0.7rem;cursor:pointer;padding:2px 6px;display:inline-flex;align-items:center;gap:4px"><svg class="ic" aria-hidden="true" style="width:14px;height:14px"><use href="#i-refresh"></use></svg>Refresh</button>
     </div>
     <div class="ledger-disclaimer" style="margin:0 16px 10px;font-size:0.72rem;color:var(--text-dim);
       padding:8px 10px;background:var(--surface2);border-radius:6px;line-height:1.45">
@@ -265,7 +288,7 @@
     <div style="padding: 16px;">
       <div style="background:var(--surface); border-radius:var(--r); padding:14px 16px; border:1px solid var(--border);">
         <div style="font-size:0.78rem; color:var(--text-dim); margin-bottom:10px; text-transform:uppercase; letter-spacing:0.1em;">Invite a friend to Felt Right</div>
-        <button class="btn btn-ghost btn-full btn-sm" onclick="copyInviteLink()">📋 Copy Invite Link</button>
+        <button class="btn btn-ghost btn-full btn-sm" onclick="copyInviteLink()"><svg class="ic" aria-hidden="true"><use href="#i-link"></use></svg> Copy invite link</button>
       </div>
     </div>
   </div>
@@ -273,13 +296,9 @@
   <!-- ─── GAME LOBBY ─────────────────────────────────────────────────────── -->
   <div class="screen screen-full" id="screen-lobby">
     <div class="lobby-header" style="position:relative">
-      <button onclick="refreshCurrentScreen()" title="Refresh" aria-label="Refresh the lobby" style="position:absolute;top:12px;left:12px;
-        background:none;border:1px solid var(--gold-dim);color:var(--gold);
-        font-size:0.9rem;padding:5px 10px;border-radius:6px;cursor:pointer;line-height:1">↻</button>
-      <button id="lobby-chat-btn" onclick="toggleChatPanel()" style="position:absolute;top:12px;right:12px;
-        background:none;border:1px solid var(--gold-dim);color:var(--gold);
-        font-size:0.9rem;padding:5px 10px;border-radius:6px;cursor:pointer;line-height:1">
-        💬
+      <button class="icon-btn lobby-corner left" onclick="refreshCurrentScreen()" title="Refresh" aria-label="Refresh the lobby"><svg class="ic" aria-hidden="true"><use href="#i-refresh"></use></svg></button>
+      <button id="lobby-chat-btn" class="icon-btn lobby-corner right" onclick="toggleChatPanel()" title="Chat" aria-label="Chat">
+        <svg class="ic" aria-hidden="true"><use href="#i-chat"></use></svg>
         <span id="lobby-chat-unread-badge" style="display:none;position:absolute;top:-6px;right:-6px;
           background:var(--red);color:#fff;border-radius:10px;font-size:0.6rem;
           min-width:16px;height:16px;padding:0 4px;font-weight:700;
@@ -288,7 +307,7 @@
       <div class="lobby-title" id="lobby-game-name">GAME NAME</div>
       <div id="lobby-variant-badge" style="font-family:'Bebas Neue',sans-serif;font-size:0.78rem;
         letter-spacing:0.18em;color:var(--gold-pale);text-align:center;margin-top:-4px;
-        margin-bottom:8px;opacity:0.7">HOLDEM</div>
+        margin-bottom:8px;opacity:0.8">HOLDEM</div>
       <div class="lobby-code" id="lobby-game-id">Game ID: —</div>
       <div style="margin-top:8px; display:flex; gap:8px; justify-content:center; flex-wrap:wrap;" id="lobby-badges">
         <span class="badge badge-gold">Sit & Go</span>
@@ -305,7 +324,7 @@
         <div style="color:var(--text-dim);font-size:0.72rem">When the game starts and when it's your turn</div>
       </div>
       <button class="btn btn-primary btn-sm" onclick="onPushLobbyTurnOn()">Turn on</button>
-      <button onclick="dismissPushLobbyCard()" aria-label="Not now" style="background:none;border:none;color:var(--text-dim);font-size:1rem;cursor:pointer;padding:4px">✕</button>
+      <button onclick="dismissPushLobbyCard()" aria-label="Not now" style="background:none;border:none;color:var(--text-dim);cursor:pointer;padding:8px;display:flex"><svg class="ic" aria-hidden="true"><use href="#i-close"></use></svg></button>
     </div>
 
     <!-- Leave button — uses native link for bulletproof navigation -->
@@ -320,18 +339,17 @@
       </a>
     </div>
 
-    <div style="padding:16px 16px 8px; display:flex; align-items:center; justify-content:space-between;">
-      <div style="font-size:0.78rem; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.1em;">Players</div>
-      <div id="lobby-player-count" style="font-size:0.85rem; color:var(--text-dim);">0 joined</div>
+    <div class="lobby-table-wrap">
+      <div class="lobby-table" id="lobby-seats"></div>
+      <div class="lobby-table-count" id="lobby-player-count">0 joined</div>
     </div>
-    <div class="seat-grid" id="lobby-seats"></div>
 
     <div style="padding:0 16px 8px">
-      <div style="font-size:0.78rem; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.1em; margin-bottom:10px;">Invite Friends</div>
+      <div class="lobby-section-title">Invite friends</div>
       <div id="lobby-friend-invite-list"></div>
       <div class="invite-link-box" style="margin-top:10px">
         <div class="invite-link-text" id="lobby-invite-url">felt.app/join/———</div>
-        <button class="btn btn-ghost btn-sm" onclick="copyLobbyLink()">Copy</button>
+        <button class="btn btn-ghost btn-sm" onclick="copyLobbyLink()" style="display:inline-flex;align-items:center;gap:6px"><svg class="ic" aria-hidden="true" style="width:16px;height:16px"><use href="#i-link"></use></svg>Copy</button>
       </div>
     </div>
 
@@ -636,18 +654,18 @@
 
   <!-- ─── BOTTOM NAV ─────────────────────────────────────────────────────── -->
   <nav id="nav">
-    <div class="nav-item active" onclick="navTo('home')">
-      <div class="nav-icon">🏠</div>
-      <div class="nav-label">Home</div>
-    </div>
-    <div class="nav-item" onclick="navTo('friends')">
-      <div class="nav-icon">👥</div>
-      <div class="nav-label">Friends</div>
-    </div>
-    <div class="nav-item" onclick="navTo('profile')">
-      <div class="nav-icon" id="nav-profile-icon">🃏</div>
-      <div class="nav-label">Profile</div>
-    </div>
+    <button class="nav-item active" onclick="navTo('home')">
+      <svg class="ic nav-icon" aria-hidden="true"><use href="#i-home"></use></svg>
+      <span class="nav-label">Home</span>
+    </button>
+    <button class="nav-item" onclick="navTo('friends')">
+      <svg class="ic nav-icon" aria-hidden="true"><use href="#i-friends"></use></svg>
+      <span class="nav-label">Friends</span>
+    </button>
+    <button class="nav-item" onclick="navTo('profile')">
+      <svg class="ic nav-icon" aria-hidden="true"><use href="#i-me"></use></svg>
+      <span class="nav-label">Me</span>
+    </button>
   </nav>
 </div>
 
