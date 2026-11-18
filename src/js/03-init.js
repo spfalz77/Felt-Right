@@ -4,6 +4,7 @@
 async function init() {
   try {
     sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    startFeatures();
   } catch(e) {
     console.warn('Supabase not configured', e);
     toast('Can’t reach Felt Right. Check your connection and reload.');

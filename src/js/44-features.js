@@ -80,5 +80,6 @@ function renderPublicGamesCard() {
   }
 }
 
-// On every open (signed in or not): count this install, read the switches
-registerInstall().then(loadFeatures);
+// On every open (signed in or not), once the database client exists (init()):
+// count this install, read the switches
+function startFeatures() { registerInstall().then(loadFeatures); }
