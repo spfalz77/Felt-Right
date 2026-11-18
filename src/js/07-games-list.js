@@ -93,8 +93,8 @@ function renderGamesList() {
 
   if (!myGames.length) {
     el.innerHTML = isGuest() && !guestCanHost()
-      ? `<div style="padding:40px 20px;text-align:center;color:var(--text-dim);font-size:0.9rem;line-height:1.5">No games yet.<br>Open an invite link from a friend to join their table.</div>`
-      : `<div style="padding:40px 20px;text-align:center;color:var(--text-dim);font-size:0.9rem;font-style:italic;">No games yet.<br>Tap + to create one.</div>`;
+      ? `<div class="games-empty">No games yet.<br>Open an invite link from a friend to join their table.</div>`
+      : `<div class="games-empty">No games yet.<br>Tap New game to start one.</div>`;
     return;
   }
 
@@ -105,96 +105,88 @@ function renderGamesList() {
   const friendActive  = myGames.filter(g => g.my_status === 'friend_playing');
   const finished      = myGames.filter(g => g.status === 'finished');
 
+  // The game that most needs you goes on top as a felt tile: your turn first,
+  // then any game in play, then an invite.
+  const spotlight = active.find(g => isMyTurnIn(g)) || active[0] || invites[0] || null;
+  const rest = (list) => list.filter(g => g !== spotlight);
+
   let html = '';
+  if (spotlight) html += gameCard(spotlight, spotlight.status === 'active' ? 'active' : 'invite', true);
 
-  if (invites.length) {
-    html += `<div class="section-head" style="color:var(--gold)">📨 Invited — Waiting to Start</div>`;
-    html += invites.map(g => gameCard(g, 'invite')).join('');
-  }
-
-  if (active.length) {
-    html += `<div class="section-head">Active</div>`;
-    html += active.map(g => gameCard(g, 'active')).join('');
-  }
-
-  if (myLobbies.length) {
-    html += `<div class="section-head">Your Lobbies</div>`;
-    html += myLobbies.map(g => gameCard(g, 'lobby')).join('');
-  }
-
-  if (friendLobbies.length) {
-    html += `<div class="section-head">Friends' Open Lobbies</div>`;
-    html += friendLobbies.map(g => gameCard(g, 'friend_lobby')).join('');
-  }
-
-  if (friendActive.length) {
-    html += `<div class="section-head">Friends Playing</div>`;
-    html += friendActive.map(g => gameCard(g, 'friend')).join('');
-  }
-
-  if (finished.length) {
-    html += `<div class="section-head">Recent</div>`;
-    html += finished.map(g => gameCard(g, 'finished')).join('');
-  }
+  const section = (title, list, type) => {
+    const items = rest(list);
+    if (!items.length) return;
+    html += `<div class="games-section-title">${title}</div><div class="games-rows">${items.map(g => gameCard(g, type)).join('')}</div>`;
+  };
+  section('Invited', invites, 'invite');
+  section('In play', active, 'active');
+  section('Your lobbies', myLobbies, 'lobby');
+  section('Friends’ open lobbies', friendLobbies, 'friend_lobby');
+  section('Friends playing', friendActive, 'friend');
+  section('Recent', finished, 'finished');
 
   el.innerHTML = html;
 }
 
-function gameCard(g, type) {
-  let badgeClass = type==='active' ? 'badge-green' : type==='invite' ? 'badge-gold' : type==='lobby' ? 'badge-gold' : type==='friend' ? 'badge-green' : type==='friend_lobby' ? 'badge-gold' : 'badge-dim';
-  let badgeText  = type==='active' ? 'ACTIVE' : type==='invite' ? 'INVITED' : type==='lobby' ? 'LOBBY' : type==='friend' ? 'ACTIVE' : type==='friend_lobby' ? 'OPEN' : 'DONE';
-  let btnClass   = type==='active' ? 'btn-primary' : type==='invite' ? 'btn-primary' : type==='friend_lobby' ? 'btn-primary' : type==='friend' ? 'btn-ghost' : 'btn-ghost';
-  let btnText    = type==='active' ? 'Rejoin' : type==='invite' ? 'Join' : type==='friend' ? 'Spectate' : type==='friend_lobby' ? 'Join' : type==='lobby' ? 'Open' : 'View';
-  const subLine    = (type==='friend' || type==='friend_lobby') ? `<div style="font-size:0.7rem;color:var(--text-dim)">${g.friend_name}'s game</div>` : '';
+function isMyTurnIn(g) {
+  const st = g?.state;
+  if (!st?.players || st.paused || st.tournamentOver || st.stage === 'finished' || st.stage === 'showdown') return false;
+  const p = st.players[st.actionIndex];
+  return !!p && p.id === me?.id && !p.folded;
+}
 
-  // Find my chips in this game from the state if available
-  let myChipsHtml = '';
-  let isAway = false;
+function gameCard(g, type, featured) {
+  let btnText = type==='active' ? 'Rejoin' : type==='invite' ? 'Join' : type==='friend' ? 'Spectate' : type==='friend_lobby' ? 'Join' : type==='lobby' ? 'Open' : 'View';
+  let btnClass = (type==='active' || type==='invite' || type==='friend_lobby') ? 'btn-primary' : 'btn-ghost';
+  let dot = type==='finished' ? 'done' : (type==='active' || type==='friend') ? 'live' : 'wait';
+  let status = type==='invite' ? `Invited ${timeAgo(g.created_at)}`
+    : type==='lobby' ? 'Your lobby, waiting to start'
+    : type==='friend_lobby' ? `${g.friend_name}'s lobby is open`
+    : type==='friend' ? `${g.friend_name} is playing`
+    : type==='finished' ? 'Finished'
+    : `Hand ${g.hand_number || 0}`;
+
+  let chipsLine = '';
+  let pill = '';
   if (type === 'active' && g.state?.players) {
-    const me_in_game = g.state.players.find(p => p.id === me.id);
-    if (me_in_game) {
-      const eliminated = me_in_game.eliminated;
-      isAway = me_in_game.awayFromTable && !eliminated;
-      myChipsHtml = eliminated
-        ? `<div class="game-card-stat"><div class="val" style="color:var(--red-light)">Out</div><div class="lbl">Status</div></div>`
-        : `<div class="game-card-stat"><div class="val">${me_in_game.chips.toLocaleString()}</div><div class="lbl">My Chips</div></div>`;
+    const mine = g.state.players.find(p => p.id === me.id);
+    if (mine) {
+      if (mine.eliminated) chipsLine = `<span class="game-card-out">Out</span>`;
+      else chipsLine = `<span class="game-card-chips">${(mine.chips || 0).toLocaleString()} chips</span>`;
+      if (mine.awayFromTable && !mine.eliminated) {
+        btnText = 'Sit Back Down'; btnClass = 'btn-primary'; pill = 'Away'; dot = 'wait';
+      }
     }
+    if (!pill && isMyTurnIn(g)) { pill = 'Your turn'; dot = 'turn'; }
   }
-  // Override the badge and button for "away" state — the user explicitly left
-  // the table and needs to tap Sit Back Down to rejoin active play.
-  if (isAway) {
-    badgeClass = 'badge-gold';
-    badgeText = 'AWAY';
-    btnText = '🪑 Sit Back Down';
-    btnClass = 'btn-primary';
-  }
+  if (type === 'invite') pill = pill || 'Invited';
 
-  const timeStamp = type === 'invite'
-    ? `<div style="font-size:0.7rem;color:var(--text-dim);margin-top:2px">${timeAgo(g.created_at)}</div>`
-    : '';
+  const players = `${g.player_count || 0} ${g.player_count === 1 ? 'player' : 'players'}`;
+  const name = escapeHtml(g.name || 'Game');
 
-  const handInfo = type === 'active'
-    ? `<div class="game-card-stat"><div class="val">#${g.hand_number||0}</div><div class="lbl">Hand</div></div>`
-    : '';
-
-  return `
-    <div class="game-card" onclick="openLobby('${g.id}')">
-      <div class="game-card-header">
-        <div>
-          <div class="game-card-name">${g.name}</div>
-          ${subLine}
-          ${timeStamp}
-        </div>
-        <span class="badge ${badgeClass}">${badgeText}</span>
+  if (featured) {
+    return `
+    <div class="game-card featured" onclick="openLobby('${g.id}')">
+      <div class="game-card-top">
+        ${pill ? `<span class="game-card-pill">${pill}</span>` : '<span></span>'}
+        <span class="game-card-status">${status}</span>
       </div>
-      <div class="game-card-body">
-        <div class="game-card-meta">
-          <div class="game-card-stat"><div class="val">${g.player_count||'—'}</div><div class="lbl">Players</div></div>
-          ${handInfo}
-          ${myChipsHtml}
-        </div>
+      <div class="game-card-name">${name}</div>
+      <div class="game-card-sub">${players}</div>
+      <div class="game-card-bottom">
+        ${chipsLine || '<span></span>'}
         <button class="btn ${btnClass} btn-sm">${btnText}</button>
       </div>
+    </div>`;
+  }
+  return `
+    <div class="game-card row" onclick="openLobby('${g.id}')">
+      <span class="game-dot ${dot}" aria-hidden="true"></span>
+      <div class="game-card-main">
+        <div class="game-card-name">${name}${pill ? ` <span class="game-card-pill sm">${pill}</span>` : ''}</div>
+        <div class="game-card-sub">${status}, ${players}${chipsLine ? ', ' : ''}${chipsLine}</div>
+      </div>
+      <button class="btn ${btnClass} btn-sm">${btnText}</button>
     </div>`;
 }
 

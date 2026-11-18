@@ -146,7 +146,7 @@ function showHomeGameEnd() {
     <button id="record-ledger-btn" onclick="onRecordHomeGameLedger()" style="background:none;
       border:1px solid var(--gold-dim);color:var(--gold);
       font-size:0.85rem;padding:10px 18px;border-radius:8px;cursor:pointer;margin-top:10px;font-weight:600">
-      📒 Record to Standings
+      Record to Standings
     </button>` : (alreadyRecorded ? `
     <div style="font-size:0.78rem;color:var(--gold-pale);margin-top:8px;font-style:italic">
       ✓ Recorded to Standings
@@ -154,27 +154,54 @@ function showHomeGameEnd() {
 
   overlay.innerHTML = `
     <div class="tourney-result">
-      <div class="trophy">🪙</div>
-      <div class="tourney-title">Game Over</div>
-      <div class="tourney-sub" style="margin-bottom:14px">Home Game · Final standings</div>
+      <div class="trophy">${icon('trophy')}</div>
+      <div class="tourney-title">${cashOuts[0] ? (cashOuts[0].id === me.id ? 'You win' : `${escapeHtml(cashOuts[0].name)} wins`) : 'Game over'}</div>
+      <div class="tourney-sub">Home game, final chip counts</div>
       <div class="final-places">
         ${cashOuts.map((p, i) => {
           const net = p.netCents;
-          const netStr = chipNet(net);
-          const color = net > 0 ? 'var(--gold)' : net < 0 ? 'var(--red-light)' : 'var(--text-dim)';
-          return `<div class="place-row">
-            <div class="place-medal">${i+1}.</div>
-            <div class="place-name">${p.emoji} ${p.name}</div>
-            <div style="font-family:'Bebas Neue',sans-serif;color:${color};font-size:1.1rem;margin-left:auto">
-              ${netStr}
-            </div>
-          </div>`;
+          const cls = net > 0 ? 'up' : net < 0 ? 'down' : 'even';
+          return resultRow(p, i, `<div class="place-net ${cls}">${chipNet(net)}</div>`);
         }).join('')}
       </div>
       ${ledgerBtnHtml}
-      <button class="btn btn-primary" onclick="goHome()" style="margin-top:14px">Back to Home</button>
+      <button class="btn btn-primary btn-full" onclick="goHome()" style="margin-top:18px">Back to Home</button>
     </div>`;
   noteGuestResults(overlay.querySelector('.tourney-result'), (G?.players || []).map((p) => p.id));
+  showAddFriendButtons(overlay);
+}
+
+// One finishing place: rank, avatar, name and (for players you aren't friends
+// with yet) an Add friend button, shown once we know they aren't a guest.
+function resultRow(p, i, valueHtml) {
+  const id = p.id || (G?.players || []).find(q => q.name === p.name)?.id;
+  const isMe = id && id === me?.id;
+  const canAdd = id && !isMe && !isGuest() && me?.id !== 'demo'
+    && !(myFriends || []).some(f => f.id === id) && !(myPendingSent || []).includes(id);
+  return `<div class="place-row${isMe ? ' me' : ''}">
+    <div class="place-medal">${i + 1}</div>
+    <div class="avatar sm">${p.emoji || (p.name || '?')[0]}</div>
+    <div class="place-name">${escapeHtml(p.name || 'Player')}${isMe ? '<span class="place-you">you</span>' : ''}</div>
+    ${valueHtml || ''}
+    ${canAdd ? `<button class="btn btn-ghost btn-sm place-add" data-friend-id="${id}" data-friend-name="${escapeHtml(p.name || '')}" hidden
+      onclick="addFriendFromResults(this)">${icon('user-plus')}Add friend</button>` : ''}
+  </div>`;
+}
+
+async function showAddFriendButtons(container) {
+  const btns = [...container.querySelectorAll('.place-add')];
+  if (!btns.length || !sb) return;
+  try {
+    const { data } = await sb.from('users').select('id, is_guest').in('id', btns.map(b => b.dataset.friendId));
+    const ok = new Set((data || []).filter(u => !u.is_guest).map(u => u.id));
+    btns.forEach(b => { if (ok.has(b.dataset.friendId)) b.hidden = false; else b.remove(); });
+  } catch (e) { btns.forEach(b => b.remove()); }
+}
+
+async function addFriendFromResults(btn) {
+  btn.disabled = true;
+  await addFriend(btn.dataset.friendId, btn.dataset.friendName);
+  btn.outerHTML = '<span class="place-sent">Request sent</span>';
 }
 
 // Records the home game to the friends ledger for every player (both sides),
@@ -185,7 +212,7 @@ async function onRecordHomeGameLedger() {
   const res = await settleHomeGameLedger(currentGameId);
   if (!res || res.error) {
     toast('Could not record to Standings');
-    if (btn) { btn.disabled = false; btn.textContent = '📒 Record to Standings'; }
+    if (btn) { btn.disabled = false; btn.textContent = 'Record to Standings'; }
     return;
   }
   sessionStorage.setItem(`fr_ledger_recorded_${currentGameId}`, '1');
@@ -410,52 +437,42 @@ function showTournamentOverlay(winner) {
   if (isChop) {
     overlay.innerHTML = `
       <div class="tourney-result">
-        <div class="trophy">🤝</div>
-        <div class="tourney-title">Chop!</div>
-        <div class="tourney-sub" style="margin-bottom:14px">Game ended by agreement</div>
+        <div class="trophy">${icon('handshake')}</div>
+        <div class="tourney-title">Chop</div>
+        <div class="tourney-sub">Game ended by agreement</div>
         ${gameBuyIn > 0 ? `<div style="font-size:0.78rem;color:var(--gold-pale);text-align:center;margin-bottom:14px;
           padding:8px 14px;background:rgba(212,168,67,0.08);border:1px solid var(--gold-dim);border-radius:8px">
           ${chipAmt((actualPool ?? gameBuyIn * totalPlayers) * 100)} prize pool · split equally
         </div>` : ''}
         <div class="final-places">
-          ${G.finalPlacements.map((p,i) => `
-            <div class="place-row">
-              <div class="place-medal">${['🥇','🥈','🥉'][i]||`${i+1}.`}</div>
-              <div class="place-name">${p.emoji} ${p.name}</div>
-              ${payoutByPlace[i+1] ? `<div style="font-family:'Bebas Neue',sans-serif;color:var(--gold);font-size:1.1rem;margin-left:auto">
-                ${chipAmt(payoutByPlace[i+1] * 100)}
-              </div>` : ''}
-            </div>`).join('')}
+          ${G.finalPlacements.map((p,i) => resultRow(p, i,
+            payoutByPlace[i+1] ? `<div class="place-net up">${chipAmt(payoutByPlace[i+1] * 100)}</div>` : '')).join('')}
         </div>
         ${ledgerBtnHtml}
-        <button class="btn btn-primary" onclick="goHome()" style="margin-top:14px">Back to Home</button>
+        <button class="btn btn-primary btn-full" onclick="goHome()" style="margin-top:18px">Back to Home</button>
       </div>`;
+    showAddFriendButtons(overlay);
     return;
   }
 
   overlay.innerHTML = `
     <div class="tourney-result">
-      <div class="trophy">${iWon ? '🏆' : '🃏'}</div>
-      <div class="tourney-title">${iWon ? 'You Won!' : winner?.name + ' Wins!'}</div>
-      <div class="tourney-sub" style="margin-bottom:14px">Tournament Complete</div>
+      <div class="trophy">${icon('trophy')}</div>
+      <div class="tourney-title">${iWon ? 'You win' : escapeHtml(winner?.name || 'Winner') + ' wins'}</div>
+      <div class="tourney-sub">Tournament complete</div>
       ${gameBuyIn > 0 ? `<div style="font-size:0.78rem;color:var(--gold-pale);text-align:center;margin-bottom:14px;
         padding:8px 14px;background:rgba(212,168,67,0.08);border:1px solid var(--gold-dim);border-radius:8px">
         ${chipAmt((actualPool ?? gameBuyIn * totalPlayers) * 100)} prize pool · ${totalPlayers} buy-ins of ${chipAmt(gameBuyIn * 100)}
       </div>` : ''}
       <div class="final-places">
-        ${G.finalPlacements.map((p,i) => `
-          <div class="place-row">
-            <div class="place-medal">${['🥇','🥈','🥉'][i]||`${i+1}.`}</div>
-            <div class="place-name">${p.emoji} ${p.name}</div>
-            ${payoutByPlace[i+1] ? `<div style="font-family:'Bebas Neue',sans-serif;color:var(--gold);font-size:1.1rem;margin-left:auto">
-              ${chipAmt(payoutByPlace[i+1] * 100)}
-            </div>` : ''}
-          </div>`).join('')}
+        ${G.finalPlacements.map((p,i) => resultRow(p, i,
+          payoutByPlace[i+1] ? `<div class="place-net up">${chipAmt(payoutByPlace[i+1] * 100)}</div>` : '')).join('')}
       </div>
       ${ledgerBtnHtml}
-      <button class="btn btn-primary" onclick="goHome()" style="margin-top:14px">Back to Home</button>
+      <button class="btn btn-primary btn-full" onclick="goHome()" style="margin-top:18px">Back to Home</button>
     </div>`;
   noteGuestResults(overlay.querySelector('.tourney-result'), (G?.players || []).map((p) => p.id));
+  showAddFriendButtons(overlay);
 }
 
 function goHome() {
