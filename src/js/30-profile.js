@@ -201,13 +201,18 @@ async function saveProfile() {
   }
 
   try {
-    const { error } = await sb.from('users')
-      .update({ display_name: name, avatar_emoji: emoji, phone: phone || null })
-      .eq('id', me.id);
+    // A verified player's name is theirs alone: it changes through set_player_name
+    let finalName = name;
+    const verifiedName = me.name_set && !isGuest();
+    if (verifiedName && name !== me.display_name) finalName = await saveVerifiedName(name);
+    const fields = verifiedName ? { avatar_emoji: emoji, phone: phone || null }
+      : { display_name: name, avatar_emoji: emoji, phone: phone || null };
+    const { error } = await sb.from('users').update(fields).eq('id', me.id);
     if (error) throw error;
-    me.display_name = name; me.phone = phone;
-    document.getElementById('home-greeting').textContent = `Hey, ${name.split(' ')[0]}`;
-    document.getElementById('my-name').textContent = name;
+    const name2 = finalName;
+    me.display_name = name2; me.phone = phone;
+    document.getElementById('home-greeting').textContent = `Hey, ${name2.split(' ')[0]}`;
+    document.getElementById('my-name').textContent = name2;
     updateAvatarEverywhere(emoji);
     toast('Profile saved ✓');
   } catch(e) { toast('Save failed: ' + e.message); }

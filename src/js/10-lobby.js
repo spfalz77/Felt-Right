@@ -116,13 +116,6 @@ async function openLobby(gameId) {
   else document.getElementById('lobby-friend-invite-list').innerHTML =
     `<div style="color:var(--text-dim);font-size:0.85rem;padding:8px 0">Join the lobby to invite friends</div>`;
 
-  if (me.id === 'demo') {
-    lobbyPlayers = [{ user: me, seat_index: 0 }];
-    renderLobbySeats();
-    startDemoLobby();
-    return;
-  }
-
   // Host: nothing extra needed in lobby
   // Guests: watch in case host leaves so we can promote
   if (!isHost && me.id !== 'demo') startLobbyHostWatch(gameId);

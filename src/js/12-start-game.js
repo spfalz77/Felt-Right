@@ -8,13 +8,6 @@ function startGame() {
   // lobbyPlayers already contains only joined/playing/waiting (invited filtered out)
   let playerSource = lobbyPlayers;
 
-  if (me.id === 'demo' && lobbyPlayers.length < 2) {
-    playerSource = [
-      { user: me, seat_index: 0 },
-      ...DEMO_FRIENDS.slice(0, 3).map((f, i) => ({ user: f, seat_index: i+1 })),
-    ];
-  }
-
   // Build player array. Starting chips depends on format (tournament=1500 abstract chips,
   // home=2000 chips, matching the 2,000-chip buy-in)
   const startingChips = (FORMATS[gameFormat] || FORMATS.tournament).startingChips;

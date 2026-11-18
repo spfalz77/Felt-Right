@@ -42,7 +42,30 @@ enable_anonymous_sign_ins = true
 [auth.email]
 enable_signup = true
 enable_confirmations = false
+otp_length = 6
+otp_expiry = 3600
 
-# Test email inbox: not needed (email confirmation is off)
+# Sign-in codes: the emails carry the 6-digit code ({{ .Token }}). The same
+# templates are what the live project needs (Authentication → Email Templates).
+[auth.email.template.magic_link]
+subject = "Your Felt Right code"
+content_path = "./supabase/templates/code.html"
+
+[auth.email.template.confirmation]
+subject = "Your Felt Right code"
+content_path = "./supabase/templates/code.html"
+
+[auth.email.template.email_change]
+subject = "Your Felt Right code"
+content_path = "./supabase/templates/code.html"
+
+[auth.rate_limit]
+email_sent = 1000
+
+# Test email inbox (Mailpit), for the sign-in-by-code tests
 [local_smtp]
-enabled = false
+enabled = true
+port = 55324
+
+[functions.account]
+verify_jwt = true

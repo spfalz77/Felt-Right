@@ -803,6 +803,11 @@ body.is-guest #friends-guest-gate, body.is-guest #profile-guest-card { display: 
   color: var(--gold); border: 1px solid var(--gold-dim); background: rgba(212,168,67,0.08);
 }
 .guest-tag { font-size: 0.62rem; color: var(--text-dim); border: 1px solid var(--border); border-radius: 999px; padding: 1px 6px; margin-left: 4px; }
+
+/* Accounts (46-account.js) */
+.btn-danger-outline { background: none; color: var(--red-light); border: 1px solid var(--red-light); }
+.btn-danger-outline:hover { background: rgba(192,57,43,0.12); }
+.code-input { font-size: 1.4rem; letter-spacing: 0.4em; text-align: center; font-variant-numeric: tabular-nums; }
 </style>
 <script>
 // Capture console output from the very start, before any other script runs
@@ -888,6 +893,46 @@ window.__dbgLogs = [];
       <div id="splash-account-invite" style="display:none;text-align:center;font-size:0.85rem;color:var(--gold);margin-bottom:10px">
         You're invited to a game. Sign in or create an account to join.
       </div>
+      <!-- SIGN IN WITH AN EMAILED CODE (46-account.js; behind the email_code_login switch) -->
+      <div id="account-code" style="display:none">
+        <div id="code-step-email">
+          <div style="font-weight:600;font-size:1rem;margin-bottom:4px">Sign in or create an account</div>
+          <div style="font-size:0.78rem;color:var(--text-dim);margin-bottom:12px;line-height:1.4">We'll email you a 6-digit code. No password.</div>
+          <form onsubmit="event.preventDefault();sendSignInCode()">
+            <div class="input-group">
+              <label class="input-label" for="code-email">Email</label>
+              <input class="input" id="code-email" type="email" placeholder="you@example.com" autocomplete="email" name="email">
+            </div>
+            <button type="submit" class="btn btn-primary btn-full" id="code-send-btn">Email me a code</button>
+          </form>
+        </div>
+        <div id="code-step-code" style="display:none">
+          <div style="font-weight:600;font-size:1rem;margin-bottom:4px">Check your email</div>
+          <div style="font-size:0.78rem;color:var(--text-dim);margin-bottom:12px;line-height:1.4">
+            Enter the 6-digit code we sent to <span id="code-sent-to" style="color:var(--text)"></span>.</div>
+          <form onsubmit="event.preventDefault();verifySignInCode()">
+            <div class="input-group">
+              <label class="input-label" for="code-input">Code</label>
+              <input class="input code-input" id="code-input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6"
+                autocomplete="one-time-code" placeholder="123456">
+            </div>
+            <button type="submit" class="btn btn-primary btn-full" id="code-verify-btn">Sign in</button>
+          </form>
+          <div style="text-align:center;margin-top:12px;font-size:0.82rem">
+            <span style="color:var(--gold);cursor:pointer" onclick="sendSignInCode(true)">Send a new code</span>
+            · <span style="color:var(--gold);cursor:pointer" onclick="showCodeStep('email')">Use another email</span>
+          </div>
+        </div>
+        <div class="ledger-disclaimer" style="font-size:0.75rem;color:var(--text-dim);margin:14px 0 0;
+          padding:10px;background:var(--surface2);border-radius:6px;line-height:1.5">
+          <strong style="color:var(--gold)">Play chips only.</strong> Felt Right never handles real money.
+          The chip ledger is a personal scorecard for self-moderation: a way to see how you're
+          doing and how you match up against different play styles. It is not a record of debts
+          or a payment system.
+        </div>
+      </div>
+      <!-- SIGN IN WITH A PASSWORD (until the email_code_login switch is on) -->
+      <div id="account-password">
       <div class="splash-tabs">
         <div class="splash-tab active" onclick="switchTab('login')">Sign In</div>
         <div class="splash-tab" onclick="switchTab('signup')">Create Account</div>
@@ -947,6 +992,7 @@ window.__dbgLogs = [];
           <button type="submit" class="btn btn-primary btn-full" style="margin-top:8px">Create Account</button>
         </form>
       </div>
+      </div>
       <div id="splash-back-to-guest" style="display:none;text-align:center;margin-top:16px;font-size:0.85rem">
         <span style="color:var(--gold);cursor:pointer" onclick="showGuestPanel()">← Play without an account</span>
       </div>
@@ -971,10 +1017,6 @@ window.__dbgLogs = [];
             display:flex;align-items:center;justify-content:center">↻</button>
         <div class="avatar lg" id="home-avatar" onclick="navTo('profile')" style="cursor:pointer">?</div>
       </div>
-    </div>
-    <div id="demo-banner" style="display:none; margin: 0 16px 8px; background: rgba(212,168,67,0.1); border: 1px solid var(--gold-dim); border-radius: var(--r-sm); padding: 10px 14px; font-size: 0.8rem; color: var(--gold); align-items: center; gap: 10px;">
-      <span>🃏</span>
-      <span style="flex:1"><strong>Demo Mode</strong> — Friends joining the lobby are simulated. Tap + to create a game.</span>
     </div>
     <!-- Admin toolbar -->
     <div id="admin-bar" style="display:none;padding:0 16px 8px;display:flex;gap:8px;flex-wrap:wrap">
@@ -1006,7 +1048,7 @@ window.__dbgLogs = [];
       <div class="guest-gate-title">Friends and Standings need an account</div>
       <div class="guest-gate-text">As a guest you can join any game you're invited to, but friends, Standings and stats
         aren't kept. Create an account to keep them.</div>
-      <button class="btn btn-primary btn-full" onclick="leaveGuestForAccount()">Create an account</button>
+      <button class="btn btn-primary btn-full" onclick="startGuestVerify()">Create an account</button>
     </div>
     <div id="friend-requests-section" style="display:none">
       <div class="section-head">Requests</div>
@@ -1341,7 +1383,7 @@ window.__dbgLogs = [];
       <div class="guest-gate-title">You're playing as a guest</div>
       <div class="guest-gate-text">Your results show at the table but aren't saved. Create an account to keep your
         Standings and stats, add friends, and host games.</div>
-      <button class="btn btn-primary btn-full" onclick="leaveGuestForAccount()">Create an account</button>
+      <button class="btn btn-primary btn-full" onclick="startGuestVerify()">Create an account</button>
     </div>
 
     <!-- Fields -->
@@ -1359,6 +1401,13 @@ window.__dbgLogs = [];
         <input class="input" id="profile-phone" type="tel" placeholder="(555) 867-5309" oninput="formatPhone(this)">
       </div>
       <button class="btn btn-primary btn-full" onclick="saveProfile()">Save Changes</button>
+    </div>
+
+    <!-- Account: sign out / delete (46-account.js) -->
+    <div class="account-only" style="margin:0 16px 16px">
+      <button class="btn btn-full btn-danger-outline" onclick="deleteAccount()">Delete account</button>
+      <div style="font-size:0.7rem;color:var(--text-dim);margin-top:6px;text-align:center;line-height:1.4">
+        Removes your name, friends, stats and Standings for good. Games you played stay in other players' history as "Deleted player".</div>
     </div>
 
     <!-- Share -->
@@ -2185,14 +2234,6 @@ async function init() {
   // Not signed in: the splash ("Play now", or sign in)
 }
 
-function enterDemoMode() {
-  me = { id: 'demo', display_name: 'You', avatar_emoji: '🃏' };
-  // DEMO_FRIENDS defined near startGame — same list
-  myFriends = [...DEMO_FRIENDS];
-  myGames = [];
-  enterApp();
-}
-
 function enterApp() {
   showScreen('home');
   document.getElementById('nav').classList.add('visible');
@@ -2200,13 +2241,11 @@ function enterApp() {
   updateAvatarEverywhere(me.avatar_emoji);
   document.getElementById('my-name').textContent = me.display_name;
 
-  const demoBanner = document.getElementById('demo-banner');
-  if (demoBanner) demoBanner.style.display = 'none'; // (Demo mode is retired: guests play for real)
   applyGuestMode();
 
   // Show admin kill button only for Fallz
   const killBtn = document.getElementById('admin-kill-btn');
-  if (killBtn) killBtn.style.display = me.display_name === 'Fallz' ? 'inline-flex' : 'none';
+  if (killBtn) killBtn.style.display = me.display_name === 'Fallz' && !isGuest() && me.name_set ? 'inline-flex' : 'none';
 
 
   renderFriendsList();
@@ -2234,6 +2273,8 @@ function enterApp() {
   if (me.id !== 'demo' && sb) subscribeToInvites();
   // Opened from an invite link: go to that game
   if (pendingJoinCode()) setTimeout(handlePendingJoin, 300);
+  // A verified player without a name of their own picks one (code sign-in)
+  ensurePlayerName();
 }
 
 let _homeRefreshInterval = null;
@@ -2286,6 +2327,9 @@ async function doSignup() {
         id: data.user.id, phone: phone || null, display_name: name,
       });
       me = { id: data.user.id, display_name: name, avatar_emoji: '🃏', phone, email };
+      // Claim the name as this player's own if nobody has it (else asked later)
+      const { error: nameErr } = await sb.rpc('set_player_name', { p_name: name });
+      me.name_set = !nameErr;
       enterApp();
     } else {
       // Email confirmation on — tell them to check email
@@ -3217,13 +3261,6 @@ async function openLobby(gameId) {
   else document.getElementById('lobby-friend-invite-list').innerHTML =
     `<div style="color:var(--text-dim);font-size:0.85rem;padding:8px 0">Join the lobby to invite friends</div>`;
 
-  if (me.id === 'demo') {
-    lobbyPlayers = [{ user: me, seat_index: 0 }];
-    renderLobbySeats();
-    startDemoLobby();
-    return;
-  }
-
   // Host: nothing extra needed in lobby
   // Guests: watch in case host leaves so we can promote
   if (!isHost && me.id !== 'demo') startLobbyHostWatch(gameId);
@@ -3583,41 +3620,6 @@ async function refreshLobbyRoster(gameId) {
   if (joiner) toast(`${joiner.user?.display_name||'Someone'} joined!`);
 }
 // ════════════════════════════════════════════════════════════════════════════
-// DEMO LOBBY — simulate friends joining one by one
-// ════════════════════════════════════════════════════════════════════════════
-const DEMO_FRIENDS = [
-  { id:'f1', display_name:'Amanda', avatar_emoji:'♠' },
-  { id:'f2', display_name:'Jake',   avatar_emoji:'♥' },
-  { id:'f3', display_name:'Sara',   avatar_emoji:'♦' },
-  { id:'f4', display_name:'Mike',   avatar_emoji:'♣' },
-];
-let demoJoinTimers = [];
-
-function startDemoLobby() {
-  // Clear any previous timers
-  demoJoinTimers.forEach(t => clearTimeout(t));
-  demoJoinTimers = [];
-
-  // Simulate 3 friends joining at staggered intervals (1.5s, 3s, 5s)
-  const joining = DEMO_FRIENDS.slice(0, 3);
-  joining.forEach((friend, i) => {
-    const t = setTimeout(() => {
-      if (document.getElementById('screen-lobby').classList.contains('active')) {
-        lobbyPlayers.push({ user: friend, seat_index: lobbyPlayers.length });
-        renderLobbySeats();
-        toast(`${friend.display_name} joined the lobby!`);
-        // Reveal Start button once 2+ players are in
-        if (lobbyPlayers.length >= 2) {
-          document.getElementById('lobby-start-btn').style.display = 'block';
-          document.getElementById('lobby-waiting-msg').style.display = 'none';
-        }
-      }
-    }, 1500 + i * 1800);
-    demoJoinTimers.push(t);
-  });
-}
-
-// ════════════════════════════════════════════════════════════════════════════
 // START GAME
 // ════════════════════════════════════════════════════════════════════════════
 function startGame() {
@@ -3626,13 +3628,6 @@ function startGame() {
   if (me.id !== 'demo') { serverStartGame(); return; }
   // lobbyPlayers already contains only joined/playing/waiting (invited filtered out)
   let playerSource = lobbyPlayers;
-
-  if (me.id === 'demo' && lobbyPlayers.length < 2) {
-    playerSource = [
-      { user: me, seat_index: 0 },
-      ...DEMO_FRIENDS.slice(0, 3).map((f, i) => ({ user: f, seat_index: i+1 })),
-    ];
-  }
 
   // Build player array. Starting chips depends on format (tournament=1500 abstract chips,
   // home=2000 chips, matching the 2,000-chip buy-in)
@@ -9063,13 +9058,18 @@ async function saveProfile() {
   }
 
   try {
-    const { error } = await sb.from('users')
-      .update({ display_name: name, avatar_emoji: emoji, phone: phone || null })
-      .eq('id', me.id);
+    // A verified player's name is theirs alone: it changes through set_player_name
+    let finalName = name;
+    const verifiedName = me.name_set && !isGuest();
+    if (verifiedName && name !== me.display_name) finalName = await saveVerifiedName(name);
+    const fields = verifiedName ? { avatar_emoji: emoji, phone: phone || null }
+      : { display_name: name, avatar_emoji: emoji, phone: phone || null };
+    const { error } = await sb.from('users').update(fields).eq('id', me.id);
     if (error) throw error;
-    me.display_name = name; me.phone = phone;
-    document.getElementById('home-greeting').textContent = `Hey, ${name.split(' ')[0]}`;
-    document.getElementById('my-name').textContent = name;
+    const name2 = finalName;
+    me.display_name = name2; me.phone = phone;
+    document.getElementById('home-greeting').textContent = `Hey, ${name2.split(' ')[0]}`;
+    document.getElementById('my-name').textContent = name2;
     updateAvatarEverywhere(emoji);
     toast('Profile saved ✓');
   } catch(e) { toast('Save failed: ' + e.message); }
@@ -10984,9 +10984,12 @@ async function loadFeatures() {
     const { data, error } = await sb.rpc('feature_status');
     if (error) throw error;
     FEATURES = Object.fromEntries((data || []).map((f) => [f.key, f]));
+    // (tests switch features on in their own page only)
+    if (window.FEATURE_OVERRIDES) Object.assign(FEATURES, window.FEATURE_OVERRIDES);
   } catch (e) { console.warn('feature_status:', e); }
   renderPublicGamesCard();
   applyGuestPlaySwitch();
+  renderAccountPanel();
 }
 
 // Friends screen: where public games will live
@@ -11207,6 +11210,310 @@ async function noteGuestResults(container, playerIds) {
 
 renderGuestAvatars();
 renderSplashInvite();
+// ════════════════════════════════════════════════════════════════════════════
+// ACCOUNTS — sign in with an emailed code, unique player names, delete account
+// ════════════════════════════════════════════════════════════════════════════
+// Getting-in plan, phase 2. Behind the email_code_login switch (it needs an
+// email sender and code templates set up in the Supabase dashboard): while
+// it's off, the splash keeps the password forms and guests "create an
+// account" by signing out first.
+//
+//   Sign in / create account: email → 6-digit code (signInWithOtp/verifyOtp).
+//   A guest verifying: updateUser({ email }) → code (type email_change) →
+//     the same user id, now a verified player (the guest's results were never
+//     saved, so history starts here).
+//   Player names: unique among verified players (player_name_problem /
+//     set_player_name in 20261118090000_verified_players.sql). Asked once:
+//     after the first code sign-in, after a guest verifies, or when an older
+//     account's name clashes with someone else's.
+//   Delete account: the `account` Edge Function.
+
+function codeLoginOn() { return featureOn('email_code_login'); }
+
+// The splash's account panel: code form or password forms
+function renderAccountPanel() {
+  const on = codeLoginOn();
+  const code = document.getElementById('account-code');
+  const pass = document.getElementById('account-password');
+  if (code) code.style.display = on ? '' : 'none';
+  if (pass) pass.style.display = on ? 'none' : '';
+}
+
+let _codeEmail = '';
+function showCodeStep(step) {
+  document.getElementById('code-step-email').style.display = step === 'email' ? '' : 'none';
+  document.getElementById('code-step-code').style.display = step === 'code' ? '' : 'none';
+  if (step === 'code') setTimeout(() => document.getElementById('code-input')?.focus(), 50);
+}
+
+const validEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
+
+async function sendSignInCode(again) {
+  const email = again ? _codeEmail : (document.getElementById('code-email').value || '').trim().toLowerCase();
+  if (!validEmail(email)) { toast('Enter your email address'); return; }
+  const btn = document.getElementById('code-send-btn');
+  if (btn) btn.disabled = true;
+  try {
+    const { error } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
+    if (error) {
+      console.warn('signInWithOtp:', error);
+      toast(/rate|seconds/i.test(error.message || '') ? 'Wait a minute before asking for another code' : 'Couldn’t send the code. Try again.');
+      return;
+    }
+    _codeEmail = email;
+    document.getElementById('code-sent-to').textContent = email;
+    document.getElementById('code-input').value = '';
+    showCodeStep('code');
+    if (again) toast('New code sent');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function verifySignInCode() {
+  const token = (document.getElementById('code-input').value || '').replace(/\D/g, '');
+  if (token.length !== 6) { toast('Enter the 6-digit code'); return; }
+  const btn = document.getElementById('code-verify-btn');
+  btn.disabled = true;
+  try {
+    const { data, error } = await sb.auth.verifyOtp({ email: _codeEmail, token, type: 'email' });
+    if (error || !data?.user) { toast('That code didn’t work. Check it or send a new one.'); return; }
+    me = await getProfile(data.user.id);
+    if (!me) { toast('Couldn’t sign in. Try again.'); return; }
+    showCodeStep('email');
+    enterApp();
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ── A guest verifying: same identity, now kept ─────────────────────────────
+function startGuestVerify() {
+  if (!isGuest()) return;
+  if (!codeLoginOn()) { leaveGuestForAccount(); return; }
+  let el = document.getElementById('modal-verify');
+  if (!el) {
+    el = document.createElement('div');
+    el.className = 'modal-backdrop';
+    el.id = 'modal-verify';
+    el.onclick = (e) => { if (e.target === el) closeModal('modal-verify'); };
+    el.innerHTML = `
+      <div class="modal-sheet" onclick="event.stopPropagation()">
+        <div class="modal-handle"></div>
+        <div class="modal-title">Keep your results</div>
+        <div id="verify-step-email">
+          <div style="font-size:0.82rem;color:var(--text-dim);line-height:1.5;margin-bottom:12px">
+            Add your email and we’ll send a 6-digit code. You keep playing as you; from now on your
+            Standings, stats and friends are saved, and you can host games.</div>
+          <form onsubmit="event.preventDefault();sendVerifyCode()">
+            <div class="input-group">
+              <label class="input-label" for="verify-email">Email</label>
+              <input class="input" id="verify-email" type="email" autocomplete="email" placeholder="you@example.com">
+            </div>
+            <button type="submit" class="btn btn-primary btn-full" id="verify-send-btn">Email me a code</button>
+          </form>
+          <div id="verify-exists" style="display:none;margin-top:12px;font-size:0.82rem;line-height:1.5">
+            That email already has a Felt Right account.
+            <button class="btn btn-ghost btn-full" style="margin-top:8px" onclick="signInInsteadOfGuest()">Sign in to that account</button>
+          </div>
+        </div>
+        <div id="verify-step-code" style="display:none">
+          <div style="font-size:0.82rem;color:var(--text-dim);line-height:1.5;margin-bottom:12px">
+            Enter the code we sent to <span id="verify-sent-to" style="color:var(--text)"></span>.</div>
+          <form onsubmit="event.preventDefault();verifyGuestCode()">
+            <div class="input-group">
+              <label class="input-label" for="verify-code">Code</label>
+              <input class="input code-input" id="verify-code" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6"
+                autocomplete="one-time-code" placeholder="123456">
+            </div>
+            <button type="submit" class="btn btn-primary btn-full" id="verify-code-btn">Verify</button>
+          </form>
+        </div>
+        <button class="btn btn-ghost btn-full" style="margin-top:8px" onclick="closeModal('modal-verify')">Not now</button>
+      </div>`;
+    document.body.appendChild(el);
+  }
+  document.getElementById('verify-step-email').style.display = '';
+  document.getElementById('verify-step-code').style.display = 'none';
+  document.getElementById('verify-exists').style.display = 'none';
+  openModal('modal-verify');
+}
+
+let _verifyEmail = '';
+async function sendVerifyCode() {
+  const email = (document.getElementById('verify-email').value || '').trim().toLowerCase();
+  if (!validEmail(email)) { toast('Enter your email address'); return; }
+  const btn = document.getElementById('verify-send-btn');
+  btn.disabled = true;
+  try {
+    const { data, error } = await sb.auth.updateUser({ email });
+    if (!error && data?.user?.email === email && !data.user.is_anonymous) {
+      await finishGuestVerify(); // (projects that confirm emails automatically: no code)
+      return;
+    }
+    if (error) {
+      console.warn('verify updateUser:', error);
+      if (error.code === 'email_exists' || /already.*(registered|exists)/i.test(error.message || '')) {
+        _verifyEmail = email;
+        document.getElementById('verify-exists').style.display = 'block';
+      } else toast('Couldn’t send the code. Try again.');
+      return;
+    }
+    _verifyEmail = email;
+    document.getElementById('verify-sent-to').textContent = email;
+    document.getElementById('verify-step-email').style.display = 'none';
+    document.getElementById('verify-step-code').style.display = '';
+    setTimeout(() => document.getElementById('verify-code')?.focus(), 50);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function verifyGuestCode() {
+  const token = (document.getElementById('verify-code').value || '').replace(/\D/g, '');
+  if (token.length !== 6) { toast('Enter the 6-digit code'); return; }
+  const btn = document.getElementById('verify-code-btn');
+  btn.disabled = true;
+  try {
+    const { error } = await sb.auth.verifyOtp({ email: _verifyEmail, token, type: 'email_change' });
+    if (error) { toast('That code didn’t work. Check it or try again.'); return; }
+    await finishGuestVerify();
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function finishGuestVerify() {
+  await sb.auth.refreshSession();
+  const guestName = me.display_name;
+  me = await getProfile(me.id);
+  closeModal('modal-verify');
+  applyGuestMode();
+  await askPlayerName(guestName);
+  enterApp();
+  toast('You’re verified. Your results are saved from now on.');
+}
+
+// The email belongs to an existing account: leave guest mode and sign in there
+async function signInInsteadOfGuest() {
+  closeModal('modal-verify');
+  await signOut();
+  showAccountPanel('login');
+  document.getElementById('code-email').value = _verifyEmail;
+  sendSignInCode();
+}
+
+// ── Player names ───────────────────────────────────────────────────────────
+const NAME_PROBLEMS = {
+  length: 'Use 3–20 characters',
+  characters: 'Letters, numbers, spaces, - and _ only',
+  reserved: 'That name is reserved',
+  taken: 'Taken. Try another',
+};
+
+let _nameResolve = null;
+let _nameCheckTimer = null;
+function askPlayerName(prefill) {
+  let el = document.getElementById('modal-player-name');
+  if (!el) {
+    el = document.createElement('div');
+    el.className = 'modal-backdrop';
+    el.id = 'modal-player-name';
+    el.innerHTML = `
+      <div class="modal-sheet" onclick="event.stopPropagation()">
+        <div class="modal-handle"></div>
+        <div class="modal-title">Pick your player name</div>
+        <div style="font-size:0.82rem;color:var(--text-dim);line-height:1.5;margin-bottom:12px">
+          It’s yours alone: how friends find you and how you show on Rankings.</div>
+        <form onsubmit="event.preventDefault();savePlayerName()">
+          <div class="input-group">
+            <label class="input-label" for="player-name-input">Player name</label>
+            <input class="input" id="player-name-input" type="text" maxlength="20" autocomplete="nickname"
+              oninput="checkPlayerName()" aria-describedby="player-name-status">
+            <div id="player-name-status" role="status" style="font-size:0.75rem;margin-top:6px;min-height:1em"></div>
+          </div>
+          <button type="submit" class="btn btn-primary btn-full" id="player-name-btn">Save name</button>
+        </form>
+      </div>`;
+    document.body.appendChild(el);
+  }
+  const input = document.getElementById('player-name-input');
+  input.value = (prefill || '').replace(/[^A-Za-z0-9 _-]/g, '').slice(0, 20);
+  openModal('modal-player-name');
+  checkPlayerName();
+  setTimeout(() => input.focus(), 50);
+  return new Promise((resolve) => { _nameResolve = resolve; });
+}
+
+function checkPlayerName() {
+  clearTimeout(_nameCheckTimer);
+  const status = document.getElementById('player-name-status');
+  const name = (document.getElementById('player-name-input').value || '').trim();
+  status.textContent = '';
+  if (!name) return;
+  _nameCheckTimer = setTimeout(async () => {
+    const { data, error } = await sb.rpc('player_name_problem', { p_name: name });
+    if (error) return;
+    if ((document.getElementById('player-name-input').value || '').trim() !== name) return; // typed on
+    status.style.color = data ? 'var(--red-light)' : 'var(--gold)';
+    status.textContent = data ? NAME_PROBLEMS[data] || 'Try another name' : '✓ Available';
+  }, 300);
+}
+
+async function savePlayerName() {
+  const name = (document.getElementById('player-name-input').value || '').trim();
+  const btn = document.getElementById('player-name-btn');
+  btn.disabled = true;
+  try {
+    const { data, error } = await sb.rpc('set_player_name', { p_name: name });
+    if (error) {
+      const status = document.getElementById('player-name-status');
+      status.style.color = 'var(--red-light)';
+      status.textContent = NAME_PROBLEMS[(error.message || '').trim()] || 'Couldn’t save that name';
+      return;
+    }
+    me.display_name = data || name;
+    me.name_set = true;
+    closeModal('modal-player-name');
+    const r = _nameResolve; _nameResolve = null;
+    if (r) r(me.display_name);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// After entering the app: a verified player without a name of their own picks one
+function ensurePlayerName() {
+  if (!codeLoginOn() || !me || isGuest() || me.name_set || me.id === 'demo') return;
+  askPlayerName(me.display_name).then(() => enterApp());
+}
+
+// Profile name edits for verified players go through set_player_name
+async function saveVerifiedName(name) {
+  const { data, error } = await sb.rpc('set_player_name', { p_name: name });
+  if (error) throw new Error(NAME_PROBLEMS[(error.message || '').trim()] || 'Couldn’t save that name');
+  return data || name;
+}
+
+// ── Delete account ─────────────────────────────────────────────────────────
+async function deleteAccount() {
+  if (!me || isGuest() || !sb) return;
+  if (!confirm('Delete your Felt Right account? Your name, friends, stats and Standings are removed for good. This can’t be undone.')) return;
+  if (!confirm('Are you sure? This is permanent.')) return;
+  try {
+    const { data, error } = await sb.functions.invoke('account', { body: { action: 'delete' } });
+    if (error || !data?.ok) throw error || new Error('delete failed');
+    await disablePush().catch(() => {});
+    await sb.auth.signOut().catch(() => {});
+    me = null; G = null;
+    document.getElementById('nav').classList.remove('visible');
+    showScreen('splash');
+    toast('Your account was deleted');
+  } catch (e) {
+    console.warn('delete account:', e);
+    toast('Couldn’t delete the account. Try again.');
+  }
+}
 </script>
 
 <!-- Global Chat slide-up panel (outside all screens so it works in lobby AND game) -->

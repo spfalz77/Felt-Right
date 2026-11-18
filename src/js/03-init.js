@@ -65,14 +65,6 @@ async function init() {
   // Not signed in: the splash ("Play now", or sign in)
 }
 
-function enterDemoMode() {
-  me = { id: 'demo', display_name: 'You', avatar_emoji: '🃏' };
-  // DEMO_FRIENDS defined near startGame — same list
-  myFriends = [...DEMO_FRIENDS];
-  myGames = [];
-  enterApp();
-}
-
 function enterApp() {
   showScreen('home');
   document.getElementById('nav').classList.add('visible');
@@ -80,13 +72,11 @@ function enterApp() {
   updateAvatarEverywhere(me.avatar_emoji);
   document.getElementById('my-name').textContent = me.display_name;
 
-  const demoBanner = document.getElementById('demo-banner');
-  if (demoBanner) demoBanner.style.display = 'none'; // (Demo mode is retired: guests play for real)
   applyGuestMode();
 
   // Show admin kill button only for Fallz
   const killBtn = document.getElementById('admin-kill-btn');
-  if (killBtn) killBtn.style.display = me.display_name === 'Fallz' ? 'inline-flex' : 'none';
+  if (killBtn) killBtn.style.display = me.display_name === 'Fallz' && !isGuest() && me.name_set ? 'inline-flex' : 'none';
 
 
   renderFriendsList();
@@ -114,6 +104,8 @@ function enterApp() {
   if (me.id !== 'demo' && sb) subscribeToInvites();
   // Opened from an invite link: go to that game
   if (pendingJoinCode()) setTimeout(handlePendingJoin, 300);
+  // A verified player without a name of their own picks one (code sign-in)
+  ensurePlayerName();
 }
 
 let _homeRefreshInterval = null;
