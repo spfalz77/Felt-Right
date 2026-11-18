@@ -4,9 +4,10 @@
 async function init() {
   try {
     sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    startFeatures();
   } catch(e) {
-    console.warn('Supabase not configured, running in demo mode');
-    enterDemoMode();
+    console.warn('Supabase not configured', e);
+    toast('Can’t reach Felt Right. Check your connection and reload.');
     return;
   }
 
@@ -55,15 +56,13 @@ async function init() {
       }
     }
 
-    // Check the auto-restore flag for in-app reloads
-    if (sessionStorage.getItem('fr_auto_restore') === '1') {
-      sessionStorage.removeItem('fr_auto_restore');
-      enterApp();
-      return;
-    }
+    // Signed in (an account or a guest): straight in, no sign-in screen
+    sessionStorage.removeItem('fr_auto_restore');
+    enterApp();
+    return;
   } catch(e) { console.warn('init auto-restore:', e); }
 
-  // Default: show splash / login
+  // Not signed in: the splash ("Play now", or sign in)
 }
 
 function enterDemoMode() {
@@ -82,7 +81,8 @@ function enterApp() {
   document.getElementById('my-name').textContent = me.display_name;
 
   const demoBanner = document.getElementById('demo-banner');
-  if (demoBanner) demoBanner.style.display = me.id === 'demo' ? 'flex' : 'none';
+  if (demoBanner) demoBanner.style.display = 'none'; // (Demo mode is retired: guests play for real)
+  applyGuestMode();
 
   // Show admin kill button only for Fallz
   const killBtn = document.getElementById('admin-kill-btn');
@@ -112,6 +112,8 @@ function enterApp() {
 
   // Global: listen for game invites arriving in real time
   if (me.id !== 'demo' && sb) subscribeToInvites();
+  // Opened from an invite link: go to that game
+  if (pendingJoinCode()) setTimeout(handlePendingJoin, 300);
 }
 
 let _homeRefreshInterval = null;

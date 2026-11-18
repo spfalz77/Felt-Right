@@ -416,3 +416,65 @@ test('installs: counted once each; a coming-soon feature turns to beta when app 
   assert.ok((await http('/rest/v1/rpc/register_install', { method: 'POST', body: { p_install_id: id(), p_platform: 'windows' } })).status >= 400);
   await admin(`/rest/v1/feature_flags?key=eq.${key}`, { method: 'DELETE' });
 });
+
+// ── Guests (getting-in plan, phase 1) ──────────────────────────────────────
+async function guest(name) {
+  const r = await http('/auth/v1/signup', { method: 'POST', body: { data: { display_name: name, avatar_emoji: '🦊' } } });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal(r.data.user.is_anonymous, true);
+  return { name, id: r.data.user.id, token: r.data.access_token, guest: true };
+}
+
+test('guests: a profile with no markup; can join by code and play; can\'t host, befriend or keep stats', async () => {
+  const g = await guest('<b>Gus</b> & co');
+  const prof = (await http(`/rest/v1/users?id=eq.${g.id}&select=display_name,avatar_emoji,is_guest`, { token: g.token })).data[0];
+  assert.equal(prof.is_guest, true);
+  assert.equal(prof.avatar_emoji, '🦊');
+  assert.match(prof.display_name, /Gus/);
+  assert.doesNotMatch(prof.display_name, /[<>&]/, 'no markup characters in names');
+
+  // Can't host while guest hosting is off
+  const host = await http('/rest/v1/games', { token: g.token, method: 'POST', body: { name: 'g', host_id: g.id, status: 'lobby', game_format: 'home' } });
+  assert.ok(host.status >= 400, 'guest hosting is off');
+
+  // Joins a verified player's lobby from its link code, plays a hand
+  const t = await lobby('home', ['Hal']);
+  const found = await http('/rest/v1/rpc/game_for_code', { token: g.token, method: 'POST', body: { p_code: t.gameId.slice(0, 8).toUpperCase() } });
+  assert.equal(found.data?.[0]?.id, t.gameId);
+  assert.equal(found.data[0].status, 'lobby');
+  assert.equal((await http('/rest/v1/rpc/game_for_code', { token: g.token, method: 'POST', body: { p_code: 'zz' } })).data.length, 0);
+  const seat = await http('/rest/v1/game_players', { token: g.token, method: 'POST', body: { game_id: t.gameId, user_id: g.id, seat_index: 1, status: 'joined' } });
+  assert.equal(seat.status, 201, JSON.stringify(seat.data));
+  t.players.push(g);
+  await t.beat(t.players);
+  await t.must(t.host, 'start');
+  await t.skip(2000);
+  const s = (await t.state()).state;
+  assert.equal(s.stage === 'preflop' || s.pendingDealerChoice, true, 'the guest is dealt in');
+  assert.ok(s.players.some((p) => p.id === g.id));
+
+  // Friends: a guest can't send a request, and can't be sent one
+  assert.ok((await http('/rest/v1/friendships', { token: g.token, method: 'POST', body: { requester_id: g.id, addressee_id: t.host.id } })).status >= 400);
+  assert.ok((await http('/rest/v1/friendships', { token: t.host.token, method: 'POST', body: { requester_id: t.host.id, addressee_id: g.id } })).status >= 400);
+  // Stats: none kept
+  assert.ok((await http('/rest/v1/user_stats_public', { token: g.token, method: 'POST', body: { user_id: g.id } })).status >= 400);
+
+  // Standings: rows for a pair with a guest in it are dropped, whoever writes them
+  await admin('/rest/v1/payout_ledger', { method: 'POST', body: [
+    { game_id: t.gameId, user_id: t.host.id, opponent_id: g.id, amount: 5, kind: 'game', note: 'test' },
+    { game_id: t.gameId, user_id: g.id, opponent_id: t.host.id, amount: -5, kind: 'game', note: 'test' },
+  ] });
+  assert.equal((await admin(`/rest/v1/payout_ledger?game_id=eq.${t.gameId}&select=id`)).data.length, 0);
+});
+
+test('guests: hosting opens when the guest_hosting switch is on', async () => {
+  const g = await guest('Hostie');
+  const before = (await admin('/rest/v1/feature_flags?key=eq.guest_hosting&select=state')).data[0].state;
+  await admin('/rest/v1/feature_flags?key=eq.guest_hosting', { method: 'PATCH', body: { state: 'on' } });
+  try {
+    const r = await http('/rest/v1/games', { token: g.token, method: 'POST', body: { name: 'g', host_id: g.id, status: 'lobby', game_format: 'home' } });
+    assert.equal(r.status, 201, JSON.stringify(r.data));
+  } finally {
+    await admin('/rest/v1/feature_flags?key=eq.guest_hosting', { method: 'PATCH', body: { state: before } });
+  }
+});

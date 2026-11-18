@@ -485,6 +485,17 @@ export async function adminSelect(table, query) {
   return res.json();
 }
 
+/** Sets a feature switch (feature_flags) on the test stack. */
+export async function setFeature(key, state) {
+  if (!SERVICE_KEY) throw new Error('SUPABASE_SERVICE_ROLE_KEY is not set');
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/feature_flags?key=eq.${key}`, {
+    method: 'PATCH',
+    headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ state }),
+  });
+  if (!res.ok) throw new Error(`feature_flags: ${res.status} ${await res.text()}`);
+}
+
 /** Taps Record to Standings (the results screen can redraw mid-tap; retry). */
 // A game's Friends Ledger rows, once there are any (server games write them
 // just after the final save)

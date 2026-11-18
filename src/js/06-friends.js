@@ -2,7 +2,7 @@
 // FRIENDS
 // ════════════════════════════════════════════════════════════════════════════
 async function loadFriends() {
-  if (!sb || me.id === 'demo') return;
+  if (!sb || me.id === 'demo' || isGuest()) return;
   try {
     // Load accepted friends
     const { data } = await sb.from('friendships')
@@ -175,6 +175,7 @@ function searchFriends(q) {
       const { data } = await sb.from('users')
         .select('id,display_name,avatar_emoji,phone')
         .or(`display_name.ilike.%${q}%,phone.ilike.%${q}%`)
+        .eq('is_guest', false) // guests can't be added as friends
         .neq('id', me.id).limit(15);
       list.innerHTML = (data||[]).length
         ? (data||[]).map(u => userRow(u)).join('')

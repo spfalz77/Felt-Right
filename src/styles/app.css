@@ -749,3 +749,28 @@ h3 { font-size: 1rem; font-weight: 600; }
   width: 28px; height: 28px; border-radius: 50%; cursor: pointer; font-size: 0.85rem;
   display: flex; align-items: center; justify-content: center; padding: 0; line-height: 1;
 }
+
+/* Guests (45-guest.js) */
+.guest-avatars { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; margin-top: 6px; }
+.guest-avatars button {
+  font-size: 1.5rem; line-height: 1; padding: 8px 0; border-radius: 10px; cursor: pointer;
+  background: var(--surface2); border: 2px solid transparent;
+}
+.guest-avatars button[aria-checked="true"] { border-color: var(--gold); background: rgba(212,168,67,0.12); }
+.guest-avatars button:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.guest-gate {
+  margin: 8px 16px 12px; padding: 14px; border-radius: 12px;
+  background: var(--surface); border: 1px solid var(--gold-dim);
+}
+.guest-gate-title { font-weight: 600; font-size: 0.95rem; margin-bottom: 4px; }
+.guest-gate-text { font-size: 0.8rem; color: var(--text-dim); line-height: 1.45; margin-bottom: 12px; }
+body.is-guest .account-only { display: none !important; }
+body.is-guest #screen-friends > :not(.friends-header):not(#friends-guest-gate):not(#public-games-card) { display: none !important; }
+body.is-guest #screen-friends .search-bar { display: none; }
+body.is-guest #friends-guest-gate, body.is-guest #profile-guest-card { display: block !important; }
+.badge-dev {
+  display: inline-block; font-size: 0.62rem; font-weight: 600; letter-spacing: 0.04em;
+  padding: 2px 7px; border-radius: 999px; vertical-align: middle;
+  color: var(--gold); border: 1px solid var(--gold-dim); background: rgba(212,168,67,0.08);
+}
+.guest-tag { font-size: 0.62rem; color: var(--text-dim); border: 1px solid var(--border); border-radius: 999px; padding: 1px 6px; margin-left: 4px; }

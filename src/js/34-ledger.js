@@ -80,7 +80,7 @@ function standingsColor(net) {
 
 async function renderLedger() {
   const el = document.getElementById('friends-ledger-list');
-  if (!el) return;
+  if (!el || isGuest()) return;
   el.innerHTML = `<div style="color:var(--text-dim);font-size:0.85rem;padding:8px 0">Loading…</div>`;
   let s;
   try { s = await loadStandings(); }
